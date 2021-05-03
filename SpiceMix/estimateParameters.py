@@ -9,7 +9,6 @@ from scipy.special import loggamma
 
 from sampleForIntegral import integrateOfExponentialOverSimplexInduction2
 
-
 def estimateParametersY(self, max_iter=10):
 	logging.info(f'{print_datetime()}Estimating M and sigma_yx_inv')
 
@@ -27,14 +26,14 @@ def estimateParametersY(self, max_iter=10):
 	m.setParam('OutputFlag', False)
 	m.Params.Threads = 1
 	if self.M_constraint == 'sum2one':
-		vM = m.addVars(self.GG, self.K, lb=0.)
+		vM = m.addVars(self.max_genes, self.K, lb=0.)
 		m.addConstrs((vM.sum('*', i) == 1 for i in range(self.K)))
 	else:
 		raise NotImplementedError
 
 	for iiter in range(max_iter):
 		obj = 0
-		for beta, YT, sigma_yx_inv, A, B, G, XT in zip(self.betas, self.YTs, self.sigma_yx_invs, As, Bs, self.Gs, self.XTs):
+		for beta, YT, sigma_yx_inv, A, B, G, XT in zip(self.betas, self.YTs, self.sigma_yx_inverses, As, Bs, self.Gs, self.XTs):
 			# constant terms
 			if self.dropout_mode == 'raw':
 				t = YT.ravel()
@@ -56,10 +55,10 @@ def estimateParametersY(self, max_iter=10):
 			del t, beta, YT, A, B, G
 		kk = 0
 		if kk != 0:
-			obj += grb.quicksum([kk/2 * vM[k, i] * vM[k, i] for k in range(self.GG) for i in range(self.K)])
+			obj += grb.quicksum([kk/2 * vM[k, i] * vM[k, i] for k in range(self.max_genes) for i in range(self.K)])
 		m.setObjective(obj, grb.GRB.MINIMIZE)
 		m.optimize()
-		self.M = np.array([[vM[i, j].x for j in range(self.K)] for i in range(self.GG)])
+		self.M = np.array([[vM[i, j].x for j in range(self.K)] for i in range(self.max_genes)])
 		if self.M_constraint in ['sum2one', 'none']:
 			pass
 		elif self.M_constraint == 'L1':
@@ -69,7 +68,7 @@ def estimateParametersY(self, max_iter=10):
 		else:
 			raise NotImplementedError
 
-		last_sigma_yx_invs = np.copy(self.sigma_yx_invs)
+		last_sigma_yx_inverses = np.copy(self.sigma_yx_inverses)
 
 		ds = np.array([
 			np.dot(YT.ravel(), YT.ravel()) - 2*np.dot(A.ravel(), self.M[:G].ravel()) + np.dot(B.ravel(), (self.M[:G].T @ self.M[:G]).ravel())
@@ -77,28 +76,28 @@ def estimateParametersY(self, max_iter=10):
 		])
 		if self.sigma_yx_inv_mode == 'separate':
 			t = ds / sizes
-			self.sigma_yx_invs = 1. / np.sqrt(t)
+			self.sigma_yx_inverses = 1. / np.sqrt(t)
 		elif self.sigma_yx_inv_mode == 'average':
 			t = np.dot(self.betas, ds) / np.dot(self.betas, sizes)
-			self.sigma_yx_invs = np.full(self.num_repli, 1 / (np.sqrt(t) + 1e-20))
+			self.sigma_yx_inverses = np.full(self.num_repli, 1 / (np.sqrt(t) + 1e-20))
 		elif self.sigma_yx_inv_mode.startswith('average '):
 			idx = np.array(list(map(int, self.sigma_yx_inv_mode.split(' ')[1:])))
 			t = np.dot(self.betas[idx], ds[idx]) / np.dot(self.betas[idx], sizes[idx])
-			self.sigma_yx_invs = np.full(self.num_repli, 1 / (np.sqrt(t) + 1e-20))
+			self.sigma_yx_inverses = np.full(self.num_repli, 1 / (np.sqrt(t) + 1e-20))
 		else:
 			raise NotImplementedError
 
-		d = self.sigma_yx_invs - last_sigma_yx_invs
-		logging.info(f"{print_datetime()}At iter {iiter}, σ_yxInv: {array2string(d)} -> {array2string(self.sigma_yx_invs)}")
+		d = self.sigma_yx_inverses - last_sigma_yx_inverses
+		logging.info(f"{print_datetime()}At iter {iiter}, σ_yxInv: {array2string(d)} -> {array2string(self.sigma_yx_inverses)}")
 
-		if (np.abs(d) / self.sigma_yx_invs).max() < 1e-5 or self.num_repli <= 1 or self.sigma_yx_inv_mode.startswith('average'):
+		if (np.abs(d) / self.sigma_yx_inverses).max() < 1e-5 or self.num_repli <= 1 or self.sigma_yx_inv_mode.startswith('average'):
 			break
 
 	# emission
 	Q_Y = -np.dot(self.betas, sizes) / 2
 	# partition function - Pr [ Y | X, Theta ]
 	Q_Y -= np.dot(self.betas, sizes) * np.log(2*np.pi) / 2
-	Q_Y += (sizes * self.betas * np.log(self.sigma_yx_invs)).sum()
+	Q_Y += (sizes * self.betas * np.log(self.sigma_yx_inverses)).sum()
 
 	return Q_Y
 
@@ -174,7 +173,7 @@ def estimateParametersX(self, iiter):
 			var_list = []
 			optimizers = []
 			schedulars = []
-			tSigma_x_inv = torch.tensor(self.Sigma_x_inv, dtype=dtype, device=device, requires_grad=requires_grad)
+			tSigma_x_inv = torch.tensor(self.sigma_x_inverse, dtype=dtype, device=device, requires_grad=requires_grad)
 			var_list += [
 				tSigma_x_inv,
 			]
@@ -410,7 +409,7 @@ def estimateParametersX(self, iiter):
 
 			tSigma_x_inv = tSigma_x_inv_best
 			func = best_func
-			self.Sigma_x_inv = tSigma_x_inv.cpu().data.numpy()
+			self.sigma_x_inverse = tSigma_x_inv.cpu().data.numpy()
 
 			Q_X -= func.mul_(np.dot(self.betas, list(map(len, self.YTs)))).item()
 	elif all(prior_x[0] == 'Exponential' for prior_x in self.prior_xs) and self.pairwise_potential_mode == 'normalized':

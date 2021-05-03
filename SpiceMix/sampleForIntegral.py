@@ -642,7 +642,6 @@ def integrateOfExponentialOverSimplexInduction2(teta, grad=None, requires_grad=F
 
 	return tret
 
-
 def integrateOfExponentialOverSimplexSampling(teta, grad=None, requires_grad=False, seed=None, device='cpu'):
 	# if grad is None: grad = torch.tensor([1.], dtype=dtype, device=device)
 	N, D = teta.shape

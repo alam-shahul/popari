@@ -6,107 +6,112 @@ import torch
 
 from Model import Model
 
-
 def parse_arguments():
-	parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser()
 
-	# dataset
-	parser.add_argument(
-		'--path2dataset', type=str,
-		help='name of the dataset, ../data/<dataset> should be a folder containing a subfolder named \'files\''
-	)
-	parser.add_argument(
-		'-K', type=int, default=20,
-		help='Number of metagenes'
-	)
-	parser.add_argument(
-		'--neighbor_suffix', type=str, default='',
-		help='Suffix of the name of the file that contains interacting cell pairs'
-	)
-	parser.add_argument(
-		'--expression_suffix', type=str, default='',
-		help='Suffix of the name of the file that contains expressions'
-	)
-	parser.add_argument(
-		'--repli_list', type=lambda x: list(map(str, eval(x))),
-		help='list of names of the experiments, a Python expression, e.g., "[0,1,2]", "range(5)"'
-	)
-	parser.add_argument(
-		'--use_spatial', type=eval,
-		help='list of true/false indicating whether to use the spatial information in each experiment, '
-			 'a Python expression, e.g., "[True,True]", "[False,False,False]", "[True]*5"'
-	)
+    # dataset
+    parser.add_argument(
+        '--path2dataset', type=str,
+        help='name of the dataset, ../data/<dataset> should be a folder containing a subfolder named \'files\''
+    )
+    parser.add_argument(
+        '-K', type=int, default=20,
+        help='Number of metagenes'
+    )
+    parser.add_argument(
+        '--neighbor_suffix', type=str, default='',
+        help='Suffix of the name of the file that contains interacting cell pairs'
+    )
+    parser.add_argument(
+        '--expression_suffix', type=str, default='',
+        help='Suffix of the name of the file that contains expressions'
+    )
+    parser.add_argument(
+        '--repli_list', type=lambda x: list(map(str, eval(x))),
+        help='list of names of the experiments, a Python expression, e.g., "[0,1,2]", "range(5)"'
+    )
+    parser.add_argument(
+        '--use_spatial', type=eval,
+        help='list of true/false indicating whether to use the spatial information in each experiment, '
+             'a Python expression, e.g., "[True,True]", "[False,False,False]", "[True]*5"'
+    )
 
-	parser.add_argument('--random_seed', type=int, default=0)
-	parser.add_argument('--random_seed4kmeans', type=int, default=0)
+    parser.add_argument('--random_seed', type=int, default=0)
+    parser.add_argument('--random_seed4kmeans', type=int, default=0)
 
-	# training & hyperparameters
-	parser.add_argument('--lambda_SigmaXInv', type=float, default=1e-4, help='Regularization on Sigma_x^{-1}')
-	parser.add_argument('--max_iter', type=int, default=500, help='Maximum number of outer optimization iteration')
-	parser.add_argument('--init_NMF_iter', type=int, default=10, help='2 * number of NMF iterations in initialization')
-	parser.add_argument(
-		'--betas', default=np.ones(1), type=np.array,
-		help='Positive weights of the experiments; the sum will be normalized to 1; can be scalar (equal weight) or array-like'
-	)
+    # training & hyperparameters
+    parser.add_argument('--lambda_SigmaXInv', type=float, default=1e-4, help='Regularization on Sigma_x^{-1}')
+    parser.add_argument('--max_iter', type=int, default=500, help='Maximum number of outer optimization iteration')
+    parser.add_argument('--init_NMF_iter', type=int, default=10, help='2 * number of NMF iterations in initialization')
+    parser.add_argument(
+        '--betas', default=np.ones(1), type=np.array,
+        help='Positive weights of the experiments; the sum will be normalized to 1; can be scalar (equal weight) or array-like'
+    )
 
-	def parse_cuda(x):
-		if x == '-1' or x == 'cpu': return 'cpu'
-		if re.match('\d+$', x): return f'cuda:{x}'
-		if re.match('cuda:\d+$', x): return x
-	parser.add_argument(
-		'--device', type=parse_cuda, default='cpu', dest='PyTorch_device',
-		help="Which GPU to use. The value should be either string of form 'cuda_<GPU id>' "
-			 "or an integer denoting the GPU id. -1 or 'cpu' for cpu only",
-	)
-	parser.add_argument('--num_threads', type=int, default=1, help='Number of CPU threads for PyTorch')
-	parser.add_argument('--num_processes', type=int, default=1, help='Number of processes')
+    def parse_device(device):
+        if device == "-1" or device == "cpu":
+            return "cpu"
+        if re.match("\d+$", device):
+            return f"cuda:{device}"
+        if re.match("cuda:\d+$", device):
+            return device
 
-	parser.add_argument(
-		'--result_filename', default=None, help='The name of the h5 file to store results'
-	)
+        return "cpu"
 
-	return parser.parse_args()
+    parser.add_argument(
+        '--device', type=parse_device, default="cpu", dest="PyTorch_device",
+        help="Which GPU to use. The value should be either string of form 'cuda_<GPU id>' "
+             "or an integer denoting the GPU id. -1 or 'cpu' for cpu only",
+    )
+
+    parser.add_argument('--num_threads', type=int, default=1, help='Number of CPU threads for PyTorch')
+    parser.add_argument('--num_processes', type=int, default=1, help='Number of processes')
+    parser.add_argument('--result_filename', default=None, help='The name of the h5 file to store results')
+
+    return parser.parse_args()
 
 if __name__ == '__main__':
-	np.set_printoptions(linewidth=100000)
+    np.set_printoptions(linewidth=100000)
+    args = parse_arguments()
+    logging.basicConfig(level=logging.INFO)
 
-	args = parse_arguments()
+    logging.info(f'pid = {os.getpid()}')
 
-	logging.basicConfig(level=logging.INFO)
+    np.random.seed(args.random_seed)
+    logging.info(f'random seed = {args.random_seed}')
 
-	logging.info(f'pid = {os.getpid()}')
+    torch.set_num_threads(args.num_threads)
 
-	np.random.seed(args.random_seed)
-	logging.info(f'random seed = {args.random_seed}')
+    num_replicates = len(args.repli_list)
+    betas = np.broadcast_to(args.betas, [num_replicates]).copy().astype(np.float)
+    assert (betas>0).all()
+    betas /= betas.sum()
 
-	torch.set_num_threads(args.num_threads)
+    model = Model(
+        PyTorch_device=args.PyTorch_device, 
+        path2dataset=args.path2dataset, 
+        repli_list=args.repli_list,
+        use_spatial=args.use_spatial, 
+        neighbor_suffix=args.neighbor_suffix, 
+        expression_suffix=args.expression_suffix, 
+        K=args.K, 
+        lambda_SigmaXInv=args.lambda_SigmaXInv, 
+        betas=betas, 
+        prior_x_modes=np.array(['Exponential shared fixed']*len(args.repli_list)), 
+        result_filename=args.result_filename
+    )
 
-	N = len(args.repli_list)
-	betas = np.broadcast_to(args.betas, [N]).copy().astype(np.float)
-	assert (betas>0).all()
-	betas /= betas.sum()
+    model.initialize(random_seed4kmeans=args.random_seed4kmeans, num_NMF_iterations=args.init_NMF_iter)
 
-	model = Model(
-		PyTorch_device=args.PyTorch_device, path2dataset=args.path2dataset, repli_list=args.repli_list,
-		use_spatial=args.use_spatial, neighbor_suffix=args.neighbor_suffix, expression_suffix=args.expression_suffix,
-		K=args.K, lambda_SigmaXInv=args.lambda_SigmaXInv, betas=betas,
-		prior_x_modes=np.array(['Exponential shared fixed']*len(args.repli_list)),
-		result_filename=args.result_filename,
-	)
+    torch.cuda.empty_cache()
+    last_Q = np.nan
+    max_iter = args.max_iter
 
-	model.initialize(
-		random_seed4kmeans=args.random_seed4kmeans, num_NMF_iter=args.init_NMF_iter,
-	)
+    for iiter in range(1, max_iter+1):
+        logging.info(f'{print_datetime()}Iteration {iiter} begins')
 
-	torch.cuda.empty_cache()
-	last_Q = np.nan
-	max_iter = args.max_iter
+        model.estimateWeights(iiter=iiter)
+        Q = model.estimateParameters(iiter=iiter)
 
-	for iiter in range(1, max_iter+1):
-		logging.info(f'{print_datetime()}Iteration {iiter} begins')
-
-		model.estimateWeights(iiter=iiter)
-		Q = model.estimateParameters(iiter=iiter)
-
-		logging.info(f'{print_datetime()}Q = {Q:.4f}\tdiff Q = {Q-last_Q:.4e}')
-		last_Q = Q
+        logging.info(f'{print_datetime()}Q = {Q:.4f}\tdiff Q = {Q-last_Q:.4e}')
+        last_Q = Q

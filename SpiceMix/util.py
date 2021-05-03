@@ -12,18 +12,14 @@ psutil_process = psutil.Process(pid)
 # PyTorchDType = torch.float
 PyTorchDType = torch.double
 
-
 def print_datetime():
 	return datetime.datetime.now().strftime('[%Y/%m/%d %H:%M:%S]\t')
-
 
 def array2string(x):
 	return np.array2string(x, formatter={'all': '{:.2e}'.format})
 
-
 def parseSuffix(s):
 	return '' if s is None or s == '' else '_' + s
-
 
 def openH5File(filename, mode='a', num_attempts=5, duration=1):
 	for i in range(num_attempts):
@@ -34,23 +30,19 @@ def openH5File(filename, mode='a', num_attempts=5, duration=1):
 			time.sleep(duration)
 	return None
 
-
 def encode4h5(v):
 	if isinstance(v, str): return v.encode('utf-8')
 	return v
 
-
 def parseIiter(g, iiter):
 	if iiter < 0: iiter += max(map(int, g.keys())) + 1
 	return iiter
-
 
 def zipTensors(*tensors):
 	return np.concatenate([
 		np.array(a).flatten()
 		for a in tensors
 	])
-
 
 def unzipTensors(arr, shapes):
 	assert np.all(arr.shape == (np.sum(list(map(np.prod, shapes))),))
