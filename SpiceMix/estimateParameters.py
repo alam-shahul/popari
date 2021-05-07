@@ -103,7 +103,7 @@ def estimateParametersY(self, max_iter=10):
 
 
 def estimateParametersX(self, iter):
-	logging.info(f'{print_datetime()}Estimating Sigma_x_inv and prior_xs')
+	logging.info(f'{print_datetime()}Estimating Sigma_x_inv and prior_x_parameter_sets')
 
 	device = self.PyTorch_device
 
@@ -131,28 +131,28 @@ def estimateParametersX(self, iter):
 
 	Q_X = 0
 
-	if all(prior_x[0] == 'Gaussian' for prior_x in self.prior_xs) and self.pairwise_potential_mode == 'linear':
+	if all(prior_x[0] == 'Gaussian' for prior_x in self.prior_x_parameter_sets) and self.pairwise_potential_mode == 'linear':
 		raise NotImplementedError
 	elif self.pairwise_potential_mode in ['linear', 'linear w/ shift']:
 		raise NotImplementedError
-	elif all(prior_x[0] in ['Exponential shared', 'Exponential shared fixed'] for prior_x in self.prior_xs) and self.pairwise_potential_mode == 'normalized':
-		prior_xs_old = self.prior_xs
-		self.prior_xs = []
-		for N, prior_x, talpha in zip(self.Ns, prior_xs_old, talphas):
+	elif all(prior_x[0] in ['Exponential shared', 'Exponential shared fixed'] for prior_x in self.prior_x_parameter_sets) and self.pairwise_potential_mode == 'normalized':
+		prior_x_parameter_sets_old = self.prior_x_parameter_sets
+		self.prior_x_parameter_sets = []
+		for N, prior_x, talpha in zip(self.Ns, prior_x_parameter_sets_old, talphas):
 			if prior_x[0] == 'Exponential shared':
 				lambda_x, = prior_x[1:]
 				lambda_x = talpha.mean().div_(N).pow(-1).cpu().data.numpy()
 				Q_X -= lambda_x * talpha.sum().cpu().data.numpy()
 				Q_X += N*self.K*np.log(lambda_x) - N*loggamma(self.K)
 				prior_x = prior_x[:1] + (np.full(self.K, lambda_x), )
-				self.prior_xs.append(prior_x)
+				self.prior_x_parameter_sets.append(prior_x)
 			elif prior_x[0] == 'Exponential shared fixed':
 				lambda_x, = prior_x[1:]
 				Q_X -= lambda_x.mean() * talpha.sum().cpu().data.numpy()
-				self.prior_xs.append(prior_x)
+				self.prior_x_parameter_sets.append(prior_x)
 			else:
 				raise NotImplementedError
-		del prior_xs_old
+		del prior_x_parameter_sets_old
 
 		if not all(self.Es_empty):
 			# valid_diter = 1
@@ -183,12 +183,12 @@ def estimateParametersX(self, iter):
 			optimizers.append(optimizer)
 			if schedular: schedulars.append(schedular)
 			del optimizer, schedular
-			tprior_xs = []
-			for prior_x in self.prior_xs:
+			tprior_x_parameter_sets = []
+			for prior_x in self.prior_x_parameter_sets:
 				if prior_x[0] in ['Exponential shared', 'Exponential shared fixed']:
 					lambda_x, = prior_x[1:]
 					tlambda_x = torch.tensor(lambda_x, dtype=dtype, device=device, requires_grad=requires_grad)
-					tprior_xs.append((prior_x[0], tlambda_x,))
+					tprior_x_parameter_sets.append((prior_x[0], tlambda_x,))
 					var_list.append(tlambda_x)
 					del lambda_x
 				else:
@@ -276,7 +276,7 @@ def estimateParametersX(self, iter):
 						self.Ns,
 						self.Es_empty, NEs, tnEs, self.Es, self.betas, tZTs, tZes,
 						talphas, tnus, tNus, tNu2s, tdiagBs,
-						tprior_xs,
+						tprior_x_parameter_sets,
 				):
 					if E_empty:
 						continue
@@ -354,7 +354,7 @@ def estimateParametersX(self, iter):
 				# stop_flag = False
 				stop_tSigma_x_inv_grad_pseudo = 1e-1
 				stop_flag &= (tSigma_x_inv.grad.abs() / (tSigma_x_inv.abs() + stop_tSigma_x_inv_grad_pseudo)).abs().max().item() < 1e-2
-				for tprior_x in tprior_xs:
+				for tprior_x in tprior_x_parameter_sets:
 					if tprior_x[0] in ['Exponential shared', ]:
 						tlambda_x, = tprior_x[1:]
 						stop_flag &= tlambda_x.grad.abs().max().item() < 1e-4
@@ -412,7 +412,7 @@ def estimateParametersX(self, iter):
 			self.sigma_x_inverse = tSigma_x_inv.cpu().data.numpy()
 
 			Q_X -= func.mul_(np.dot(self.betas, list(map(len, self.YTs)))).item()
-	elif all(prior_x[0] == 'Exponential' for prior_x in self.prior_xs) and self.pairwise_potential_mode == 'normalized':
+	elif all(prior_x[0] == 'Exponential' for prior_x in self.prior_x_parameter_sets) and self.pairwise_potential_mode == 'normalized':
 		raise NotImplementedError
 	else:
 		raise NotImplementedError

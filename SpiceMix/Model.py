@@ -10,7 +10,7 @@ import torch
 
 from load_data import load_expression, load_edges
 from initialization import initialize_M_by_kmeans, initialize_sigma_x_inverse, partial_nmf
-from estimateWeights import estimateWeightsICM, estimateWeightsWithoutNeighbor
+from estimateWeights import estimateWeightsICM, estimate_weights_no_neighbors
 from estimateParameters import estimateParametersX, estimateParametersY
 
 class Model:
@@ -102,7 +102,7 @@ class Model:
     
         # initialize XT and perhaps update M
         # sigma_yx is estimated from XT and M
-        self.M, self.XTs, self.sigma_yx_inverses, self.prior_xs = partial_nmf(self, prior_x_modes=self.prior_x_modes, initial_nmf_iterations=initial_nmf_iterations)
+        self.M, self.XTs, self.sigma_yx_inverses, self.prior_x_parameter_sets = partial_nmf(self, prior_x_modes=self.prior_x_modes, initial_nmf_iterations=initial_nmf_iterations)
     
         if all(self.Es_empty): 
             sigma_x_inverse_mode = 'Constant'
@@ -149,15 +149,15 @@ class Model:
             for replicate in range(self.num_repli):
                 print("Encountering Es_empty")
                 if self.Es_empty[replicate]:
-                    rXTs.append(pool.apply_async(estimateWeightsWithoutNeighbor, args=(
+                    rXTs.append(pool.apply_async(estimate_weights_no_neighbors, args=(
                         self.YTs[replicate],
-                        self.M[:self.Gs[replicate]], self.XTs[replicate], self.prior_xs[replicate], self.sigma_yx_inverses[replicate],
+                        self.M[:self.Gs[replicate]], self.XTs[replicate], self.prior_x_parameter_sets[replicate], self.sigma_yx_inverses[replicate],
                         self.X_constraint, self.dropout_mode, i,
                     )))
                 else:
                     rXTs.append(pool.apply_async(estimateWeightsICM, args=(
                         self.YTs[replicate], self.Es[replicate],
-                        self.M[:self.Gs[replicate]], self.XTs[replicate], self.prior_xs[replicate], self.sigma_yx_inverses[replicate], self.sigma_x_inverse,
+                        self.M[:self.Gs[replicate]], self.XTs[replicate], self.prior_x_parameter_sets[replicate], self.sigma_yx_inverses[replicate], self.sigma_x_inverse,
                         self.X_constraint, self.dropout_mode, self.pairwise_potential_mode, replicate,
                     )))
             self.XTs = [new_XT.get(1e9) if isinstance(new_XT, multiprocessing.pool.ApplyResult) else new_XT for new_XT in rXTs]
@@ -171,7 +171,7 @@ class Model:
         self.Q = 0
         if self.pairwise_potential_mode == 'normalized' and all(
                 prior_x[0] in ['Exponential', 'Exponential shared', 'Exponential shared fixed']
-                for prior_x in self.prior_xs):
+                for prior_x in self.prior_x_parameter_sets):
             # pool = Pool(1)
             # Q_Y = pool.apply_async(estimateParametersY, args=([self])).get(1e9)
             # pool.close()
@@ -230,7 +230,7 @@ class Model:
             for repli, v in zip(self.repli_list, getattr(self, k)):
                 f[f'parameters/{k}/{repli}/{iiter}'] = v
 
-        for k in ['prior_xs']:
+        for k in ['prior_x_parameter_sets']:
             for repli, v in zip(self.repli_list, getattr(self, k)):
                 f[f'parameters/{k}/{repli}/{iiter}'] = np.array(v[1:])
 

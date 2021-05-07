@@ -73,17 +73,17 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
 
     print("Setting sigma_yx_inverses")
     model.sigma_yx_inverses = [1 / gene_expression.std(axis=0).mean() for gene_expression in model.YTs]
-    model.prior_xs = []
+    model.prior_x_parameter_sets = []
     for prior_x_mode, gene_expression in zip(prior_x_modes, model.YTs):
         _, num_genes = gene_expression.shape
         total_gene_expression = gene_expression.sum(axis=1)
         if prior_x_mode == 'Truncated Gaussian' or prior_x_mode == 'Gaussian':
             mu_x = np.full(model.K, total_gene_expression.mean() / model.K)
             sigma_x_inverse = np.full(model.K, np.sqrt(model.K) / total_gene_expression.std())
-            model.prior_xs.append((prior_x_mode, mu_x, sigma_x_inverse))
+            model.prior_x_parameter_sets.append((prior_x_mode, mu_x, sigma_x_inverse))
         elif prior_x_mode in ['Exponential', 'Exponential shared', 'Exponential shared fixed']:
             lambda_x = np.full(model.K, num_genes / model.max_genes * model.K / total_gene_expression.mean())
-            model.prior_xs.append((prior_x_mode, lambda_x))
+            model.prior_x_parameter_sets.append((prior_x_mode, lambda_x))
         else:
             raise NotImplementedError(f'Prior on X {prior_x_mode} is not implemented')
 
@@ -130,9 +130,9 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
         del normalized_XTs
 
         # update prior_x
-        prior_xs_old = model.prior_xs
-        model.prior_xs = []
-        for prior_x, XT in zip(prior_xs_old, model.XTs):
+        prior_x_parameter_sets_old = model.prior_x_parameter_sets
+        model.prior_x_parameter_sets = []
+        for prior_x, XT in zip(prior_x_parameter_sets_old, model.XTs):
             if prior_x[0] == 'Truncated Gaussian' or prior_x[0] == 'Gaussian':
                 mu_x = XT.mean(0)
                 sigma_x_inv = 1. / XT.std(0)
@@ -147,10 +147,10 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
                 pass
             else:
                 raise NotImplementedError(f'Prior on X {prior_x[0]} is not implemented')
-            model.prior_xs.append(prior_x)
+            model.prior_x_parameter_sets.append(prior_x)
         
         # TODO: why is this here? It seems like "Exponential shared" is already handled above
-        if any(prior_x[0] == 'Exponential shared' for prior_x in model.prior_xs):
+        if any(prior_x[0] == 'Exponential shared' for prior_x in model.prior_x_parameter_sets):
             raise NotImplementedError(f'Prior on X Exponential shared is not implemented')
 
         # update sigma_yx_inv
@@ -257,7 +257,7 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
         last_M = np.copy(model.M)
         last_rmse = rmse
 
-    return model.M, model.XTs, model.sigma_yx_inverses, model.prior_xs
+    return model.M, model.XTs, model.sigma_yx_inverses, model.prior_x_parameter_sets
 
 def initialize_M_by_kmeans(YTs, K, random_seed4kmeans=0, n_init=10):
     """Use k-means clustering for initial estimate of metagene matrix M.

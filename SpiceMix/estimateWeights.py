@@ -7,64 +7,75 @@ import numpy as np
 import gurobipy as grb
 import torch
 
-def estimateWeightsWithoutNeighbor(YT, M, XT, prior_x, sigma_yx_inv, X_constraint, dropout_mode, irepli):
+def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inverse, X_constraint, dropout_mode, irepli):
+    """Estimate weights for a sample in the SpiceMix model based on current metagenes.
+
+    Args:
+        YT: transpose of gene expression matrix for sample, with shape (num_samples, num_genes)
+        M: current estimate of metagene matrix, with shape (num_genes, num_metagenes)
+        XT: transpose of metagene weights for sample, with shape
+    Returns:
+        New estimate of transposed metagene weight matrix XT.
+    """
+
     logging.info(f'{print_datetime()}Estimating weights without neighbors in repli {irepli}')
-    K = XT.shape[1]
+    _, num_metagenes = XT.shape
 
     res = []
-    m = grb.Model('X w/o n')
-    m.setParam('OutputFlag', False)
-    m.Params.Threads = 1
-    vx = m.addVars(K, lb=0.)
+    weight_model = grb.Model('X w/o n')
+    weight_model.setParam('OutputFlag', False)
+    weight_model.Params.Threads = 1
+    weight_variables = weight_model.addVars(num_metagenes, lb=0.)
     assert X_constraint == 'none'
 
-    # shared parts
+    # Adding shared components of the objective
     # quadratic term in log Pr[ Y | X, Theta ]
-    obj_share = 0
+    shared_objective = 0
     if dropout_mode == 'raw':
-        # MTM = M.T @ M * (sigma_yx_inv**2 / 2.)
-        MTM = (M.T @ M + 1e-6*np.eye(K)) * (sigma_yx_inv ** 2 / 2.)
-        obj_share += grb.quicksum([vx[i] * MTM[i, i] * vx[i] for i in range(K)])
+        # MTM = M.T @ M * (sigma_yx_inverse**2 / 2.)
+        MTM = (M.T @ M + 1e-6 * np.eye(num_metagenes)) * (sigma_yx_inverse ** 2 / 2.)
+        shared_objective += grb.quicksum([weight_variables[i] * MTM[i, i] * weight_variables[i] for i in range(num_metagenes)])
         MTM *= 2
-        obj_share += grb.quicksum([vx[i] * MTM[i, j] * vx[j] for i in range(K) for j in range(i+1, K)])
+        shared_objective += grb.quicksum([weight_variables[i] * MTM[i, j] * weight_variables[j] for i in range(num_metagenes) for j in range(i+1, num_metagenes)])
+        
         del MTM
-        YTM = YT @ M * (-sigma_yx_inv**2)
+        YTM = YT @ M * (-sigma_yx_inverse ** 2)
     else:
         raise NotImplementedError
 
     # prior on X
-    if prior_x[0] == 'Truncated Gaussian' or prior_x[0] == 'Gaussian':
-        mu_x, sigma_x_inv = prior_x[1:]
+    prior_x_mode, mu_x, sigma_x_inv = prior_x_parameter_set
+    if prior_x_mode in ('Truncated Gaussian', 'Gaussian'):
         assert (sigma_x_inv > 0).all()
-        t = sigma_x_inv ** 2 / 2.
-        obj_share += grb.quicksum([t[i] * vx[i] * vx[i] for i in range(K)])
+        t = sigma_x_inv ** 2 / 2
+        shared_objective += grb.quicksum([t[i] * weight_variables[i] * weight_variables[i] for i in range(num_metagenes)])
         t *= - 2 * mu_x
-        obj_share += grb.quicksum([t[i] * vx[i]         for i in range(K)])
-        obj_share += np.dot(mu_x**2, sigma_x_inv**2) / 2.
+        shared_objective += grb.quicksum([t[i] * weight_variables[i] for i in range(num_metagenes)])
+        shared_objective += np.dot(mu_x**2, sigma_x_inv**2) / 2.
         del t
-    elif prior_x[0] in ['Exponential', 'Exponential shared', 'Exponential shared fixed']:
-        lambda_x, = prior_x[1:]
+    elif prior_x_parameter_set[0] in ['Exponential', 'Exponential shared', 'Exponential shared fixed']:
+        lambda_x, = prior_x_parameter_set[1:]
         assert (lambda_x >= 0).all()
-        obj_share += grb.quicksum([lambda_x[i] * vx[i] for i in range(K)])
+        shared_objective += grb.quicksum([lambda_x[i] * weight_variables[i] for i in range(num_metagenes)])
     else:
         raise NotImplementedError
 
     for y, yTM in zip(YT, YTM):
-        obj = obj_share
+        objective = shared_objective
         if dropout_mode != 'raw':
             raise NotImplemented
-        obj = obj + grb.quicksum(yTM[i]*vx[i] for i in range(K)) + np.dot(y, y) * sigma_yx_inv / 2.
-        m.setObjective(obj, grb.GRB.MINIMIZE)
-        m.optimize()
-        res.append([vx[i].x for i in range(K)])
+        objective = objective + grb.quicksum(yTM[i]*weight_variables[i] for i in range(num_metagenes)) + np.dot(y, y) * sigma_yx_inverse / 2.
+        weight_model.setObjective(obj, grb.GRB.MINIMIZE)
+        weight_model.optimize()
+        res.append([weight_variables[i].x for i in range(num_metagenes)])
 
-    del m
+    del weight_model
 
     res = np.array(res)
     return res
 
 
-def estimateWeightsICM(YT, E, M, XT, prior_x, sigma_yx_inv, Sigma_x_inv, X_constraint, dropout_mode, pairwise_potential_mode, irepli):
+def estimateWeightsICM(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inv, Sigma_x_inv, X_constraint, dropout_mode, pairwise_potential_mode, irepli):
     """Estimate weights for one iteration of SpiceMix using the Iterated Conditional Model (ICM).
 
     """
@@ -106,8 +117,8 @@ def estimateWeightsICM(YT, E, M, XT, prior_x, sigma_yx_inv, Sigma_x_inv, X_const
                 func += z @ Sigma_x_inv @ ZT[e].sum(0) / 2
         else:
             raise NotImplementedError
-        if prior_x[0] in ['Exponential', 'Exponential shared', 'Exponential shared fixed']:
-            lambda_x, = prior_x[1:]
+        if prior_x_parameter_set[0] in ['Exponential', 'Exponential shared', 'Exponential shared fixed']:
+            lambda_x, = prior_x_parameter_set[1:]
             func += lambda_x @ (S * ZT).sum(0)
             del lambda_x
         else:
@@ -132,8 +143,8 @@ def estimateWeightsICM(YT, E, M, XT, prior_x, sigma_yx_inv, Sigma_x_inv, X_const
 
                     a = z @ MTM @ z
                     b = yTM @ z
-                    if prior_x[0] in ['Exponential', 'Exponential shared', 'Exponential shared fixed']:
-                        lambda_x, = prior_x[1:]
+                    if prior_x_parameter_set[0] in ['Exponential', 'Exponential shared', 'Exponential shared fixed']:
+                        lambda_x, = prior_x_parameter_set[1:]
                         b -= lambda_x @ z / 2
                         del lambda_x
                     else:
@@ -152,11 +163,11 @@ def estimateWeightsICM(YT, E, M, XT, prior_x, sigma_yx_inv, Sigma_x_inv, X_const
                     obj += grb.quicksum([vz[i] * t[i, j] * vz[j] for i in range(K) for j in range(i+1, K)])
                     t = -2 * s * yTM
                     t += eta
-                    if prior_x[0] in ['Exponential']:
-                        lambda_x, = prior_x[1:]
+                    if prior_x_parameter_set[0] in ['Exponential']:
+                        lambda_x, = prior_x_parameter_set[1:]
                         t += lambda_x * s
                         del lambda_x
-                    elif prior_x[0] in ['Exponential shared', 'Exponential shared fixed']:
+                    elif prior_x_parameter_set[0] in ['Exponential shared', 'Exponential shared fixed']:
                         pass
                     else:
                         raise NotImplementedError
