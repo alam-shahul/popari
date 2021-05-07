@@ -31,7 +31,7 @@ def estimateParametersY(self, max_iter=10):
 	else:
 		raise NotImplementedError
 
-	for iiter in range(max_iter):
+	for iter in range(max_iter):
 		obj = 0
 		for beta, YT, sigma_yx_inv, A, B, G, XT in zip(self.betas, self.YTs, self.sigma_yx_inverses, As, Bs, self.Gs, self.XTs):
 			# constant terms
@@ -74,23 +74,23 @@ def estimateParametersY(self, max_iter=10):
 			np.dot(YT.ravel(), YT.ravel()) - 2*np.dot(A.ravel(), self.M[:G].ravel()) + np.dot(B.ravel(), (self.M[:G].T @ self.M[:G]).ravel())
 			for YT, A, B, G in zip(self.YTs, As, Bs, self.Gs)
 		])
-		if self.sigma_yx_inv_mode == 'separate':
+		if self.sigma_yx_inverse_mode == 'separate':
 			t = ds / sizes
 			self.sigma_yx_inverses = 1. / np.sqrt(t)
-		elif self.sigma_yx_inv_mode == 'average':
+		elif self.sigma_yx_inverse_mode == 'average':
 			t = np.dot(self.betas, ds) / np.dot(self.betas, sizes)
 			self.sigma_yx_inverses = np.full(self.num_repli, 1 / (np.sqrt(t) + 1e-20))
-		elif self.sigma_yx_inv_mode.startswith('average '):
-			idx = np.array(list(map(int, self.sigma_yx_inv_mode.split(' ')[1:])))
+		elif self.sigma_yx_inverse_mode.startswith('average '):
+			idx = np.array(list(map(int, self.sigma_yx_inverse_mode.split(' ')[1:])))
 			t = np.dot(self.betas[idx], ds[idx]) / np.dot(self.betas[idx], sizes[idx])
 			self.sigma_yx_inverses = np.full(self.num_repli, 1 / (np.sqrt(t) + 1e-20))
 		else:
 			raise NotImplementedError
 
 		d = self.sigma_yx_inverses - last_sigma_yx_inverses
-		logging.info(f"{print_datetime()}At iter {iiter}, σ_yxInv: {array2string(d)} -> {array2string(self.sigma_yx_inverses)}")
+		logging.info(f"{print_datetime()}At iter {iter}, σ_yxInv: {array2string(d)} -> {array2string(self.sigma_yx_inverses)}")
 
-		if (np.abs(d) / self.sigma_yx_inverses).max() < 1e-5 or self.num_repli <= 1 or self.sigma_yx_inv_mode.startswith('average'):
+		if (np.abs(d) / self.sigma_yx_inverses).max() < 1e-5 or self.num_repli <= 1 or self.sigma_yx_inverse_mode.startswith('average'):
 			break
 
 	# emission
@@ -102,7 +102,7 @@ def estimateParametersY(self, max_iter=10):
 	return Q_Y
 
 
-def estimateParametersX(self, iiter):
+def estimateParametersX(self, iter):
 	logging.info(f'{print_datetime()}Estimating Sigma_x_inv and prior_xs')
 
 	device = self.PyTorch_device
@@ -292,12 +292,12 @@ def estimateParametersX(self, iiter):
 							# Z_z
 							teta = tnu @ tSigma_x_inv
 							teta.grad = torch.zeros_like(teta)
-							# torch.manual_seed(iiter)
-							if iiter > 1 or __t__ > 100:
-								# tlogZ = integrateOfExponentialOverSimplexSampling(teta, requires_grad=requires_grad, seed=iiter*max_iter+__t__)
+							# torch.manual_seed(iter)
+							if iter > 1 or __t__ > 100:
+								# tlogZ = integrateOfExponentialOverSimplexSampling(teta, requires_grad=requires_grad, seed=iter*max_iter+__t__)
 								tlogZ = integrateOfExponentialOverSimplexInduction2(teta, grad=c, requires_grad=requires_grad, )
 							else:
-								# tlogZ = integrateOfExponentialOverSimplexSampling(teta, requires_grad=requires_grad, seed=iiter*max_iter+__t__)
+								# tlogZ = integrateOfExponentialOverSimplexSampling(teta, requires_grad=requires_grad, seed=iter*max_iter+__t__)
 								tlogZ = integrateOfExponentialOverSimplexInduction2(teta, grad=c, requires_grad=requires_grad)
 							if requires_grad:
 								func_grad = func_grad.add(beta*c, tlogZ.sum())
@@ -319,8 +319,8 @@ def estimateParametersX(self, iiter):
 
 				# prior on Σ_x^inv
 				# num_burnin_iter = 200
-				# if iiter <= num_burnin_iter:
-				# 	kk = 1e-1 * np.dot(betas, list(map(len, Es))) * 1e-1**((num_burnin_iter-iiter+1)/num_burnin_iter)
+				# if iter <= num_burnin_iter:
+				# 	kk = 1e-1 * np.dot(betas, list(map(len, Es))) * 1e-1**((num_burnin_iter-iter+1)/num_burnin_iter)
 				# else:
 				# 	kk = 1e-1 * np.dot(betas, list(map(len, Es)))
 				kk = self.lambda_SigmaXInv * np.dot(self.betas, NEs)

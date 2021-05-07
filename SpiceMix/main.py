@@ -41,8 +41,8 @@ def parse_arguments():
 
     # training & hyperparameters
     parser.add_argument('--lambda_SigmaXInv', type=float, default=1e-4, help='Regularization on Sigma_x^{-1}')
-    parser.add_argument('--max_iter', type=int, default=500, help='Maximum number of outer optimization iteration')
-    parser.add_argument('--init_NMF_iter', type=int, default=10, help='2 * number of NMF iterations in initialization')
+    parser.add_argument('--max_iterations', type=int, default=500, help='Maximum number of outer optimization iteration')
+    parser.add_argument('--initial_nmf_iterations', type=int, default=5, help='number of NMF iterations in initialization')
     parser.add_argument(
         '--betas', default=np.ones(1), type=np.array,
         help='Positive weights of the experiments; the sum will be normalized to 1; can be scalar (equal weight) or array-like'
@@ -101,17 +101,17 @@ if __name__ == '__main__':
         result_filename=args.result_filename
     )
 
-    model.initialize(random_seed4kmeans=args.random_seed4kmeans, num_NMF_iterations=args.init_NMF_iter)
+    model.initialize(random_seed4kmeans=args.random_seed4kmeans, initial_nmf_iterations=args.initial_nmf_iterations)
 
     torch.cuda.empty_cache()
     last_Q = np.nan
-    max_iter = args.max_iter
+    max_iterations = args.max_iterations
 
-    for iiter in range(1, max_iter+1):
-        logging.info(f'{print_datetime()}Iteration {iiter} begins')
+    for iteration in range(1, max_iterations+1):
+        logging.info(f'{print_datetime()}Iteration {iteration} begins')
 
-        model.estimateWeights(iiter=iiter)
-        Q = model.estimateParameters(iiter=iiter)
+        model.estimateWeights(iiter=iteration)
+        Q = model.estimateParameters(iiter=iteration)
 
         logging.info(f'{print_datetime()}Q = {Q:.4f}\tdiff Q = {Q-last_Q:.4e}')
         last_Q = Q
