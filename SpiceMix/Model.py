@@ -10,7 +10,7 @@ import torch
 
 from load_data import load_expression, load_edges
 from initialization import initialize_M_by_kmeans, initialize_sigma_x_inverse, partial_nmf
-from estimateWeights import estimateWeightsICM, estimate_weights_no_neighbors
+from estimateWeights import estimate_weights_icm, estimate_weights_no_neighbors
 from estimateParameters import estimateParametersX, estimateParametersY
 
 class Model:
@@ -155,7 +155,7 @@ class Model:
                         self.X_constraint, self.dropout_mode, i,
                     )))
                 else:
-                    rXTs.append(pool.apply_async(estimateWeightsICM, args=(
+                    rXTs.append(pool.apply_async(estimate_weights_icm, args=(
                         self.YTs[replicate], self.Es[replicate],
                         self.M[:self.Gs[replicate]], self.XTs[replicate], self.prior_x_parameter_sets[replicate], self.sigma_yx_inverses[replicate], self.sigma_x_inverse,
                         self.X_constraint, self.dropout_mode, self.pairwise_potential_mode, replicate,

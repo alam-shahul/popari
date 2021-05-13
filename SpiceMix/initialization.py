@@ -12,9 +12,9 @@ def NMF_stepX(YT, M, XT, X_constraint, dropout_mode):
     Uses linear programming formulation to find sparse solution to NMF factorization.
 
     Args:
-        YT: transpose of gene expression matrix for a single sample
+        YT: transpose of gene expression matrix for a single replicate
         M: current metagene matrix
-        XT: transpose of metagene weight matrix for a single sample
+        XT: transpose of metagene weight matrix for a single replicate
         X_constraint: constraint on metagene weight parameters
         dropout_mode: TODO
 
@@ -61,7 +61,7 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
 
     Args:
         model: an initialized SpiceMix model object
-        prior_x_modes: list of probability distribution types for each sample
+        prior_x_modes: list of probability distribution types for each replicate
         initial_nmf_iterations: number of iterations to use for NMF-based initialization
         num_processes: number of parallel processes to use for running initialization.
 
@@ -297,9 +297,9 @@ def initialize_sigma_x_inverse(K, XTs, Es, betas, sigma_x_inverse_mode):
 
     Args:
         K: number of metagenes
-        XTs: list of initial weightings of metagenes for each sample
-        Es: list of adjacency lists for connectivity graph of each sample
-        betas: list of beta factors that weight each sample
+        XTs: list of initial weightings of metagenes for each replicate
+        Es: list of adjacency lists for connectivity graph of each replicate
+        betas: list of beta factors that weight each replicate
     Returns:
         Initial estimate of pairwise affinity matrix (sigma_x_inverse).
     """
