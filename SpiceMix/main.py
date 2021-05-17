@@ -40,7 +40,7 @@ def parse_arguments():
     parser.add_argument('--random_seed4kmeans', type=int, default=0)
 
     # training & hyperparameters
-    parser.add_argument('--lambda_SigmaXInv', type=float, default=1e-4, help='Regularization on Sigma_x^{-1}')
+    parser.add_argument('--lambda_sigma_x_inverse', type=float, default=1e-4, help='Regularization on Sigma_x^{-1}')
     parser.add_argument('--max_iterations', type=int, default=500, help='Maximum number of outer optimization iteration')
     parser.add_argument('--initial_nmf_iterations', type=int, default=5, help='number of NMF iterations in initialization')
     parser.add_argument(
@@ -66,7 +66,7 @@ def parse_arguments():
 
     parser.add_argument('--num_threads', type=int, default=1, help='Number of CPU threads for PyTorch')
     parser.add_argument('--num_processes', type=int, default=1, help='Number of processes')
-    parser.add_argument('--result_filename', default=None, help='The name of the h5 file to store results')
+    parser.add_argument('--result_filename', type=str, default="results.hdf5", help='The name of the h5 file to store results')
 
     return parser.parse_args()
 
@@ -95,7 +95,7 @@ if __name__ == '__main__':
         neighbor_suffix=args.neighbor_suffix, 
         expression_suffix=args.expression_suffix, 
         K=args.K, 
-        lambda_SigmaXInv=args.lambda_SigmaXInv, 
+        lambda_sigma_x_inverse=args.lambda_sigma_x_inverse, 
         betas=betas, 
         prior_x_modes=np.array(['Exponential shared fixed']*len(args.repli_list)), 
         result_filename=args.result_filename

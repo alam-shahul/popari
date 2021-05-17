@@ -323,7 +323,7 @@ def estimateParametersX(self, iter):
 				# 	kk = 1e-1 * np.dot(betas, list(map(len, Es))) * 1e-1**((num_burnin_iter-iter+1)/num_burnin_iter)
 				# else:
 				# 	kk = 1e-1 * np.dot(betas, list(map(len, Es)))
-				kk = self.lambda_SigmaXInv * np.dot(self.betas, NEs)
+				kk = self.lambda_sigma_x_inverse * np.dot(self.betas, NEs)
 				tSigma_x_inv.grad.add_(kk, tSigma_x_inv)
 				func.add_(kk / 2, tSigma_x_inv.pow(2).sum())
 

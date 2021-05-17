@@ -15,7 +15,7 @@ from estimateParameters import estimateParametersX, estimateParametersY
 
 class Model:
     def __init__(self, path2dataset, repli_list, use_spatial, neighbor_suffix, expression_suffix, K,
-                 lambda_SigmaXInv, betas, prior_x_modes, result_filename=None, PyTorch_device='cpu', num_processes=1):
+                 lambda_sigma_x_inverse, betas, prior_x_modes, result_filename=None, PyTorch_device='cpu', num_processes=1):
 
         self.PyTorch_device = PyTorch_device
         self.num_processes = num_processes
@@ -28,8 +28,8 @@ class Model:
         self.load_dataset(neighbor_suffix=neighbor_suffix, expression_suffix=expression_suffix)
 
         self.K = K
-        self.YTs = [G / self.max_genes * self.K * YT / YT.sum(1).mean() for YT, G in zip(self.YTs, self.Gs)]
-        self.lambda_SigmaXInv = lambda_SigmaXInv
+        self.YTs = [G / self.max_genes * self.K * YT / YT.sum(axis=1).mean() for YT, G in zip(self.YTs, self.Gs)]
+        self.lambda_sigma_x_inverse = lambda_sigma_x_inverse
         self.betas = betas
         self.prior_x_modes = prior_x_modes
         self.M_constraint = 'sum2one'
@@ -200,7 +200,7 @@ class Model:
             for k in ['prior_x_modes']:
                 for repli, v in zip(self.repli_list, getattr(self, k)):
                     f[f'hyperparameters/{k}/{repli}'] = encode4h5(v)
-            for k in ['lambda_SigmaXInv', 'betas', 'K']:
+            for k in ['lambda_sigma_x_inverse', 'betas', 'K']:
                 f[f'hyperparameters/{k}'] = encode4h5(getattr(self, k))
 
     def saveWeights(self, iiter):
@@ -238,7 +238,8 @@ class Model:
 
 
     def saveProgress(self, iiter):
-        if self.result_filename is None: return
+        if self.result_filename is None:
+            return
 
         f = openH5File(self.result_filename)
         if f is None:

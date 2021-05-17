@@ -8,7 +8,7 @@ import gurobipy as grb
 import torch
 
 def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inverse, X_constraint, dropout_mode, replicate):
-    """Estimate weights for a single replicate in the total_metagene_expressionspiceMix model without considering neighbors.
+    """Estimate weights for a single replicate in the SpiceMix model without considering neighbors.
 
     This is essentially a benchmarking convenience function, and should return similar results to running vanilla NMF
 
@@ -75,9 +75,15 @@ def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inv
 
     return updated_XT
 
-
 def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, sigma_x_inverse, X_constraint, dropout_mode, pairwise_potential_mode, replicate):
     """Estimate weights for a single replicate in the SpiceMix model using the Iterated Conditional Model (ICM).
+
+    .. math::
+        \hat{X}_{\text{MAP}} = \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right}
+
+        s_i = \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i}
+        z_i = \frac{}{}
+    We write XT in terms of size factors S such that XT = S * ZT.
 
     Args:
         YT: transpose of gene expression matrix for replicate, with shape (num_cells, num_genes)
@@ -95,20 +101,33 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
         New estimate of transposed metagene weight matrix XT.
     """
 
-    def calculate_objective(total_metagene_expressions, normalized_XT):
+    prior_x_mode, *prior_x_parameters = prior_x_parameter_set
+    num_cells, _ = YT.shape
+    _, num_metagenes = M.shape
+    MTM = None
+    YTM = None
+    
+    # Precomputing some important matrix products
+    if dropout_mode == 'raw':
+        MTM = M.T @ M * sigma_yx_inverse**2 / 2
+        YTM = YT @ M * sigma_yx_inverse**2 / 2
+    else:
+        raise NotImplementedError
+
+    def calculate_objective(S, ZT):
         """Calculate current value of ICM objective.
 
         Args:
             YT: transpose of gene expression matrix for a particular sample
-            total_metagene_expressions: a vector of (conserved) total metagene expressions for each cell
-            normalized_XT: current estimate of weights for the sample, divided by the total for each cell
+            S: a vector of total metagene expressions for each cell
+            ZT: current estimate of weights for the sample, divided by the total for each cell
 
         Returns:
             value of ICM objective
         """
         
         objective = 0
-        difference = YT - ( total_metagene_expressions * normalized_XT ) @ M.T
+        difference = YT - ( S * ZT ) @ M.T
         if dropout_mode == 'raw':
             difference = difference.ravel()
         else:
@@ -116,15 +135,14 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
 
         objective += np.dot(difference, difference) * sigma_yx_inverse**2 / 2
         if pairwise_potential_mode == 'normalized':
-            for neighbors, normalized_cell_metagene_expression in zip(E, normalized_XT):
-                objective += normalized_cell_metagene_expression @ sigma_x_inverse @ normalized_XT[neighbors].sum(axis=0) / 2
+            for neighbors, z_i in zip(E, ZT):
+                objective += z_i @ sigma_x_inverse @ ZT[neighbors].sum(axis=0) / 2
         else:
             raise NotImplementedError
 
-        prior_x_mode, *prior_x_parameters = prior_x_parameter_set
         if prior_x_mode in ('Exponential', 'Exponential shared', 'Exponential shared fixed'):
             lambda_x, = prior_x_parameters
-            objective += lambda_x @ (total_metagene_expressions * normalized_XT).sum(axis=0)
+            objective += lambda_x @ (S * ZT).sum(axis=0)
             del lambda_x
         else:
             raise NotImplementedError
@@ -133,125 +151,167 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
 
         return objective
 
-    num_cells, _ = YT.shape
-    _, num_metagenes = M.shape
-    MTM = None
-    YTM = None
+    def update_s_i(z_i, yTM):
+        """Calculate closed form update for s_i.
 
-    if dropout_mode == 'raw':
-        MTM = M.T @ M * sigma_yx_inverse**2 / 2
-        YTM = YT @ M * sigma_yx_inverse**2 / 2
-    else:
-        raise NotImplementedError
+        Assuming fixed value of z_i, update for s_i takes the following form:
+        TODO
 
-    max_iter = 100
-    max_iter_individual = 100
+        Args:
+            z_i: current estimate of normalized metagene expression
+            neighbors: list of neighbors of current cell
+            yTM: row of YTM corresponding to current cell
+            MTM: row of MTM corresponding to current cell
+
+        Returns:
+            Updated estimate of s_i
+
+        """
+
+        denominator =  z_i @ MTM @ z_i
+        numerator = yTM @ z_i
+        if prior_x_mode in ('Exponential', 'Exponential shared', 'Exponential shared fixed'):
+            lambda_x, = prior_x_parameters
+            # TODO: do we need the 1/2 here?
+            numerator -= lambda_x @ z_i / 2
+            del lambda_x
+        else:
+            raise NotImplementedError
+        
+        numerator = np.maximum(numerator, 0)
+        s_i_new = numerator / denominator
+
+        return s_i_new
+
+    def update_z_i(s_i, y_i, yTM, eta):
+        """Calculate update for z_i using Gurobi simplex algorithm.
+
+        Assuming fixed value of s_i, update for z_i is a linear program of the following form:
+        TODO
+
+        Args:
+            s_i: current estimate of size factor
+            yTM: row of YTM corresponding to current cell
+            eta: aggregate contribution of neighbor z_j's, weighted by affinity matrix (sigma_x_inverse)
+
+        Returns:
+            Updated estimate of z_i
+
+        """
+
+        objective = 0
+
+        # Element-wise matrix multiplication (Mz_is_i)^\top(Mz_is_i)
+        factor = s_i**2 * MTM
+        objective += grb.quicksum([weight_variables[index] * factor[index, index] * weight_variables[index] for index in range(num_metagenes)])
+        factor *= 2
+        objective += grb.quicksum([weight_variables[index] * factor[index, j] * weight_variables[j] for index in range(num_metagenes) for j in range(index+1, num_metagenes)])
+       
+       
+        # Adding terms for -2 y_i M z_i s_i
+        factor = -2 * s_i * yTM
+        # TODO: fix formula below
+        # objective += grb.quicksum([weight_variables[index] * factor[index] for index in range(num_metagenes)])
+        # objective += y_i @ y_i
+        # objective *= sigma_yx_inverse**2 / 2
+        factor += eta
+        # factor = eta
+
+        if prior_x_mode in ('Exponential'):
+            lambda_x, = prior_x_parameters
+            factor += lambda_x * s_i
+            del lambda_x
+        elif prior_x_mode in ('Exponential shared', 'Exponential shared fixed'):
+            pass
+        else:
+            raise NotImplementedError
+
+        objective += grb.quicksum([weight_variables[index] * factor[index] for index in range(num_metagenes)])
+        # TODO: is this line necessary? Doesn't seem like z_i affects this term of the objective
+        objective += y_i @ y_i * sigma_yx_inverse**2 / 2
+        weight_model.setObjective(objective, grb.GRB.MINIMIZE)
+        weight_model.optimize()
+
+        z_i_new = np.array([weight_variables[index].x for index in range(num_metagenes)])
+
+        return z_i_new
+
+    global_iterations = 100
+    local_iterations = 100
 
     weight_model = grb.Model('ICM')
-    weight_model.setParam('OutputFlag', False)
+    weight_model.Params.OutputFlag = False
     weight_model.Params.Threads = 1
     weight_model.Params.BarConvTol = 1e-6
     weight_variables = weight_model.addVars(num_metagenes, lb=0.)
     weight_model.addConstr(weight_variables.sum() == 1)
 
-    total_metagene_expressions = XT.sum(axis=1, keepdims=True)
-    normalized_XT = XT / (total_metagene_expressions +  1e-30)
+    S = XT.sum(axis=1, keepdims=True)
+    ZT = XT / (S +  1e-30)
 
-    last_objective = calculate_objective(total_metagene_expressions, normalized_XT)
+    last_objective = calculate_objective(S, ZT)
     best_objective, best_iteration = last_objective, -1
 
-    for iiter in range(max_iter):
-        last_normalized_XT = np.copy(normalized_XT)
-        last_total_metagene_expressions = np.copy(total_metagene_expressions)
+    for global_iteration in range(global_iterations):
+        last_ZT = np.copy(ZT)
+        last_S = np.copy(S)
 
+        locally_converged = False
         if pairwise_potential_mode == 'normalized':
-            for index, (neighbors, y, yTM, normalized_cell_metagene_expression, total_cell_metagene_expression) in enumerate(zip(E, YT, YTM, normalized_XT, total_metagene_expressions)):
-                eta = normalized_XT[neighbors].sum(axis=0) @ sigma_x_inverse
-                for iiiter in range(max_iter_individual):
-                    stop_flag = True
+            for index, (neighbors, y_i, yTM, z_i, s_i) in enumerate(zip(E, YT, YTM, ZT, S)):
+                eta = ZT[neighbors].sum(axis=0) @ sigma_x_inverse
+                for local_iteration in range(local_iterations):
+                    s_i_new = update_s_i(z_i, yTM) 
+                    s_i_new = np.maximum(s_i_new, 1e-15)
+                    delta_s_i = s_i_new - s_i
+                    s_i = s_i_new
 
-                    a = normalized_cell_metagene_expression @ MTM @ normalized_cell_metagene_expression
-                    b = yTM @ normalized_cell_metagene_expression
-                    if prior_x_parameter_set[0] in ['Exponential', 'Exponential shared', 'Exponential shared fixed']:
-                        lambda_x, = prior_x_parameter_set[1:]
-                        b -= lambda_x @ normalized_cell_metagene_expression / 2
-                        del lambda_x
-                    else:
-                        raise NotImplementedError
-                    b = np.maximum(b, 0)
-                    s_new = b / a
-                    s_new = np.maximum(s_new, 1e-15)
-                    ds = s_new - total_cell_metagene_expression
-                    stop_flag &= np.abs(ds) / (total_cell_metagene_expression + 1e-15) < 1e-3
-                    total_cell_metagene_expression = s_new
-
-                    objective = 0
-                    t = total_cell_metagene_expression**2 * MTM
-                    objective += grb.quicksum([weight_variables[index] * t[index, index] * weight_variables[index] for index in range(num_metagenes)])
-                    t *= 2
-                    objective += grb.quicksum([weight_variables[index] * t[index, j] * weight_variables[j] for index in range(num_metagenes) for j in range(index+1, num_metagenes)])
-                    t = -2 * total_cell_metagene_expression * yTM
-                    t += eta
-                    if prior_x_parameter_set[0] in ['Exponential']:
-                        lambda_x, = prior_x_parameter_set[1:]
-                        t += lambda_x * total_cell_metagene_expression
-                        del lambda_x
-                    elif prior_x_parameter_set[0] in ['Exponential shared', 'Exponential shared fixed']:
-                        pass
-                    else:
-                        raise NotImplementedError
-                    objective += grb.quicksum([weight_variables[index] * t[index] for index in range(num_metagenes)])
-                    objective += y @ y * sigma_yx_inverse**2 / 2
-                    weight_model.setObjective(objective, grb.GRB.MINIMIZE)
-                    weight_model.optimize()
-                    normalized_cell_metagene_expression_new = np.array([weight_variables[index].x for index in range(num_metagenes)])
-                    dnormalized_cell_metagene_expression = normalized_cell_metagene_expression_new - normalized_cell_metagene_expression
-                    stop_flag &= np.abs(dnormalized_cell_metagene_expression).max() < 1e-3
-                    normalized_cell_metagene_expression = normalized_cell_metagene_expression_new
-
-                    if not stop_flag and iiiter == max_iter_individual-1:
-                        logging.warning(f'Cell {i} in the {replicate}-th replicate did not converge in {max_iter_individual} iterations;\ts = {s:.2e}, ds = {ds:.2e}, max dz = {np.abs(dz).max():.2e}')
-
-                    if stop_flag:
+                    z_i_new = update_z_i(s_i, y_i, yTM, eta)
+                    delta_z_i = z_i_new - z_i
+                    z_i = z_i_new
+                    
+                    locally_converged |= (np.abs(delta_s_i) / (s_i + 1e-15) < 1e-3 and np.abs(delta_z_i).max() < 1e-3)
+                    if locally_converged:
                         break
 
-                normalized_XT[index] = normalized_cell_metagene_expression
-                total_metagene_expressions[index] = total_cell_metagene_expression
+                if not locally_converged:
+                    logging.warning(f'Cell {i} in the {replicate}-th replicate did not converge in {local_iterations} iterations;\ts = {s:.2e}, delta_s_i = {delta_s_i:.2e}, max delta_z_i = {np.abs(delta_z_i).max():.2e}')
+
+                ZT[index] = z_i
+                S[index] = s_i
         else:
             raise NotImplementedError
 
-        stop_flag = True
+        globally_converged = False
 
-        dnormalized_XT = normalized_XT - last_normalized_XT
-        dtotal_metagene_expressions = total_metagene_expressions - last_total_metagene_expressions
-        stop_flag &= np.abs(dnormalized_XT).max() < 1e-2
-        stop_flag &= np.abs(dtotal_metagene_expressions / (total_metagene_expressions + 1e-15)).max() < 1e-2
+        dZT = ZT - last_ZT
+        dS = S - last_S
+        current_objective = calculate_objective(S, ZT)
 
-        current_objective = calculate_objective(total_metagene_expressions, normalized_XT)
+        globally_converged |= (np.abs(dZT).max() < 1e-2 and np.abs(dS / (S + 1e-15)).max() < 1e-2 and current_objective > last_objective - 1e-4) 
 
-        stop_flag &= current_objective > last_objective - 1e-4
-
+        # TODO: do we need to keep this?
         force_show_flag = False
-        # force_show_flag |= np.abs(dnormalized_XT).max() > 1-1e-5
+        # force_show_flag |= np.abs(dZT).max() > 1-1e-5
 
-        if iiter % 5 == 0 or stop_flag or force_show_flag:
-            print(f'>{replicate} current_objective at iter {iiter} = {current_objective:.2e},\tdiff = {np.abs(dnormalized_XT).max():.2e}\t{np.abs(dtotal_metagene_expressions).max():.2e}\t{current_objective - last_objective:.2e}')
+        if global_iteration % 5 == 0 or globally_converged or force_show_flag:
+            print(f'>{replicate} current_objective at iter {global_iteration} = {current_objective:.2e},\tdiff = {np.abs(dZT).max():.2e}\t{np.abs(dS).max():.2e}\t{current_objective - last_objective:.2e}')
 
             print(
-                f'stat of XT: '
-                f'#<0 = {(normalized_XT < 0).sum().astype(np.float) / num_cells:.1f}, '
-                f'#=0 = {(normalized_XT == 0).sum().astype(np.float) / num_cells:.1f}, '
-                f'#<1e-10 = {(normalized_XT < 1e-10).sum().astype(np.float) / num_cells:.1f}, '
-                f'#<1e-5 = {(normalized_XT < 1e-5).sum().astype(np.float) / num_cells:.1f}, '
-                f'#<1e-2 = {(normalized_XT < 1e-2).sum().astype(np.float) / num_cells:.1f}, '
-                f'#>1e-1 = {(normalized_XT > 1e-1).sum().astype(np.float) / num_cells:.1f}'
+                f'ZT summary statistics: '
+                f'# <0 = {(ZT < 0).sum().astype(np.float) / num_cells:.1f}, '
+                f'# =0 = {(ZT == 0).sum().astype(np.float) / num_cells:.1f}, '
+                f'# <1e-10 = {(ZT < 1e-10).sum().astype(np.float) / num_cells:.1f}, '
+                f'# <1e-5 = {(ZT < 1e-5).sum().astype(np.float) / num_cells:.1f}, '
+                f'# <1e-2 = {(ZT < 1e-2).sum().astype(np.float) / num_cells:.1f}, '
+                f'# >1e-1 = {(ZT > 1e-1).sum().astype(np.float) / num_cells:.1f}'
             )
 
             print(
-                f'stat of s: '
-                f'#0 = {(total_metagene_expressions == 0).sum()}, '
-                f'min = {total_metagene_expressions.min():.1e}, '
-                f'max = {total_metagene_expressions.max():.1e}'
+                f'S summary statistics: '
+                f'# 0 = {(S == 0).sum()}, '
+                f'min = {S.min():.1e}, '
+                f'max = {S.max():.1e}'
             )
 
             sys.stdout.flush()
@@ -259,13 +319,15 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
         # print(current_objective, last_objective)
         assert not current_objective > last_objective + 1e-6
         last_objective = current_objective
-        if not current_objective >= best_objective:
-            best_objective, best_iteration = current_objective, iiter
+        if current_objective < best_objective:
+            best_objective, best_iteration = current_objective, global_iteration
 
-        if stop_flag:
+        if globally_converged:
             break
 
     del weight_model
 
-    XT = np.maximum(total_metagene_expressions, 1e-15) * normalized_XT
+    # Enforce positivity constraint on S
+    XT = np.maximum(S, 1e-15) * ZT
+    
     return XT
