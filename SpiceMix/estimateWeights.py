@@ -316,7 +316,7 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
 
             sys.stdout.flush()
 
-        # print(current_objective, last_objective)
+        # TODO: do we need this assertion still?
         assert not current_objective > last_objective + 1e-6
         last_objective = current_objective
         if current_objective < best_objective:

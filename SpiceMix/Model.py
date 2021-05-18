@@ -15,7 +15,7 @@ from estimateParameters import estimateParametersX, estimateParametersY
 
 class Model:
     def __init__(self, path2dataset, repli_list, use_spatial, neighbor_suffix, expression_suffix, K,
-                 lambda_sigma_x_inverse, betas, prior_x_modes, result_filename=None, PyTorch_device='cpu', num_processes=1):
+                 lambda_sigma_x_inverse, betas, prior_x_modes, result_filename, PyTorch_device='cpu', num_processes=1):
 
         self.PyTorch_device = PyTorch_device
         self.num_processes = num_processes
@@ -38,10 +38,9 @@ class Model:
         self.sigma_yx_inverse_mode = 'average'
         self.pairwise_potential_mode = 'normalized'
 
-        if result_filename:
-            os.makedirs(self.path2dataset / 'results', exist_ok=True)
-            self.result_filename = self.path2dataset / 'results' / result_filename
-            logging.info(f'{print_datetime()}result file = {self.result_filename}')
+        os.makedirs(self.path2dataset / 'results', exist_ok=True)
+        self.result_filename = self.path2dataset / 'results' / result_filename
+        logging.info(f'{print_datetime()}result file = {self.result_filename}')
 
         self.saveHyperparameters()
 
@@ -141,26 +140,24 @@ class Model:
     def estimateWeights(self, iiter):
         logging.info(f'{print_datetime()}Updating latent states')
 
-        assert self.X_constraint == 'none'
-        assert self.pairwise_potential_mode == 'normalized'
-
-        rXTs = []
+        updated_XTs = []
         with Pool(min(self.num_processes, self.num_repli)) as pool:
             for replicate in range(self.num_repli):
                 print("Encountering Es_empty")
                 if self.Es_empty[replicate]:
-                    rXTs.append(pool.apply_async(estimate_weights_no_neighbors, args=(
+                    updated_XTs.append(pool.apply_async(estimate_weights_no_neighbors, args=(
                         self.YTs[replicate],
                         self.M[:self.Gs[replicate]], self.XTs[replicate], self.prior_x_parameter_sets[replicate], self.sigma_yx_inverses[replicate],
                         self.X_constraint, self.dropout_mode, i,
                     )))
                 else:
-                    rXTs.append(pool.apply_async(estimate_weights_icm, args=(
+                    updated_XTs.append(pool.apply_async(estimate_weights_icm, args=(
                         self.YTs[replicate], self.Es[replicate],
                         self.M[:self.Gs[replicate]], self.XTs[replicate], self.prior_x_parameter_sets[replicate], self.sigma_yx_inverses[replicate], self.sigma_x_inverse,
                         self.X_constraint, self.dropout_mode, self.pairwise_potential_mode, replicate,
                     )))
-            self.XTs = [new_XT.get(1e9) if isinstance(new_XT, multiprocessing.pool.ApplyResult) else new_XT for new_XT in rXTs]
+            # TODO: is this line necessary? Seems like the results will always be of type ApplyResult
+            self.XTs = [updated_XT.get(1e9) if isinstance(updated_XT, multiprocessing.pool.ApplyResult) else updated_XT for updated_XT in updated_XTs]
         pool.join()
 
         self.saveWeights(iiter=iiter)
@@ -169,9 +166,8 @@ class Model:
         logging.info(f'{print_datetime()}Updating model parameters')
 
         self.Q = 0
-        if self.pairwise_potential_mode == 'normalized' and all(
-                prior_x[0] in ['Exponential', 'Exponential shared', 'Exponential shared fixed']
-                for prior_x in self.prior_x_parameter_sets):
+        if self.pairwise_potential_mode == 'normalized' and \
+            all(prior_x[0] in ('Exponential', 'Exponential shared', 'Exponential shared fixed') for prior_x in self.prior_x_parameter_sets):
             # pool = Pool(1)
             # Q_Y = pool.apply_async(estimateParametersY, args=([self])).get(1e9)
             # pool.close()
@@ -193,8 +189,8 @@ class Model:
         return iiter % 10 != 0
 
     def saveHyperparameters(self):
-        if self.result_filename is None: return
-
+        # if self.result_filename is None: return
+        #
         with h5py.File(self.result_filename, 'w') as f:
             f['hyperparameters/repli_list'] = [_.encode('utf-8') for _ in self.repli_list]
             for k in ['prior_x_modes']:
@@ -204,8 +200,8 @@ class Model:
                 f[f'hyperparameters/{k}'] = encode4h5(getattr(self, k))
 
     def saveWeights(self, iiter):
-        if self.result_filename is None:
-            return
+        # if self.result_filename is None:
+        #     return
         if self.skipSaving(iiter):
             return
 
@@ -218,7 +214,8 @@ class Model:
         f.close()
 
     def saveParameters(self, iiter):
-        if self.result_filename is None: return
+        # if self.result_filename is None:
+        #     return
         if self.skipSaving(iiter): return 
         f = openH5File(self.result_filename)
         if f is None: return
@@ -238,8 +235,8 @@ class Model:
 
 
     def saveProgress(self, iiter):
-        if self.result_filename is None:
-            return
+        # if self.result_filename is None:
+        #     return
 
         f = openH5File(self.result_filename)
         if f is None:
