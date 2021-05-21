@@ -150,6 +150,7 @@
 <dt id="estimateWeights.estimate_weights_icm">
 <code class="sig-prename descclassname"><span class="pre">estimateWeights.</span></code><code class="sig-name descname"><span class="pre">estimate_weights_icm</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">YT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">E</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">XT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x_parameter_set</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_yx_inverse</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_x_inverse</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X_constraint</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pairwise_potential_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#estimateWeights.estimate_weights_icm" title="Permalink to this definition">¶</a></dt>
 <dd><p>Estimate weights for a single replicate in the SpiceMix model using the Iterated Conditional Model (ICM).</p>
+<p class="rubric">Notes</p>
 <div class="math-wrapper"><div class="math notranslate nohighlight">
 \[ \begin{align}\begin{aligned}\hat{X}_{\text{MAP}} = \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right}\\s_i = \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i}
 z_i = \frac{}{}\end{aligned}\end{align} \]</div></div>
@@ -161,7 +162,7 @@ z_i = \frac{}{}\end{aligned}\end{align} \]</div></div>
 <li><p><strong>E</strong> – adjacency list for neighborhood graph in this replicate</p></li>
 <li><p><strong>M</strong> – current estimate of metagene matrix, with shape (num_genes, num_metagenes)</p></li>
 <li><p><strong>XT</strong> – transpose of weight matrix, with shape (num_cells, num_metagenes)</p></li>
-<li><p><strong>prior_x_parameter_set</strong> – set of parameters defining prior distribution on weights, with structure (prior_x_mode, <a href="#id1"><span class="problematic" id="id2">*</span></a>prior_x_parameters)</p></li>
+<li><p><strong>prior_x_parameter_set</strong> – set of parameters defining prior distribution on weights, with structure (prior_x_mode, ∗prior_x_parameters)</p></li>
 <li><p><strong>sigma_yx_inverse</strong> – TODO</p></li>
 <li><p><strong>sigma_x_inverse</strong> – inverse of metagene affinity matrix</p></li>
 <li><p><strong>X_constraint</strong> – constraint on elements of weight matrix</p></li>
