@@ -152,9 +152,10 @@
 <dd><p>Estimate weights for a single replicate in the SpiceMix model using the Iterated Conditional Model (ICM).</p>
 <p class="rubric">Notes</p>
 <div class="math-wrapper"><div class="math notranslate nohighlight">
-\[ \begin{align}\begin{aligned}\begin{split}\hat{X}_{\text{MAP}} &amp;= \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right} \\\end{split}\\\begin{split}s_i &amp;= \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i} \\
-z_i &amp;= \frac{}{}\end{split}\end{aligned}\end{align} \]</div></div>
-<p>We write XT in terms of size factors S such that XT = S * ZT.</p>
+\hat{X}_{\text{MAP}} &amp;= \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right} \\
+
+s_i &amp;= \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i} \\
+z_i &amp;= \frac{}{}</div></div><p>We write XT in terms of size factors S such that XT = S * ZT.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
