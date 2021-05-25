@@ -85,7 +85,8 @@ class Model:
             for replicate, num_nodes, u in zip(self.repli_list, self.Ns, self.use_spatial)
         ]
 
-        self.Es_empty = [sum(map(len, E)) == 0 for E in self.Es]
+        self.total_edge_counts = [sum(map(len, E)) for E in self.Es]
+        # self.Es_empty = [sum(map(len, E)) == 0 for E in self.Es]
 
     def initialize(self, random_seed4kmeans, initial_nmf_iterations=5, sigma_x_inverse_mode='Constant'):
         logging.info(f'{print_datetime()}Initialization begins')
@@ -103,7 +104,7 @@ class Model:
         # sigma_yx is estimated from XT and M
         self.M, self.XTs, self.sigma_yx_inverses, self.prior_x_parameter_sets = partial_nmf(self, prior_x_modes=self.prior_x_modes, initial_nmf_iterations=initial_nmf_iterations)
     
-        if all(self.Es_empty): 
+        if sum(self.total_edge_counts) == 0: 
             sigma_x_inverse_mode = 'Constant'
     
         self.sigma_x_inverse = initialize_sigma_x_inverse(self.K, self.XTs, self.Es, self.betas, sigma_x_inverse_mode=sigma_x_inverse_mode)
@@ -143,12 +144,12 @@ class Model:
         updated_XTs = []
         with Pool(min(self.num_processes, self.num_repli)) as pool:
             for replicate in range(self.num_repli):
-                print("Encountering Es_empty")
-                if self.Es_empty[replicate]:
+                print("Encountering neighbor check")
+                if self.total_edge_counts[replicate] == 0:
                     updated_XTs.append(pool.apply_async(estimate_weights_no_neighbors, args=(
                         self.YTs[replicate],
                         self.M[:self.Gs[replicate]], self.XTs[replicate], self.prior_x_parameter_sets[replicate], self.sigma_yx_inverses[replicate],
-                        self.X_constraint, self.dropout_mode, i,
+                        self.X_constraint, self.dropout_mode, replicate,
                     )))
                 else:
                     updated_XTs.append(pool.apply_async(estimate_weights_icm, args=(
@@ -156,6 +157,7 @@ class Model:
                         self.M[:self.Gs[replicate]], self.XTs[replicate], self.prior_x_parameter_sets[replicate], self.sigma_yx_inverses[replicate], self.sigma_x_inverse,
                         self.X_constraint, self.dropout_mode, self.pairwise_potential_mode, replicate,
                     )))
+
             # TODO: is this line necessary? Seems like the results will always be of type ApplyResult
             self.XTs = [updated_XT.get(1e9) if isinstance(updated_XT, multiprocessing.pool.ApplyResult) else updated_XT for updated_XT in updated_XTs]
         pool.join()
@@ -167,7 +169,7 @@ class Model:
 
         self.Q = 0
         if self.pairwise_potential_mode == 'normalized' and \
-            all(prior_x[0] in ('Exponential', 'Exponential shared', 'Exponential shared fixed') for prior_x in self.prior_x_parameter_sets):
+            all(prior_x_mode in ('Exponential', 'Exponential shared', 'Exponential shared fixed') for prior_x_mode, *_ in self.prior_x_parameter_sets):
             # pool = Pool(1)
             # Q_Y = pool.apply_async(estimateParametersY, args=([self])).get(1e9)
             # pool.close()

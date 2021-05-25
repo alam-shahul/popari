@@ -39,9 +39,9 @@ def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inv
     if dropout_mode == 'raw':
         # MTM = M.T @ M * (sigma_yx_inverse**2 / 2.)
         MTM = (M.T @ M + 1e-6 * np.eye(num_metagenes)) * (sigma_yx_inverse ** 2 / 2.)
-        shared_objective += grb.quicksum([weight_variables[index] * MTM[index, i] * weight_variables[index] for i in range(num_metagenes)])
+        shared_objective += grb.quicksum([weight_variables[index] * MTM[index, index] * weight_variables[index] for index in range(num_metagenes)])
         MTM *= 2
-        shared_objective += grb.quicksum([weight_variables[index] * MTM[index, j] * weight_variables[j] for i in range(num_metagenes) for j in range(i+1, num_metagenes)])
+        shared_objective += grb.quicksum([weight_variables[index] * MTM[index, j] * weight_variables[j] for index in range(num_metagenes) for j in range(i+1, num_metagenes)])
         
         del MTM
         YTM = YT @ M * (-sigma_yx_inverse ** 2)
@@ -66,7 +66,7 @@ def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inv
         raise NotImplementedError
 
     for cell_index, (y, yTM) in enumerate(zip(YT, YTM)):
-        objective = shared_objective + grb.quicksum(yTM[index]*weight_variables[metagene] for metagene in range(num_metagenes)) + np.dot(y, y) * sigma_yx_inverse / 2.
+        objective = shared_objective + grb.quicksum(yTM[metagene] * weight_variables[metagene] for metagene in range(num_metagenes)) + np.dot(y, y) * sigma_yx_inverse / 2.
         weight_model.setObjective(objective, grb.GRB.MINIMIZE)
         weight_model.optimize()
         updated_XT[cell_index] = [weight_variables[metagene].x for metagene in range(num_metagenes)]
@@ -76,21 +76,25 @@ def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inv
     return updated_XT
 
 def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, sigma_x_inverse, X_constraint, dropout_mode, pairwise_potential_mode, replicate):
-    """Estimate weights for a single replicate in the SpiceMix model using the Iterated Conditional Model (ICM).
+    r"""Estimate weights for a single replicate in the SpiceMix model using the Iterated Conditional Model (ICM).
 
-    .. math::
-        \hat{X}_{\text{MAP}} = \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right}
+    Notes:
+        .. math::
+           :nowrap:
 
-        s_i = \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i}
-        z_i = \frac{}{}
-    We write XT in terms of size factors S such that XT = S * ZT.
+           \hat{X}_{\text{MAP}} &= \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right} \\
+
+           s_i &= \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i} \\
+           z_i &= \frac{}{}
+
+        We write XT in terms of size factors S such that XT = S * ZT.
 
     Args:
         YT: transpose of gene expression matrix for replicate, with shape (num_cells, num_genes)
         E: adjacency list for neighborhood graph in this replicate
         M: current estimate of metagene matrix, with shape (num_genes, num_metagenes)
         XT: transpose of weight matrix, with shape (num_cells, num_metagenes)
-        prior_x_parameter_set: set of parameters defining prior distribution on weights, with structure (prior_x_mode, *prior_x_parameters)
+        prior_x_parameter_set: set of parameters defining prior distribution on weights, with structure (prior_x_mode, ∗prior_x_parameters)
         sigma_yx_inverse: TODO
         sigma_x_inverse: inverse of metagene affinity matrix
         X_constraint: constraint on elements of weight matrix
@@ -295,7 +299,7 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
         # force_show_flag |= np.abs(dZT).max() > 1-1e-5
 
         if global_iteration % 5 == 0 or globally_converged or force_show_flag:
-            print(f'>{replicate} current_objective at iter {global_iteration} = {current_objective:.2e},\tdiff = {np.abs(dZT).max():.2e}\t{np.abs(dS).max():.2e}\t{current_objective - last_objective:.2e}')
+            print(f'>{replicate} current_objective at iteration {global_iteration} = {current_objective:.2e},\tdiff = {np.abs(dZT).max():.2e}\t{np.abs(dS).max():.2e}\t{current_objective - last_objective:.2e}')
 
             print(
                 f'ZT summary statistics: '
