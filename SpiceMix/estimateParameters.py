@@ -137,6 +137,8 @@ def estimateParametersY(self, max_iteration=10):
 def estimateParametersX(self, iteration, torch_dtype=torch.double):
     """Estimate model parameters that depend on X, 
 
+    Can operate in two modes: either using PyTorch's backward method, or using custom gradients.
+
     .. math::
                 
 

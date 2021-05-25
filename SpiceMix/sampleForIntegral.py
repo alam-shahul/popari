@@ -595,13 +595,13 @@ def integrate_over_simplex(beta_i_tensor, grad=None, requires_grad=False, device
 
         for m in range(1, num_taylor_terms):
             f = f + beta_i_tensor.log()
-            toffset = f.max(-1, keepdim=True)[0]
-            f = f.sub(toffset).exp().cumsum(dim=-1).log().add(toffset)
+            offset_tensor = f.max(-1, keepdim=True)[0]
+            f = f.sub(offset_tensor).exp().cumsum(dim=-1).log().add(offset_tensor)
             tret[m].copy_(f[:, -1])
 
         tret = tret.sub(log_gamma_tensor[:, None])
-        toffset = tret.max(0, keepdim=True)[0]
-        tret = tret.sub(toffset).exp().sum(0).log().add(toffset.squeeze(0)).sub(beta_i_tensor_offset.squeeze(-1))
+        offset_tensor = tret.max(0, keepdim=True)[0]
+        tret = tret.sub(offset_tensor).exp().sum(0).log().add(offset_tensor.squeeze(0)).sub(beta_i_tensor_offset.squeeze(-1))
     else:
         beta_i_tensor_grad = beta_i_tensor.grad
         beta_i_tensor = -(beta_i_tensor - beta_i_tensor_offset)
@@ -614,21 +614,22 @@ def integrate_over_simplex(beta_i_tensor, grad=None, requires_grad=False, device
         # cont = 0
         # print(num_taylor_terms)
         for beta_i_tensor_chunk, beta_i_tensor_grad_chunk, tret_chunk in zip(beta_i_tensor.split(chunk_size, 0), beta_i_tensor.grad.split(chunk_size, 0), tret.split(chunk_size, 0)):
-            num_cells = len(beta_i_tensor_chunk)
+            actual_chunk_size = len(beta_i_tensor_chunk)
             log_beta_i_tensor_chunk = beta_i_tensor_chunk.log()
-            taylor_terms_tensor = torch.zeros([num_taylor_terms, num_cells], dtype=dtype, device=device)
-            grad_tensor = torch.full([num_taylor_terms, num_cells, num_metagenes], -np.inf, dtype=dtype, device=device)
-            f = torch.zeros([num_cells, num_metagenes], dtype=dtype, device=device)
-            g = torch.full([num_cells, num_metagenes, num_metagenes], -np.inf, dtype=dtype, device=device)
+            taylor_terms_tensor = torch.zeros([num_taylor_terms, actual_chunk_size], dtype=dtype, device=device)
+            grad_tensor = torch.full([num_taylor_terms, actual_chunk_size, num_metagenes], -np.inf, dtype=dtype, device=device)
+            taylor_term = torch.zeros([actual_chunk_size, num_metagenes], dtype=dtype, device=device)
+            taylor_term_gradient = torch.full([actual_chunk_size, num_metagenes, num_metagenes], -np.inf, dtype=dtype, device=device)
             for degree in range(1, num_taylor_terms):
                 # cont += 1
-                g = g.add(log_beta_i_tensor_chunk[:, None, :])
-                gd = g.view(num_cells, num_metagenes**2)[:, ::num_metagenes+1]
-                toffset = torch.max(gd, f)
-                toffset[toffset == -np.inf] = 0
-                assert (toffset != -np.inf).all()
-                # gd = ((gd - toffset).exp() + (f - toffset).exp()).log() + toffset
-                gd.sub_(toffset).exp_().add_(f.sub(toffset).exp_())
+                taylor_term_gradient = taylor_term_gradient.add(log_beta_i_tensor_chunk[:, None, :])
+                # TODO: this +1 in the below line can't be right... shouldn't it just be stride = num_metagenes?
+                gd = taylor_term_gradient.view(actual_chunk_size, num_metagenes**2)[:, ::num_metagenes+1]
+                offset_tensor = torch.max(gd, taylor_term)
+                offset_tensor[offset_tensor == -np.inf] = 0
+                assert (offset_tensor != -np.inf).all()
+                # gd = ((gd - offset_tensor).exp() + (f - offset_tensor).exp()).log() + offset_tensor
+                gd.sub_(offset_tensor).exp_().add_(taylor_term.sub(offset_tensor).exp_())
                 # print(cont)
                 # print(gd.log()[0])
                 # result = gd.log()
@@ -640,23 +641,23 @@ def integrate_over_simplex(beta_i_tensor, grad=None, requires_grad=False, device
                 # if cont % 5 == 0:
                 #     2/0
                 
-                gd += toffset
+                gd += offset_tensor
 
-                toffset = g.max(-1, keepdim=True)[0]
-                assert (toffset != -np.inf).all()
-                g = g.sub_(toffset).exp_().cumsum(dim=-1).log_().add_(toffset)
-                grad_tensor[degree] = g[:, :, -1]
+                offset_tensor = taylor_term_gradient.max(-1, keepdim=True)[0]
+                assert (offset_tensor != -np.inf).all()
+                taylor_term_gradient = (taylor_term_gradient - offset_tensor).exp().cumsum(dim=-1).log() + offset_tensor
+                grad_tensor[degree] = taylor_term_gradient[:, :, -1]
 
-                f.add_(log_beta_i_tensor_chunk)
-                toffset = f.max(-1, keepdim=True)[0]
-                f = (f - toffset).exp().cumsum(dim=-1).log() + toffset
-                taylor_terms_tensor[degree] = f[:, -1]
+                taylor_term += log_beta_i_tensor_chunk
+                offset_tensor = taylor_term.max(dim=-1, keepdim=True)[0]
+                taylor_term = (taylor_term - offset_tensor).exp().cumsum(dim=-1).log() + offset_tensor
+                taylor_terms_tensor[degree] = taylor_term[:, -1]
 
             taylor_terms_tensor -= log_gamma_tensor[:, None]
-            toffset = taylor_terms_tensor.max(0, keepdim=True)[0]
-            # taylor_terms_tensor = (taylor_terms_tensor - toffset).exp()
-            # tret_chunk = taylor_terms_tensor.sum(dim=0).log() + toffset.squeeze(dim=0)
-            tret_chunk.copy_(taylor_terms_tensor.sub_(toffset).exp_().sum(0)).log_().add_(toffset.squeeze(0))
+            offset_tensor = taylor_terms_tensor.max(0, keepdim=True)[0]
+            # taylor_terms_tensor = (taylor_terms_tensor - offset_tensor).exp()
+            # tret_chunk = taylor_terms_tensor.sum(dim=0).log() + offset_tensor.squeeze(dim=0)
+            tret_chunk.copy_(taylor_terms_tensor.sub_(offset_tensor).exp_().sum(0)).log_().add_(offset_tensor.squeeze(0))
 
             grad_tensor -= log_gamma_tensor[:, None, None]
             beta_i_tensor_grad_chunk -= grad * (grad_tensor - tret_chunk[None, :, None]).exp().sum(dim=0)
