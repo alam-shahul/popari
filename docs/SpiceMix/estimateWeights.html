@@ -152,10 +152,9 @@
 <dd><p>Estimate weights for a single replicate in the SpiceMix model using the Iterated Conditional Model (ICM).</p>
 <p class="rubric">Notes</p>
 <div class="math-wrapper"><div class="math notranslate nohighlight">
-\hat{X}_{\text{MAP}} &amp;= \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right} \\
-
-s_i &amp;= \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i} \\
-z_i &amp;= \frac{}{}</div></div><p>We write XT in terms of size factors S such that XT = S * ZT.</p>
+\[ \begin{align}\begin{aligned}\begin{split}\hat{X}_{\text{MAP}} &amp;= \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right} \\\end{split}\\\begin{split}s_i &amp;= \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i} \\
+z_i &amp;= \frac{}{}\end{split}\end{aligned}\end{align} \]</div></div>
+<p>We write XT in terms of size factors S such that XT = S * ZT.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
@@ -180,7 +179,7 @@ z_i &amp;= \frac{}{}</div></div><p>We write XT in terms of size factors S such t
 <dt id="estimateWeights.estimate_weights_no_neighbors">
 <code class="sig-prename descclassname"><span class="pre">estimateWeights.</span></code><code class="sig-name descname"><span class="pre">estimate_weights_no_neighbors</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">YT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">XT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x_parameter_set</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_yx_inverse</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X_constraint</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#estimateWeights.estimate_weights_no_neighbors" title="Permalink to this definition">¶</a></dt>
 <dd><p>Estimate weights for a single replicate in the SpiceMix model without considering neighbors.</p>
-<p>This is essentially a benchmarking convenience function, and should return similar results to running vanilla NMF</p>
+<p>This is essentially a benchmarking convenience function, and should return similar results to running vanilla NMF.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">

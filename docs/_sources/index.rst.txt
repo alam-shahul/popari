@@ -11,7 +11,7 @@ Welcome to SpiceMix's documentation!
    :caption: Contents:
    :glob:
 
-   SpiceMix/*
+   ../SpiceMix/*
 
 Indices and tables
 ==================
