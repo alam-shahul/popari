@@ -10,9 +10,9 @@ from scipy.special import erf, loggamma
 from util import PyTorchDType as dtype
 
 n_cache = 2**14
-tLogGamma_cache = None
+precomputed_log_gamma_tensor = None
 tarange = None
-# tLogGamma_cache = torch.tensor(loggamma(np.arange(1, n_cache)), dtype=dtype, device=device)
+# precomputed_log_gamma_tensor = torch.tensor(loggamma(np.arange(1, n_cache)), dtype=dtype, device=device)
 # tarange = torch.arange(n_cache, dtype=dtype, device=device)
 
 
@@ -420,7 +420,7 @@ def integrateOfExponentialOverSimplexInduction(teta, grad=None, requires_grad=Fa
         tetas = teta
         trets = []
         tidx = tarange[D-1: D+nterm-1]
-        tlg = tLogGamma_cache[D-1: D+nterm-1]
+        tlg = precomputed_log_gamma_tensor[D-1: D+nterm-1]
         for teta in tetas.split(chunk_size, 0):
         # tret = trets
         # teta = tetas
@@ -494,7 +494,7 @@ def integrateOfExponentialOverSimplexInduction(teta, grad=None, requires_grad=Fa
         tetas = teta
         trets = torch.empty(len(teta), dtype=dtype, device=device)
         tidx = tarange[D-1:D+nterm-1]
-        tlg = tLogGamma_cache[D-1: D+nterm-1]
+        tlg = precomputed_log_gamma_tensor[D-1: D+nterm-1]
         for tret, teta, teta_grad in zip(trets.split(chunk_size, 0), tetas.split(chunk_size, 0), tetas.grad.split(chunk_size, 0)):
             A = torch.empty([len(teta), D], dtype=dtype, device=device)
             Asign = torch.empty_like(A)
@@ -564,26 +564,33 @@ def integrateOfExponentialOverSimplexInduction(teta, grad=None, requires_grad=Fa
     return tret
 
 
-def integrate_over_simplex(beta_i_tensor, grad=None, requires_grad=False, device='cpu'):
+def integrate_over_simplex(beta_i_tensor, grad=None, requires_grad=False, device='cpu', precomputed_log_gamma_tensor=None):
+    """Approximate the integral of the partition function over the simplex using Taylor approximation.
+
+    Todo:
+        Figure out how this works.
+
+    Args:
+        beta_i_tensor:
+        grad:
+        required_grad:
+        device:
+    
+    """
+    
+    num_cells, num_metagenes = beta_i_tensor.shape
+    
     if grad is None:
         grad = torch.tensor([1.], dtype=dtype, device=device)
-    num_cells, num_metagenes = beta_i_tensor.shape
 
-    # TODO: why is this global...?
-    global tLogGamma_cache, tarange
-    if tLogGamma_cache is None:
-        tLogGamma_cache = torch.tensor(loggamma(np.arange(1, n_cache)), dtype=dtype, device=device)
-    if tarange is None:
-        tarange = torch.arange(n_cache, dtype=dtype, device=device)
+    if precomputed_log_gamma_tensor is None:
+        precomputed_log_gamma_tensor = torch.tensor(loggamma(np.arange(1, n_cache)), dtype=dtype, device=device)
 
     beta_i_tensor_offset = beta_i_tensor.max(axis=-1, keepdim=True)[0] + 1e-5
-    # nterm = 256
     sigma_x_inverse_range = (beta_i_tensor.max() - beta_i_tensor.min()).item()
     num_taylor_terms = int(max(sigma_x_inverse_range+10, sigma_x_inverse_range*1.1))
 
-    if num_metagenes + num_taylor_terms-1 > len(tLogGamma_cache):
-        raise ValueError('Please increase the value of n_cache')
-    log_gamma_tensor = tLogGamma_cache[num_metagenes-1: num_metagenes+num_taylor_terms-1]
+    log_gamma_tensor = precomputed_log_gamma_tensor[num_metagenes-1: num_metagenes+num_taylor_terms-1]
 
     if requires_grad:
         beta_i_tensor = beta_i_tensor - beta_i_tensor_offset
@@ -591,29 +598,27 @@ def integrate_over_simplex(beta_i_tensor, grad=None, requires_grad=False, device
         # beta_i_tensor = beta_i_tensor.sort()[0]
 
         f = torch.zeros([num_cells, num_metagenes], dtype=dtype, device=device)
-        tret = torch.zeros([num_taylor_terms, num_cells], dtype=dtype, device=device)
+        integral_tensor = torch.zeros([num_taylor_terms, num_cells], dtype=dtype, device=device)
 
         for m in range(1, num_taylor_terms):
             f = f + beta_i_tensor.log()
             offset_tensor = f.max(-1, keepdim=True)[0]
             f = f.sub(offset_tensor).exp().cumsum(dim=-1).log().add(offset_tensor)
-            tret[m].copy_(f[:, -1])
+            integral_tensor[m].copy_(f[:, -1])
 
-        tret = tret.sub(log_gamma_tensor[:, None])
-        offset_tensor = tret.max(0, keepdim=True)[0]
-        tret = tret.sub(offset_tensor).exp().sum(0).log().add(offset_tensor.squeeze(0)).sub(beta_i_tensor_offset.squeeze(-1))
+        integral_tensor = integral_tensor.sub(log_gamma_tensor[:, None])
+        offset_tensor = integral_tensor.max(0, keepdim=True)[0]
+        integral_tensor = integral_tensor.sub(offset_tensor).exp().sum(0).log().add(offset_tensor.squeeze(0)).sub(beta_i_tensor_offset.squeeze(-1))
     else:
         beta_i_tensor_grad = beta_i_tensor.grad
         beta_i_tensor = -(beta_i_tensor - beta_i_tensor_offset)
         beta_i_tensor.grad = beta_i_tensor_grad
 
-        tret = torch.empty(num_cells, dtype=dtype, device=device)
+        integral_tensor = torch.empty(num_cells, dtype=dtype, device=device)
 
         # Operate on chunks of 32 cells at a time
         chunk_size = 32
-        # cont = 0
-        # print(num_taylor_terms)
-        for beta_i_tensor_chunk, beta_i_tensor_grad_chunk, tret_chunk in zip(beta_i_tensor.split(chunk_size, 0), beta_i_tensor.grad.split(chunk_size, 0), tret.split(chunk_size, 0)):
+        for beta_i_tensor_chunk, beta_i_tensor_grad_chunk, integral_tensor_chunk in zip(beta_i_tensor.split(chunk_size, 0), beta_i_tensor.grad.split(chunk_size, 0), integral_tensor.split(chunk_size, 0)):
             actual_chunk_size = len(beta_i_tensor_chunk)
             log_beta_i_tensor_chunk = beta_i_tensor_chunk.log()
             taylor_terms_tensor = torch.zeros([num_taylor_terms, actual_chunk_size], dtype=dtype, device=device)
@@ -621,27 +626,15 @@ def integrate_over_simplex(beta_i_tensor, grad=None, requires_grad=False, device
             taylor_term = torch.zeros([actual_chunk_size, num_metagenes], dtype=dtype, device=device)
             taylor_term_gradient = torch.full([actual_chunk_size, num_metagenes, num_metagenes], -np.inf, dtype=dtype, device=device)
             for degree in range(1, num_taylor_terms):
-                # cont += 1
-                taylor_term_gradient = taylor_term_gradient.add(log_beta_i_tensor_chunk[:, None, :])
-                # TODO: this +1 in the below line can't be right... shouldn't it just be stride = num_metagenes?
-                gd = taylor_term_gradient.view(actual_chunk_size, num_metagenes**2)[:, ::num_metagenes+1]
-                offset_tensor = torch.max(gd, taylor_term)
+                taylor_term_gradient += log_beta_i_tensor_chunk[:, None, :]
+                
+                # Stepping with stride num_metagenes+1 retrieves the diagonal from the gradient tensor
+                gradient_diagonal = taylor_term_gradient.view(actual_chunk_size, num_metagenes**2)[:, ::num_metagenes+1]
+                
+                offset_tensor = torch.max(gradient_diagonal, taylor_term)
                 offset_tensor[offset_tensor == -np.inf] = 0
                 assert (offset_tensor != -np.inf).all()
-                # gd = ((gd - offset_tensor).exp() + (f - offset_tensor).exp()).log() + offset_tensor
-                gd.sub_(offset_tensor).exp_().add_(taylor_term.sub(offset_tensor).exp_())
-                # print(cont)
-                # print(gd.log()[0])
-                # result = gd.log()
-                gd_grad = gd.grad
-                gd.log_()
-                gd.grad = gd_grad
-                # print(result[0])
-                # print(gd[0])
-                # if cont % 5 == 0:
-                #     2/0
-                
-                gd += offset_tensor
+                gradient_diagonal.copy_(((gradient_diagonal - offset_tensor).exp() + (taylor_term - offset_tensor).exp()).log() + offset_tensor)
 
                 offset_tensor = taylor_term_gradient.max(-1, keepdim=True)[0]
                 assert (offset_tensor != -np.inf).all()
@@ -655,17 +648,16 @@ def integrate_over_simplex(beta_i_tensor, grad=None, requires_grad=False, device
 
             taylor_terms_tensor -= log_gamma_tensor[:, None]
             offset_tensor = taylor_terms_tensor.max(0, keepdim=True)[0]
-            # taylor_terms_tensor = (taylor_terms_tensor - offset_tensor).exp()
-            # tret_chunk = taylor_terms_tensor.sum(dim=0).log() + offset_tensor.squeeze(dim=0)
-            tret_chunk.copy_(taylor_terms_tensor.sub_(offset_tensor).exp_().sum(0)).log_().add_(offset_tensor.squeeze(0))
+            taylor_terms_tensor = (taylor_terms_tensor - offset_tensor).exp()
+            integral_tensor_chunk.copy_(taylor_terms_tensor.sum(dim=0).log() + offset_tensor.squeeze(dim=0))
 
             grad_tensor -= log_gamma_tensor[:, None, None]
-            beta_i_tensor_grad_chunk -= grad * (grad_tensor - tret_chunk[None, :, None]).exp().sum(dim=0)
+            beta_i_tensor_grad_chunk -= grad * (grad_tensor - integral_tensor_chunk[None, :, None]).exp().sum(dim=0)
 
-        tret -= beta_i_tensor_offset.squeeze(-1)
+        integral_tensor -= beta_i_tensor_offset.squeeze(-1)
         beta_i_tensor.neg_().add_(beta_i_tensor_offset)
 
-    return tret
+    return integral_tensor
 
 def integrateOfExponentialOverSimplexSampling(teta, grad=None, requires_grad=False, seed=None, device='cpu'):
     # if grad is None: grad = torch.tensor([1.], dtype=dtype, device=device)

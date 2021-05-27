@@ -10,21 +10,34 @@ import torch
 
 from load_data import load_expression, load_edges
 from initialization import initialize_M_by_kmeans, initialize_sigma_x_inverse, partial_nmf
-from estimateWeights import estimate_weights_icm, estimate_weights_no_neighbors
-from estimateParameters import estimateParametersX, estimateParametersY
+from estimate_weights import estimate_weights_icm, estimate_weights_no_neighbors
+from estimate_parameters import estimate_parameters_x, estimate_parameters_y
 
-class Model:
-    def __init__(self, path2dataset, repli_list, use_spatial, neighbor_suffix, expression_suffix, K,
-                 lambda_sigma_x_inverse, betas, prior_x_modes, result_filename, PyTorch_device='cpu', num_processes=1):
+class SpiceMix:
+    """SpiceMix optimization model.
 
-        self.PyTorch_device = PyTorch_device
+    Provides state and functions to fit spatial transcriptomics data using the NMF-HMRF model. Can support multiple
+    fields-of-view (FOVs).
+
+    Attributes:
+        device: device to use for PyTorch operations
+        num_processes: number of parallel processes to use for optimizing weights (should be <= #FOVs)
+        replicate_names: names of replicates/FOVs in input dataset
+
+        TODO: finish docstring
+    """
+
+    def __init__(self, path2dataset, replicate_names, use_spatial, neighbor_suffix, expression_suffix, K,
+                 lambda_sigma_x_inverse, betas, prior_x_modes, result_filename, device='cpu', num_processes=1):
+
+        self.device = device
         self.num_processes = num_processes
 
         self.path2dataset = Path(path2dataset)
-        self.repli_list = repli_list
+        self.replicate_names = replicate_names
         self.use_spatial = use_spatial
-        self.num_repli = len(self.repli_list)
-        assert len(self.repli_list) == len(self.use_spatial)
+        self.num_repli = len(self.replicate_names)
+        assert len(self.replicate_names) == len(self.use_spatial)
         self.load_dataset(neighbor_suffix=neighbor_suffix, expression_suffix=expression_suffix)
 
         self.K = K
@@ -52,7 +65,7 @@ class Model:
     def load_dataset(self, neighbor_suffix=None, expression_suffix=None):
         """Load spatial transcriptomics data from relevant filepaths.
 
-        This function is called during the initialization of any Model object, and it
+        This function is called during the initialization of any SpiceMix object, and it
         sets important attributes that will be used during the SpiceMix optimization.
 
         Args:
@@ -64,7 +77,7 @@ class Model:
         expression_suffix = parseSuffix(expression_suffix)
 
         self.YTs = []
-        for replicate in self.repli_list:
+        for replicate in self.replicate_names:
             # TODO: is it necessary to allow multiple extensions, or can we require that the expression data are
             # in .txt files?
             for extension in ['txt', 'pkl', 'pickle']:
@@ -82,13 +95,13 @@ class Model:
         self.Es = [
             load_edges(self.path2dataset / 'files' / f'neighborhood_{replicate}{neighbor_suffix}.txt', num_nodes)
             if u else [[] for _ in range(num_nodes)]
-            for replicate, num_nodes, u in zip(self.repli_list, self.Ns, self.use_spatial)
+            for replicate, num_nodes, u in zip(self.replicate_names, self.Ns, self.use_spatial)
         ]
 
         self.total_edge_counts = [sum(map(len, E)) for E in self.Es]
         # self.Es_empty = [sum(map(len, E)) == 0 for E in self.Es]
 
-    def initialize(self, random_seed4kmeans, initial_nmf_iterations=5, sigma_x_inverse_mode='Constant'):
+    def initialize_weights_and_parameters(self, random_seed4kmeans, initial_nmf_iterations=5, sigma_x_inverse_mode='Constant'):
         logging.info(f'{print_datetime()}Initialization begins')
         
         # initialize M
@@ -108,6 +121,7 @@ class Model:
             sigma_x_inverse_mode = 'Constant'
     
         self.sigma_x_inverse = initialize_sigma_x_inverse(self.K, self.XTs, self.Es, self.betas, sigma_x_inverse_mode=sigma_x_inverse_mode)
+        # TODO: this block was commented out originally; can we just remove it?
         # logging.info(f'{print_datetime()}sigma_x_inverse_mode = {sigma_x_inverse_mode}')
         # if sigma_x_inverse_mode == 'Constant':
         #     self.sigma_x_inverse = np.zeros([self.K, self.K])
@@ -138,13 +152,12 @@ class Model:
         self.saveParameters(iiter=0)
     #     return ret
 
-    def estimateWeights(self, iiter):
+    def estimate_weights(self, iiter):
         logging.info(f'{print_datetime()}Updating latent states')
 
         updated_XTs = []
         with Pool(min(self.num_processes, self.num_repli)) as pool:
             for replicate in range(self.num_repli):
-                print("Encountering neighbor check")
                 if self.total_edge_counts[replicate] == 0:
                     updated_XTs.append(pool.apply_async(estimate_weights_no_neighbors, args=(
                         self.YTs[replicate],
@@ -164,28 +177,42 @@ class Model:
 
         self.saveWeights(iiter=iiter)
 
-    def estimateParameters(self, iiter):
+    def estimate_parameters(self, iiter):
         logging.info(f'{print_datetime()}Updating model parameters')
 
         self.Q = 0
-        if self.pairwise_potential_mode == 'normalized' and \
-            all(prior_x_mode in ('Exponential', 'Exponential shared', 'Exponential shared fixed') for prior_x_mode, *_ in self.prior_x_parameter_sets):
-            # pool = Pool(1)
-            # Q_Y = pool.apply_async(estimateParametersY, args=([self])).get(1e9)
-            # pool.close()
-            # pool.join()
-            Q_Y = estimateParametersY(self)
-            self.Q += Q_Y
-
-            Q_X = estimateParametersX(self, iiter)
-            self.Q += Q_X
-        else:
-            raise NotImplementedError
+        # pool = Pool(1)
+        # Q_Y = pool.apply_async(estimateParametersY, args=([self])).get(1e9)
+        # pool.close()
+        # pool.join()
+        Q_Y = estimate_parameters_y(self)
+        Q_X = estimate_parameters_x(self)
+        
+        self.Q += (Q_X + Q_Y)
 
         self.saveParameters(iiter=iiter)
         self.saveProgress(iiter=iiter)
 
         return self.Q
+
+    def fit(self, max_iterations):
+        """Fit SpiceMix model using NMF-HMRF updates.
+
+        Alternately updates weights (XTs) and parameters (M, sigma_x_inverse, sigma_yx_inverse, prior_x_parameter_sets).
+
+        Args:
+            max_iterations: max number of complete iterations of NMF-HMRF updates.
+        """
+
+        last_Q = np.nan
+        for iteration in range(1, max_iterations+1):
+            logging.info(f'{print_datetime()}Iteration {iteration} begins')
+
+            self.estimate_weights(iiter=iteration)
+            self.estimate_parameters(iiter=iteration)
+
+            logging.info(f'{print_datetime()}Q = {self.Q:.4f}\tdiff Q = {self.Q-last_Q:.4e}')
+            last_Q = self.Q
 
     def skipSaving(self, iiter):
         return iiter % 10 != 0
@@ -194,9 +221,9 @@ class Model:
         # if self.result_filename is None: return
         #
         with h5py.File(self.result_filename, 'w') as f:
-            f['hyperparameters/repli_list'] = [_.encode('utf-8') for _ in self.repli_list]
+            f['hyperparameters/replicate_names'] = [_.encode('utf-8') for _ in self.replicate_names]
             for k in ['prior_x_modes']:
-                for repli, v in zip(self.repli_list, getattr(self, k)):
+                for repli, v in zip(self.replicate_names, getattr(self, k)):
                     f[f'hyperparameters/{k}/{repli}'] = encode4h5(v)
             for k in ['lambda_sigma_x_inverse', 'betas', 'K']:
                 f[f'hyperparameters/{k}'] = encode4h5(getattr(self, k))
@@ -210,7 +237,7 @@ class Model:
         f = openH5File(self.result_filename)
         if f is None: return
 
-        for repli, XT in zip(self.repli_list, self.XTs):
+        for repli, XT in zip(self.replicate_names, self.XTs):
             f[f'latent_states/XT/{repli}/{iiter}'] = XT
 
         f.close()
@@ -226,11 +253,11 @@ class Model:
             f[f'parameters/{k}/{iiter}'] = getattr(self, k)
 
         for k in ['sigma_yx_inverses']:
-            for repli, v in zip(self.repli_list, getattr(self, k)):
+            for repli, v in zip(self.replicate_names, getattr(self, k)):
                 f[f'parameters/{k}/{repli}/{iiter}'] = v
 
         for k in ['prior_x_parameter_sets']:
-            for repli, v in zip(self.repli_list, getattr(self, k)):
+            for repli, v in zip(self.replicate_names, getattr(self, k)):
                 f[f'parameters/{k}/{repli}/{iiter}'] = np.array(v[1:])
 
         f.close()

@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.cluster import KMeans
 import gurobipy as grb
 
-def NMF_stepX(YT, M, XT, X_constraint, dropout_mode):
+def nmf_update(YT, M, XT, X_constraint, dropout_mode):
     """Perform one step of the NMF optimization to update the metagene weights XT.
    
     Uses linear programming formulation to find sparse solution to NMF factorization.
@@ -81,7 +81,7 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
             mu_x = np.full(model.K, total_gene_expression.mean() / model.K)
             sigma_x_inverse = np.full(model.K, np.sqrt(model.K) / total_gene_expression.std())
             model.prior_x_parameter_sets.append((prior_x_mode, mu_x, sigma_x_inverse))
-        elif prior_x_mode in ['Exponential', 'Exponential shared', 'Exponential shared fixed']:
+        elif prior_x_mode in ('Exponential', 'Exponential shared', 'Exponential shared fixed'):
             lambda_x = np.full(model.K, num_genes / model.max_genes * model.K / total_gene_expression.mean())
             model.prior_x_parameter_sets.append((prior_x_mode, lambda_x))
         else:
@@ -103,18 +103,15 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
     last_rmse = np.nan
 
     for iteration in range(initial_nmf_iterations):
-    # while iteration < num_NMF_iterations:
         # update XT
         with Pool(min(num_processes, len(model.YTs))) as pool:
-            model.XTs = pool.starmap(NMF_stepX, zip(
+            model.XTs = pool.starmap(nmf_update, zip(
                 model.YTs, [model.M]*model.num_repli, model.XTs,
                 [model.X_constraint]*model.num_repli, [model.dropout_mode]*model.num_repli,
             ))
         pool.close()
         pool.join()
         del pool
-
-        # iteration += 1
 
         num_cells_list = model.Ns
         normalized_XTs = [XT / (XT.sum(axis=1, keepdims=True) + 1e-30) for XT in model.XTs]
@@ -141,7 +138,7 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
                 # sigma_x_inv = np.minimum(sigma_x_inv, 1e2)
                 prior_x = (prior_x[0], mu_x, sigma_x_inv)
             elif prior_x[0] in ['Exponential', 'Exponential shared']:
-                lambda_x = 1. / XT.mean(0)
+                lambda_x = 1. / XT.mean(axis=0)
                 prior_x = (prior_x[0], lambda_x)
             elif prior_x[0] == 'Exponential shared fixed':
                 pass
@@ -181,9 +178,6 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
 
         logging.info(f'{print_datetime()}At iter {iteration}: rmse: RMSE = {rmse:.2e}, diff = {last_rmse - rmse:.2e},')
 
-        # if iteration >= num_NMF_iterations:
-        #     break
-
         if model.M_constraint == 'sum2one':
             objective = 0
             for XT, YT, num_genes, beta, sigma_yx_inverse in zip(model.XTs, model.YTs, model.Gs, model.betas, model.sigma_yx_inverses):
@@ -221,7 +215,7 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
             # #   M /= np.sqrt((M**2).sum(0, keepdims=True)) + 1e-10
             # else:
             #     raise NotImplementedError(f'Constraint on M {model.M_constraint} is not implemented')
-        # TODO: do we need to keep this code block if it currently ends in a NotImplementedError?
+        # TODO: do we need to keep the below code block if it currently ends in a NotImplementedError?
         else:
             YXTs = [(YT.T @ XT) * beta for YT, XT, beta in zip(model.YTs, model.XTs, model.betas)]
             objective_2s = []
@@ -241,9 +235,7 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
             raise NotImplementedError(f'Constraint on M {model.M_constraint} is not implemented')
 
         dM = model.M - last_M
-
-        # iteration += 1
-
+        
         logging.info(
             f'{print_datetime()}'
             f'At iter {iteration}: '
@@ -251,7 +243,6 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
             f'RMS = {np.sqrt(np.mean(np.abs(dM)**2)):.2e}, '
             f'mean = {np.abs(dM).mean():.2e}\t'
         )
-
         sys.stdout.flush()
 
         last_M = np.copy(model.M)

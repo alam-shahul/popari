@@ -4,7 +4,7 @@ from util import psutil_process, print_datetime
 import numpy as np
 import torch
 
-from Model import Model
+from model import SpiceMix
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -27,7 +27,7 @@ def parse_arguments():
         help='Suffix of the name of the file that contains expressions'
     )
     parser.add_argument(
-        '--repli_list', type=lambda x: list(map(str, eval(x))),
+        '--replicate_names', type=lambda x: list(map(str, eval(x))),
         help='list of names of the experiments, a Python expression, e.g., "[0,1,2]", "range(5)"'
     )
     parser.add_argument(
@@ -59,7 +59,7 @@ def parse_arguments():
         return "cpu"
 
     parser.add_argument(
-        '--device', type=parse_device, default="cpu", dest="PyTorch_device",
+        '--device', type=parse_device, default="cpu", dest="device",
         help="Which GPU to use. The value should be either string of form 'cuda_<GPU id>' "
              "or an integer denoting the GPU id. -1 or 'cpu' for cpu only",
     )
@@ -82,36 +82,26 @@ if __name__ == '__main__':
 
     torch.set_num_threads(args.num_threads)
 
-    num_replicates = len(args.repli_list)
+    num_replicates = len(args.replicate_names)
     betas = np.broadcast_to(args.betas, [num_replicates]).copy().astype(np.float)
     assert (betas>0).all()
     betas /= betas.sum()
 
-    model = Model(
-        PyTorch_device=args.PyTorch_device, 
+    model = SpiceMix(
+        device=args.device, 
         path2dataset=args.path2dataset, 
-        repli_list=args.repli_list,
+        replicate_names=args.replicate_names,
         use_spatial=args.use_spatial, 
         neighbor_suffix=args.neighbor_suffix, 
         expression_suffix=args.expression_suffix, 
         K=args.K, 
         lambda_sigma_x_inverse=args.lambda_sigma_x_inverse, 
         betas=betas, 
-        prior_x_modes=np.array(['Exponential shared fixed']*len(args.repli_list)), 
+        prior_x_modes=np.array(['Exponential shared fixed']*len(args.replicate_names)), 
         result_filename=args.result_filename
     )
 
-    model.initialize(random_seed4kmeans=args.random_seed4kmeans, initial_nmf_iterations=args.initial_nmf_iterations)
-
+    model.initialize_weights_and_parameters(random_seed4kmeans=args.random_seed4kmeans, initial_nmf_iterations=args.initial_nmf_iterations)
+    
     torch.cuda.empty_cache()
-    last_Q = np.nan
-    max_iterations = args.max_iterations
-
-    for iteration in range(1, max_iterations+1):
-        logging.info(f'{print_datetime()}Iteration {iteration} begins')
-
-        model.estimateWeights(iiter=iteration)
-        Q = model.estimateParameters(iiter=iteration)
-
-        logging.info(f'{print_datetime()}Q = {Q:.4f}\tdiff Q = {Q-last_Q:.4e}')
-        last_Q = Q
+    model.fit(args.max_iterations)

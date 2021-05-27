@@ -10,7 +10,7 @@ import torch
 def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inverse, X_constraint, dropout_mode, replicate):
     """Estimate weights for a single replicate in the SpiceMix model without considering neighbors.
 
-    This is essentially a benchmarking convenience function, and should return similar results to running vanilla NMF
+    This is essentially a benchmarking convenience function, and should return similar results to running vanilla NMF.
 
     Args:
         YT: transpose of gene expression matrix for sample, with shape (num_cells, num_genes)
@@ -80,8 +80,6 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
 
     Notes:
         .. math::
-           :nowrap:
-
            \hat{X}_{\text{MAP}} &= \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right} \\
 
            s_i &= \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i} \\
