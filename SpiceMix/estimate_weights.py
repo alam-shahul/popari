@@ -41,7 +41,7 @@ def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inv
         MTM = (M.T @ M + 1e-6 * np.eye(num_metagenes)) * (sigma_yx_inverse ** 2 / 2.)
         shared_objective += grb.quicksum([weight_variables[index] * MTM[index, index] * weight_variables[index] for index in range(num_metagenes)])
         MTM *= 2
-        shared_objective += grb.quicksum([weight_variables[index] * MTM[index, j] * weight_variables[j] for index in range(num_metagenes) for j in range(num_metagenes+1, num_metagenes)])
+        shared_objective += grb.quicksum([weight_variables[index] * MTM[index, j] * weight_variables[j] for index in range(num_metagenes) for j in range(index+1, num_metagenes)])
         
         del MTM
         YTM = YT @ M * (-sigma_yx_inverse ** 2)
@@ -70,8 +70,6 @@ def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inv
         weight_model.setObjective(objective, grb.GRB.MINIMIZE)
         weight_model.optimize()
         updated_XT[cell_index] = [weight_variables[metagene].x for metagene in range(num_metagenes)]
-
-    del weight_model
 
     return updated_XT
 
