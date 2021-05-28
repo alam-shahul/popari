@@ -72,7 +72,7 @@ def load_dataset(self, neighbor_suffix=None, expression_suffix=None):
     expression_suffix = parseSuffix(expression_suffix)
 
     self.YTs = []
-    for i in self.repli_list:
+    for i in self.replicate_names:
         for s in ['txt', 'tsv', 'pkl', 'pickle']:
             path2file = self.path2dataset / 'files' / f'expression_{i}{expression_suffix}.{s}'
             if not path2file.exists(): continue
@@ -82,13 +82,13 @@ def load_dataset(self, neighbor_suffix=None, expression_suffix=None):
     self.Es = [
         load_edges(self.path2dataset / 'files' / f'neighborhood_{i}{neighbor_suffix}.txt', N)
         if u else [[] for _ in range(N)]
-        for i, N, u in zip(self.repli_list, self.Ns, self.use_spatial)
+        for i, N, u in zip(self.replicate_names, self.Ns, self.use_spatial)
     ]
     self.Es_empty = [sum(map(len, E)) == 0 for E in self.Es]
     try:
         self.genes = [
             loadGeneList(self.path2dataset / 'files' / f'genes_{i}{expression_suffix}.txt')
-            for i in self.repli_list
+            for i in self.replicate_names
         ]
     except:
         pass

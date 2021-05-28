@@ -385,7 +385,8 @@ def estimate_parameters_x(self, torch_dtype=torch.double, requires_grad=False, m
                     # f'δ_x: {tdelta_x.max().item():.1e} - {tdelta_x.min().item():.1e} = {tdelta_x.max() - tdelta_x.min():.1e} '
                     # f'grad = {tdelta_x.grad.min().item():.2e} {tdelta_x.grad.max().item():.2e}'
                 )
-            
+                sys.stdout.flush()
+
             # for optimizer in optimizers:
             #     optimizer.step()
             # for scheduler in schedulers:

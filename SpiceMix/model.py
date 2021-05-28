@@ -191,7 +191,6 @@ class SpiceMix:
         self.Q += (Q_X + Q_Y)
 
         self.saveParameters(iiter=iiter)
-        self.saveProgress(iiter=iiter)
 
         return self.Q
 
@@ -210,6 +209,7 @@ class SpiceMix:
 
             self.estimate_weights(iiter=iteration)
             self.estimate_parameters(iiter=iteration)
+            self.saveProgress(iiter=iteration)
 
             logging.info(f'{print_datetime()}Q = {self.Q:.4f}\tdiff Q = {self.Q-last_Q:.4e}')
             last_Q = self.Q

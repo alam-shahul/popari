@@ -24,7 +24,7 @@ import seaborn as sns
 # plt.rcParams['svg.fonttype'] = 'none'
 
 from load_data import load_expression, load_dataset
-from Model import Model
+from model import SpiceMix
 
 def findBest(path2dataset, result_filenames, iiter=-1):
     Q = []
@@ -54,23 +54,23 @@ class Result:
                 v = f[f'hyperparameters/{k}']
                 if isinstance(v, h5py.Group): continue
                 v = v[()]
-                if k in ['repli_list']:
+                if k in ['replicate_names']:
                     v = np.array([_.decode('utf-8') for _ in v])
                 setattr(self, k, v)
                 if showHyperparameters:
                     print(f'{k} \t= {v}')
-        self.num_repli = len(self.repli_list)
+        self.num_repli = len(self.replicate_names)
         self.use_spatial = [True] * self.num_repli
         load_dataset(self, neighbor_suffix=neighbor_suffix, expression_suffix=expression_suffix)
         self.columns_latent_states = np.array([f'latent state {i}' for i in range(self.K)])
         self.columns_exprs = np.array([f'expr {_}' for _ in self.genes[0]])
         self.data = pd.DataFrame(index=range(sum(self.Ns)))
-        self.data[['x', 'y']] = np.concatenate([load_expression(self.path2dataset / 'files' / f'coordinates_{repli}.txt') for repli in self.repli_list], axis=0)
+        self.data[['x', 'y']] = np.concatenate([load_expression(self.path2dataset / 'files' / f'coordinates_{repli}.txt') for repli in self.replicate_names], axis=0)
         # self.data['cell type'] = np.concatenate([
         #     np.loadtxt(self.path2dataset / 'files' / f'celltypes_{repli}.txt', dtype=str)
-        #     for repli in self.repli_list
+        #     for repli in self.replicate_names
         # ], axis=0)
-        self.data['repli'] = sum([[repli] * N for repli, N in zip(self.repli_list, self.Ns)], [])
+        self.data['repli'] = sum([[repli] * N for repli, N in zip(self.replicate_names, self.Ns)], [])
         self.data[self.columns_exprs] = np.concatenate(self.YTs, axis=0)
         self.scaling = [G / self.GG * self.K / YT.sum(1).mean() for YT, G in zip(self.YTs, self.Gs)]
         self.colors = {}
@@ -93,9 +93,9 @@ class Result:
 
     def loadLatentStates(self, iiter=-1):
         with openH5File(self.result_filename, 'r') as f:
-            iiter = parseIiter(f[f'latent_states/XT/{self.repli_list[0]}'], iiter)
+            iiter = parseIiter(f[f'latent_states/XT/{self.replicate_names[0]}'], iiter)
             print(f'Iteration {iiter}')
-            XTs = [f[f'latent_states/XT/{repli}/{iiter}'][()] for repli in self.repli_list]
+            XTs = [f[f'latent_states/XT/{repli}/{iiter}'][()] for repli in self.replicate_names]
         XTs = [_ / __ for _, __ in zip(XTs, self.scaling)]
         self.data[[f'latent state {i}' for i in range(self.K)]] = np.concatenate(XTs)
 
@@ -140,7 +140,7 @@ class Result:
         self.data[[f'UMAP {i+1}' for i in range(XT.shape[1])]] = XT
 
     def visualizeFeatureSpace(self, ax, key, key_x='UMAP 1', key_y='UMAP 2', repli=None, **kwargs):
-        if isinstance(repli, int): repli = self.repli_list[repli]
+        if isinstance(repli, int): repli = self.replicate_names[repli]
         if repli is None:
             data = self.data
         else:
@@ -267,7 +267,7 @@ class Result:
         ncluster = len(set(y))
         n = np.bincount(y)  # number of cells in each cluster
         c = np.zeros([ncluster, ncluster])
-        for repli, E in zip(self.repli_list, self.Es):
+        for repli, E in zip(self.replicate_names, self.Es):
             yy = self.data.groupby('repli').get_group(repli)[key].values
             yy = np.fromiter(map(mapping.get, yy), dtype=int)
             c += np.bincount(
