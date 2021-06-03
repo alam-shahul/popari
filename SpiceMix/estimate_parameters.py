@@ -147,7 +147,7 @@ def estimate_parameters_x(self, torch_dtype=torch.double, requires_grad=False, m
     # average_metagene_expression_es = []
     sigma_x_inverse_gradient = torch.zeros([self.K, self.K], dtype=torch_dtype, device=self.device)
     z_j_sums = []
-    for YT, adjacency_list, XT, beta in zip(self.YTs, self.Es, self.XTs, self.betas):
+    for YT, adjacency_list, XT, beta in zip(self.YTs, self.Es.values(), self.XTs, self.betas):
         XT = torch.tensor(XT, dtype=torch_dtype, device=self.device)
         N, G = YT.shape
         average_metagene_expressions.append(XT.sum(axis=0))
@@ -160,7 +160,7 @@ def estimate_parameters_x(self, torch_dtype=torch.double, requires_grad=False, m
        
         # Each row of z_j_sum is the sum of the z_j of its neighbors
         z_j_sum = torch.empty([N, self.K], dtype=torch_dtype, device=self.device)
-        for index, neighbor_list in enumerate(adjacency_list):
+        for index, neighbor_list in adjacency_list.items():
             z_j_sum[index] = ZT[neighbor_list].sum(axis=0)
         z_j_sums.append(z_j_sum)
 
@@ -230,7 +230,7 @@ def estimate_parameters_x(self, torch_dtype=torch.double, requires_grad=False, m
         #     average_metagene_expression_e_all.add_(alpha=beta, other=average_metagene_expression_e)
         
         # total_edge_counts = [sum(map(len, E)) for E in self.Es]
-        adjacency_counts = [torch.tensor(list(map(len, E)), dtype=torch_dtype, device=self.device) for E in self.Es]
+        adjacency_counts = [torch.tensor(list(map(len, E.values())), dtype=torch_dtype, device=self.device) for E in self.Es.values()]
         # tZTs = [torch.tensor(XT, dtype=torch_dtype, device=self.device) for XT in self.XTs]
         # for tZT in tZTs:
         #     tZT.div_(tZT.sum(axis=1, keepdim=True))
@@ -282,7 +282,7 @@ def estimate_parameters_x(self, torch_dtype=torch.double, requires_grad=False, m
             else:
                 objective += sigma_x_inverse_gradient.view(-1) @ sigma_x_inverse.view(-1)
 
-            for N, total_edge_count, adjacency_count, E, beta, z_j_sum, tprior_x in zip(self.Ns, self.total_edge_counts, adjacency_counts, self.Es, self.betas, z_j_sums, tprior_x_parameter_sets):
+            for N, total_edge_count, adjacency_count, beta, z_j_sum, tprior_x in zip(self.Ns, self.total_edge_counts, adjacency_counts, self.betas, z_j_sums, tprior_x_parameter_sets):
                 
                 if total_edge_count == 0:
                     continue

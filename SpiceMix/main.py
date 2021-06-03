@@ -101,7 +101,7 @@ if __name__ == '__main__':
         result_filename=args.result_filename
     )
 
-    model.initialize_weights_and_parameters(random_seed4kmeans=args.random_seed4kmeans, initial_nmf_iterations=args.initial_nmf_iterations)
+    model.initialize_model(random_seed4kmeans=args.random_seed4kmeans, initial_nmf_iterations=args.initial_nmf_iterations)
     
     torch.cuda.empty_cache()
     model.fit(args.max_iterations)

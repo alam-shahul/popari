@@ -135,7 +135,7 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
 
         objective += np.dot(difference, difference) * sigma_yx_inverse**2 / 2
         if pairwise_potential_mode == 'normalized':
-            for neighbors, z_i in zip(E, ZT):
+            for neighbors, z_i in zip(E.values(), ZT):
                 objective += z_i @ sigma_x_inverse @ ZT[neighbors].sum(axis=0) / 2
         else:
             raise NotImplementedError
@@ -258,7 +258,7 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
 
         locally_converged = False
         if pairwise_potential_mode == 'normalized':
-            for index, (neighbors, y_i, yTM, z_i, s_i) in enumerate(zip(E, YT, YTM, ZT, S)):
+            for index, (neighbors, y_i, yTM, z_i, s_i) in enumerate(zip(E.values(), YT, YTM, ZT, S)):
                 eta = ZT[neighbors].sum(axis=0) @ sigma_x_inverse
                 for local_iteration in range(local_iterations):
                     s_i_new = update_s_i(z_i, yTM) 

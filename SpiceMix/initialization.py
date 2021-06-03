@@ -304,13 +304,13 @@ def initialize_sigma_x_inverse(K, XTs, Es, betas, sigma_x_inverse_mode):
     elif sigma_x_inverse_mode.startswith('EmpiricalFromX'):
         factor = float(sigma_x_inverse_mode.split()[1])
         sigma_x = np.zeros([K, K])
-        for XT, adjacency_list, beta in zip(XTs, Es, betas):
+        for XT, adjacency_list, beta in zip(XTs, Es.values(), betas):
             t = np.zeros_like(sigma_x)
-            for XTi, neighbors in zip(XT, adjacency_list):
+            for XTi, neighbors in zip(XT, adjacency_list.values()):
                 t += np.outer(XTi, XT[neighbors].sum(0))
             # TODO: seems like sigma_x isn't used anywhere. Can this safely be commented out, then?
             # self.sigma_x += t * beta
-        sigma_x /= np.dot(betas, [sum(map(len, E)) for E in Es])
+        sigma_x /= np.dot(betas, [sum(map(len, E.values())) for E in Es.values()])
         sigma_x_inverse = np.linalg.inv(sigma_x)
         
         del sigma_x

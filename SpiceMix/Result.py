@@ -1,15 +1,13 @@
-import sys, os, itertools, re, gc, copy
+import copy
 import h5py
 from pathlib import Path
-from collections import Iterable, OrderedDict, defaultdict
 import pandas as pd
-from util import print_datetime, openH5File, parseIiter, array2string
+from util import print_datetime, openH5File, parseIiter, array2string, load_dict_from_hdf5_group
 
 import numpy as np
 from sklearn.metrics import calinski_harabasz_score
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.preprocessing import StandardScaler
-import networkx as nx
 import umap
 
 import matplotlib
@@ -23,7 +21,7 @@ import seaborn as sns
 # plt.rcParams['pdf.fonttype'] = 42
 # plt.rcParams['svg.fonttype'] = 'none'
 
-from load_data import load_expression, load_dataset
+from load_data import load_expression
 from model import SpiceMix
 
 def findBest(path2dataset, result_filenames, iiter=-1):
@@ -38,47 +36,50 @@ def findBest(path2dataset, result_filenames, iiter=-1):
     print(f'The best one is model #{i} - result filename = {result_filenames[i]}')
     return result_filenames[i]
 
-
-class Result:
-    def __init__(
-            self, path2dataset, result_filename,
-            neighbor_suffix=None, expression_suffix=None,
-            showHyperparameters=False,
-    ):
+class SpiceMixResult:
+    """
+    
+    """
+    
+    def __init__(self, path2dataset, result_filename, neighbor_suffix=None, expression_suffix=None, showHyperparameters=False):
         self.path2dataset = Path(path2dataset)
         self.result_filename = self.path2dataset / 'results' / result_filename
         print(f'Result file = {self.result_filename}')
 
         with openH5File(self.result_filename, 'r') as f:
-            for k in f['hyperparameters'].keys():
-                v = f[f'hyperparameters/{k}']
-                if isinstance(v, h5py.Group): continue
-                v = v[()]
-                if k in ['replicate_names']:
-                    v = np.array([_.decode('utf-8') for _ in v])
-                setattr(self, k, v)
-                if showHyperparameters:
-                    print(f'{k} \t= {v}')
-        self.num_repli = len(self.replicate_names)
+            self.hyperparameters = load_dict_from_hdf5_group(f, 'hyperparameters/')
+
+        self.num_repli = len(self.hyperparameters["replicate_names"])
         self.use_spatial = [True] * self.num_repli
         load_dataset(self, neighbor_suffix=neighbor_suffix, expression_suffix=expression_suffix)
+        
         self.columns_latent_states = np.array([f'latent state {i}' for i in range(self.K)])
         self.columns_exprs = np.array([f'expr {_}' for _ in self.genes[0]])
         self.data = pd.DataFrame(index=range(sum(self.Ns)))
-        self.data[['x', 'y']] = np.concatenate([load_expression(self.path2dataset / 'files' / f'coordinates_{repli}.txt') for repli in self.replicate_names], axis=0)
+        self.data[['x', 'y']] = np.concatenate([load_expression(self.path2dataset / 'files' / f'coordinates_{replicate}.txt') for replicate in self.hyperparameters["replicate_names"]], axis=0)
         # self.data['cell type'] = np.concatenate([
         #     np.loadtxt(self.path2dataset / 'files' / f'celltypes_{repli}.txt', dtype=str)
         #     for repli in self.replicate_names
         # ], axis=0)
-        self.data['repli'] = sum([[repli] * N for repli, N in zip(self.replicate_names, self.Ns)], [])
-        self.data[self.columns_exprs] = np.concatenate(self.YTs, axis=0)
-        self.scaling = [G / self.GG * self.K / YT.sum(1).mean() for YT, G in zip(self.YTs, self.Gs)]
+        self.data['repli'] = sum([[repli] * N for repli, N in zip(self.hyperparameters["replicate_names"], self.Ns)], [])
+        self.data[self.columns_exprs] = np.concatenate(self.dataset["unscaled_YTs"], axis=0)
         self.colors = {}
         self.orders = {}
 
         self.metagene_order = np.arange(self.K)
 
-    def plotConvergenceQ(self, ax, **kwargs):
+    def load_dataset(self):
+        with openH5File(self.result_filename, 'r') as f:
+            self.dataset = load_dict_from_hdf5_group(f, 'dataset/')
+       
+        self.dataset["Es"] = {int(node): adjacency_list for node, adjacency_list in self.dataset["Es"].items()} 
+        self.dataset["Ns"], self.dataset["Gs"] = zip(*map(np.shape, self.dataset["unscaled_YTs"]))
+        self.dataset["max_genes"] = max(self.dataset["Gs"])
+        self.dataset["total_edge_counts"] = [sum(map(len, E.values())) for E in self.dataset["Es"].values()]
+        
+        # self.scaling = [G / self.dataset["max_genes"] * self.hyperparameters["K"] / YT.sum(axis=1).mean() for YT, G in zip(self.dataset["YTs"], self.dataset["Gs"])]
+
+    def plot_convergence(self, ax, **kwargs):
         with openH5File(self.result_filename, 'r') as f:
             Q_values = f['progress/Q']
             iterations = np.fromiter(map(int, Q_values.keys()), dtype=int)
@@ -96,7 +97,7 @@ class Result:
             iiter = parseIiter(f[f'latent_states/XT/{self.replicate_names[0]}'], iiter)
             print(f'Iteration {iiter}')
             XTs = [f[f'latent_states/XT/{repli}/{iiter}'][()] for repli in self.replicate_names]
-        XTs = [_ / __ for _, __ in zip(XTs, self.scaling)]
+        XTs = [_ / __ for _, __ in zip(XTs, self.dataset["YTs"])]
         self.data[[f'latent state {i}' for i in range(self.K)]] = np.concatenate(XTs)
 
     def clustering(self, ax, K_range, K_offset=0):
@@ -140,7 +141,9 @@ class Result:
         self.data[[f'UMAP {i+1}' for i in range(XT.shape[1])]] = XT
 
     def visualizeFeatureSpace(self, ax, key, key_x='UMAP 1', key_y='UMAP 2', repli=None, **kwargs):
-        if isinstance(repli, int): repli = self.replicate_names[repli]
+        if isinstance(repli, int):
+            repli = self.replicate_names[repli]
+
         if repli is None:
             data = self.data
         else:
@@ -239,24 +242,30 @@ class Result:
         cbar = plt.colorbar(im, ax=ax, shrink=.3)
         cbar.outline.set_visible(False)
 
-    def plotAffinityMetagenes(self, ax, iteration=-1, **kwargs):
+    def plot_affinity_metagenes(self, ax, iteration=-1, **kwargs):
         with openH5File(self.result_filename, 'r') as f:
             iteration = parseIiter(f['parameters/sigma_x_inverse'], iteration)
             print(f'Iteration {iteration}')
             sigma_x_inverse = f[f'parameters/sigma_x_inverse/{iteration}'][()]
+        
         sigma_x_inverse = sigma_x_inverse[self.metagene_order, :]
         sigma_x_inverse = sigma_x_inverse[:, self.metagene_order]
         sigma_x_inverse = sigma_x_inverse - sigma_x_inverse.mean()
-        vlim = np.abs(sigma_x_inverse).max()
-        im = ax.imshow(sigma_x_inverse, vmin=-vlim, vmax=vlim, **kwargs)
+        vertical_range = np.abs(sigma_x_inverse).max()
+        image = ax.imshow(sigma_x_inverse, vmin=-vertical_range, vmax=vertical_range, **kwargs)
         ticks = list(range(0, self.K - 1, 5)) + [self.K - 1]
-        if len(ax.get_xticks()): ax.set_xticks(ticks)
-        if ax.get_yticks: ax.set_yticks(ticks)
+
+        if len(ax.get_xticks()):
+            ax.set_xticks(ticks)
+        if ax.get_yticks:
+            ax.set_yticks(ticks)
+        
         ax.set_xticklabels(ticks)
         ax.set_yticklabels(ticks)
         ax.set_xlabel('metagene ID')
         ax.set_ylabel('metagene ID')
-        cbar = plt.colorbar(im, ax=ax, pad=.01, shrink=.3, aspect=20)
+        
+        cbar = plt.colorbar(image, ax=ax, pad=.01, shrink=.3, aspect=20)
         cbar.outline.set_visible(False)
         ax.set_frame_on(False)
 
@@ -267,11 +276,11 @@ class Result:
         ncluster = len(set(y))
         n = np.bincount(y)  # number of cells in each cluster
         c = np.zeros([ncluster, ncluster])
-        for repli, E in zip(self.replicate_names, self.Es):
+        for repli, E in zip(self.replicate_names, self.Es.values()):
             yy = self.data.groupby('repli').get_group(repli)[key].values
             yy = np.fromiter(map(mapping.get, yy), dtype=int)
             c += np.bincount(
-                [i * ncluster + j for i, e in zip(yy, E) if i != -1 for j in yy[e] if j != -1],
+                [i * ncluster + j for i, e in zip(yy, E.values()) if i != -1 for j in yy[e] if j != -1],
                 minlength=c.size,
             ).reshape(c.shape)
         assert (c == c.T).all(), (c - c.T)

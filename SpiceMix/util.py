@@ -53,3 +53,43 @@ def unzipTensors(arr, shapes):
         tensors.append(arr[:size].reshape(*shape).squeeze())
         arr = arr[size:]
     return tensors
+
+def save_dict_to_hdf5(filename, dic):
+    """
+    ....
+    """
+    with h5py.File(filename, 'w') as h5file:
+        save_dict_to_hdf5_group(h5file, '/', dic)
+
+def save_dict_to_hdf5_group(h5file, path, dic):
+    """
+    ....
+    """
+    permitted_dtypes = (np.ndarray, np.int64, np.float64, list, bool, float, int, str, bytes)
+    for key, item in sorted(dic.items()):
+        full_path = path + str(key)
+        if isinstance(item, permitted_dtypes):
+            h5file[full_path] = item
+        elif isinstance(item, dict):
+            save_dict_to_hdf5_group(h5file, full_path + '/', item)
+        else:
+            raise ValueError('Cannot save %s type'%type(item))
+
+def load_dict_from_hdf5(filename):
+    """
+    ....
+    """
+    with h5py.File(filename, 'r') as h5file:
+        return load_dict_from_hdf5_group(h5file, '/')
+
+def load_dict_from_hdf5_group(h5file, path):
+    """
+    ....
+    """
+    ans = {}
+    for key, item in sorted(h5file[path].items()):
+        if isinstance(item, h5py._hl.dataset.Dataset):
+            ans[key] = item.value
+        elif isinstance(item, h5py._hl.group.Group):
+            ans[key] = load_dict_from_hdf5_group(h5file, path + key + '/')
+    return ans
