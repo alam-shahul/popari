@@ -2,10 +2,10 @@ import copy
 import h5py
 from pathlib import Path
 import pandas as pd
-from util import print_datetime, openH5File, parseIiter, array2string, load_dict_from_hdf5_group
+from util import print_datetime, parseIiter, array2string, load_dict_from_hdf5_group, dict_to_list
 
 import numpy as np
-from sklearn.metrics import calinski_harabasz_score
+from sklearn.metrics import calinski_harabasz_score, silhouette_score
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.preprocessing import StandardScaler
 import umap
@@ -27,7 +27,7 @@ from model import SpiceMix
 def findBest(path2dataset, result_filenames, iiter=-1):
     Q = []
     for r in result_filenames:
-        f = openH5File(path2dataset / 'results' / r, 'r')
+        f = h5py.File(path2dataset / 'results' / r, 'r')
         i = parseIiter(f[f'progress/Q'], iiter)
         print(f'Using iteration {i} from {r}')
         Q.append(f[f'progress/Q/{i}'][()])
@@ -43,44 +43,51 @@ class SpiceMixResult:
     
     def __init__(self, path2dataset, result_filename, neighbor_suffix=None, expression_suffix=None, showHyperparameters=False):
         self.path2dataset = Path(path2dataset)
-        self.result_filename = self.path2dataset / 'results' / result_filename
+        self.result_filename = result_filename
         print(f'Result file = {self.result_filename}')
 
-        with openH5File(self.result_filename, 'r') as f:
+        with h5py.File(self.result_filename, 'r') as f:
             self.hyperparameters = load_dict_from_hdf5_group(f, 'hyperparameters/')
 
         self.num_repli = len(self.hyperparameters["replicate_names"])
         self.use_spatial = [True] * self.num_repli
-        load_dataset(self, neighbor_suffix=neighbor_suffix, expression_suffix=expression_suffix)
+        self.load_dataset()
         
-        self.columns_latent_states = np.array([f'latent state {i}' for i in range(self.K)])
-        self.columns_exprs = np.array([f'expr {_}' for _ in self.genes[0]])
-        self.data = pd.DataFrame(index=range(sum(self.Ns)))
-        self.data[['x', 'y']] = np.concatenate([load_expression(self.path2dataset / 'files' / f'coordinates_{replicate}.txt') for replicate in self.hyperparameters["replicate_names"]], axis=0)
+        self.weight_columns = np.array([f'Metagene {metagene}' for metagene in range(self.hyperparameters["K"])])
+        self.columns_exprs = np.array([f'{gene}' for gene in self.dataset["gene_sets"][0]])
+        self.data = pd.DataFrame(index=range(sum(self.dataset["Ns"])))
+        self.data[['x', 'y']] = np.concatenate([load_expression(self.path2dataset / 'files' / f'coordinates_{int(replicate)}.txt') for replicate in self.hyperparameters["replicate_names"]], axis=0)
         # self.data['cell type'] = np.concatenate([
         #     np.loadtxt(self.path2dataset / 'files' / f'celltypes_{repli}.txt', dtype=str)
         #     for repli in self.replicate_names
         # ], axis=0)
-        self.data['repli'] = sum([[repli] * N for repli, N in zip(self.hyperparameters["replicate_names"], self.Ns)], [])
+        self.data["replicate"] = sum([[replicate] * N for replicate, N in zip(self.hyperparameters["replicate_names"], self.dataset["Ns"])], [])
         self.data[self.columns_exprs] = np.concatenate(self.dataset["unscaled_YTs"], axis=0)
         self.colors = {}
         self.orders = {}
 
-        self.metagene_order = np.arange(self.K)
+        self.metagene_order = np.arange(self.hyperparameters["K"])
 
     def load_dataset(self):
-        with openH5File(self.result_filename, 'r') as f:
+        with h5py.File(self.result_filename, 'r') as f:
             self.dataset = load_dict_from_hdf5_group(f, 'dataset/')
        
         self.dataset["Es"] = {int(node): adjacency_list for node, adjacency_list in self.dataset["Es"].items()} 
+        self.dataset["unscaled_YTs"] = dict_to_list(self.dataset["unscaled_YTs"])
+        self.dataset["YTs"] = dict_to_list(self.dataset["YTs"])
+        self.dataset["gene_sets"] = dict_to_list(self.dataset["gene_sets"])
+        
         self.dataset["Ns"], self.dataset["Gs"] = zip(*map(np.shape, self.dataset["unscaled_YTs"]))
         self.dataset["max_genes"] = max(self.dataset["Gs"])
         self.dataset["total_edge_counts"] = [sum(map(len, E.values())) for E in self.dataset["Es"].values()]
         
         # self.scaling = [G / self.dataset["max_genes"] * self.hyperparameters["K"] / YT.sum(axis=1).mean() for YT, G in zip(self.dataset["YTs"], self.dataset["Gs"])]
+        if "scaling" not in self.dataset:
+            self.dataset["scaling"] = [G / self.dataset["max_genes"] * self.hyperparameters["K"] / YT.sum(axis=1).mean() for YT, G in zip(self.dataset["YTs"], self.dataset["Gs"])]
 
     def plot_convergence(self, ax, **kwargs):
-        with openH5File(self.result_filename, 'r') as f:
+        label = kwargs.pop("label", "")
+        with h5py.File(self.result_filename, 'r') as f:
             Q_values = f['progress/Q']
             iterations = np.fromiter(map(int, Q_values.keys()), dtype=int)
             selected_Q_values = np.fromiter((Q_values[step][()] for step in iterations.astype(str)), dtype=float)
@@ -90,36 +97,42 @@ class SpiceMixResult:
         print(f'Found {iterations.max()} iterations from {self.result_filename}')
         for interval, linestyle in zip([1, 5], ['-', ':']):
             dQ = (Q[interval:] - Q[:-interval]) / interval
-            ax.plot(np.arange(iterations.min(), iterations.max() + 1 - interval) + interval / 2 + 1, dQ, linestyle=linestyle, label="{}-iteration Interval - {}".format(interval, label))
+            ax.plot(np.arange(iterations.min(), iterations.max() + 1 - interval) + interval / 2 + 1, dQ, linestyle=linestyle, label="{}-iteration Interval {}".format(interval, label), **kwargs)
 
-    def loadLatentStates(self, iiter=-1):
-        with openH5File(self.result_filename, 'r') as f:
-            iiter = parseIiter(f[f'latent_states/XT/{self.replicate_names[0]}'], iiter)
+    def load_latent_states(self, iiter=-1):
+        with h5py.File(self.result_filename, 'r') as f:
+            # iiter = parseIiter(f[f'latent_states/XT/{self.replicate_names[0]}'], iiter)
             print(f'Iteration {iiter}')
-            XTs = [f[f'latent_states/XT/{repli}/{iiter}'][()] for repli in self.replicate_names]
-        XTs = [_ / __ for _, __ in zip(XTs, self.dataset["YTs"])]
-        self.data[[f'latent state {i}' for i in range(self.K)]] = np.concatenate(XTs)
+            self.weights = load_dict_from_hdf5_group(f, "weights/")
+        
+        self.weights = dict_to_list(self.weights)
+            # XTs = [f[f'latent_states/XT/{repli}/{iiter}'][()] for repli in self.replicate_names]
+        
+        # XTs = [XT/ YT for XT, YT in zip(XTs, self.dataset["YTs"])]
+        self.data[self.weight_columns] = np.concatenate([self.weights[replicate][iiter] / scale for replicate, scale in enumerate(self.dataset["scaling"])])
 
-    def clustering(self, ax, K_range, K_offset=0):
-        XT = self.data[self.columns_latent_states].values
-        XT = StandardScaler().fit_transform(XT)
+    def determine_optimal_clusters(self, ax, K_range):
+        XTs = self.data[self.weight_columns].values
+        XTs = StandardScaler().fit_transform(XTs)
         K_range = np.array(K_range)
 
-        f = lambda K: AgglomerativeClustering(
+        get_cluster_labels = lambda K: AgglomerativeClustering(
             n_clusters=K,
             linkage='ward',
-        ).fit_predict(XT)
-        CH = np.fromiter((calinski_harabasz_score(XT, f(K)) for K in K_range), dtype=float)
-        optimal_K = K_range[CH.argmax() + K_offset]
+        ).fit_predict(XTs)
+        ch_scores = np.fromiter((silhouette_score(XTs, get_cluster_labels(K)) for K in K_range), dtype=float)
+        optimal_K = K_range[ch_scores.argmax()]
+
         print(f'optimal K = {optimal_K}')
-        y = f(optimal_K)
-        
-        print(f'#clusters = {len(set(y) - {-1})}, #-1 = {(y == -1).sum()}')
+        labels = get_cluster_labels(optimal_K)
+       
+        num_clusters = len(set(labels) - {-1})
+        print(f'#clusters = {num_clusters}, #-1 = {(labels == -1).sum()}')
 
-        ax.scatter(K_range, CH, marker='x', color=np.where(K_range == optimal_K, 'C1', 'C0'))
+        ax.scatter(K_range, ch_scores, marker='x', color=np.where(K_range == optimal_K, 'C1', 'C0'))
 
-        self.data['cluster_raw'] = y
-        self.data['cluster'] = list(map(str, y))
+        self.data['cluster_raw'] = labels
+        self.data['cluster'] = list(map(str, labels))
 
     def annotateClusters(self, clusteri2a):
         self.data['cluster'] = [clusteri2a[cluster_name] for cluster_name in self.data['cluster_raw']]
@@ -135,20 +148,20 @@ class SpiceMixResult:
         self.orders[key] = np.array(order)
 
     def UMAP(self, **kwargs):
-        XT = self.data[self.columns_latent_states].values
+        XT = self.data[self.weight_columns].values
         XT = StandardScaler().fit_transform(XT)
         XT = umap.UMAP(**kwargs).fit_transform(XT)
         self.data[[f'UMAP {i+1}' for i in range(XT.shape[1])]] = XT
 
-    def visualizeFeatureSpace(self, ax, key, key_x='UMAP 1', key_y='UMAP 2', repli=None, **kwargs):
-        if isinstance(repli, int):
-            repli = self.replicate_names[repli]
+    def plot_feature(self, ax, key, key_x='UMAP 1', key_y='UMAP 2', replicate=None, **kwargs):
+        if isinstance(replicate, int):
+            replicate = self.dataset["replicate_names"][replicate]
 
-        if repli is None:
-            data = self.data
+        if replicate:
+            data = self.data.groupby('replicate').get_group(replicate)
         else:
-            data = self.data.groupby('repli').get_group(repli)
-        kwargs = copy.deepcopy(kwargs)
+            data = self.data
+
         if data[key].dtype == 'O':
             kwargs.setdefault('hue_order', self.orders.get(key, None))
             kwargs.setdefault('palette', self.colors.get(key, None))
@@ -161,16 +174,23 @@ class SpiceMixResult:
         ax.set_yticklabels([])
         ax.tick_params(axis='both', labelsize=10)
 
-    def visualizeFeaturesSpace(self, axes, keys=(), key_x='x', key_y='y', permute_metagenes=True, *args, **kwargs):
-        if len(keys) == 0:
-            keys = self.columns_latent_states
-        keys = np.array(keys)
-        keys_old = keys
-        if tuple(keys) == tuple(self.columns_latent_states) and permute_metagenes:
-            keys = keys[self.metagene_order]
-        for ax, key, key_old in zip(np.array(axes).flat, keys, keys_old):
-            self.visualizeFeatureSpace(ax, key, key_x, key_y, *args, **kwargs)
-            ax.set_title(key_old)
+    def plot_metagenes(self, axes, replicate, *args, **kwargs):
+        keys = np.array(self.weight_columns)
+        keys = keys[self.metagene_order]
+        self.plot_multifeature(axes, keys, replicate)
+
+    def plot_multifeature(self, axes, keys, replicate, key_x='x', key_y='y', *args, **kwargs):
+        # if len(keys) == 0:
+        #     keys = self.weight_columns
+
+        # keys = np.array(keys)
+        # keys_old = keys
+        # if tuple(keys) == tuple(self.weight_columns) and permute_metagenes:
+        #     keys = keys[self.metagene_order]
+
+        for ax, key in zip(axes.flat, keys):
+            self.plot_feature(ax, key, key_x, key_y, replicate, *args, **kwargs)
+            ax.set_title(key)
 
     def visualizeLabelEnrichment(
             self, ax,
@@ -218,10 +238,10 @@ class SpiceMixResult:
         n_y = len(set(self.data[key_y].values) - set(ignores_y))
         if order_y is None: order_y = self.orders.get(key_y)
         value_y, _, order_y = a2i(self.data[key_y].values, order_y, ignores_y)
-        if len(keys_x) == 0: keys_x = self.columns_latent_states
+        if len(keys_x) == 0: keys_x = self.weight_columns
         keys_x = np.array(keys_x)
         keys_x_old = keys_x
-        if tuple(keys_x) == tuple(self.columns_latent_states) and permute_metagenes: keys_x = keys_x[self.metagene_order]
+        if tuple(keys_x) == tuple(self.weight_columns) and permute_metagenes: keys_x = keys_x[self.metagene_order]
         n_x = len(keys_x)
 
         df = self.data[[key_y] + list(keys_x)].copy()
@@ -243,7 +263,7 @@ class SpiceMixResult:
         cbar.outline.set_visible(False)
 
     def plot_affinity_metagenes(self, ax, iteration=-1, **kwargs):
-        with openH5File(self.result_filename, 'r') as f:
+        with h5py.File(self.result_filename, 'r') as f:
             iteration = parseIiter(f['parameters/sigma_x_inverse'], iteration)
             print(f'Iteration {iteration}')
             sigma_x_inverse = f[f'parameters/sigma_x_inverse/{iteration}'][()]

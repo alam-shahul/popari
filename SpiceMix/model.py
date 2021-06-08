@@ -91,7 +91,8 @@ class SpiceMix:
         self.Ns, self.Gs = zip(*map(np.shape, self.unscaled_YTs))
         self.max_genes = max(self.Gs)
         
-        self.YTs = [G / self.max_genes * self.K * unscaled_YT / unscaled_YT.sum(axis=1).mean() for unscaled_YT, G in zip(self.unscaled_YTs, self.Gs)]
+        self.scaling = [G / self.max_genes * self.K / unscaled_YT.sum(axis=1).mean() for unscaled_YT, G in zip(self.unscaled_YTs, self.Gs)]
+        self.YTs = [scale * unscaled_YT for scale, unscaled_YT in zip(self.scaling, unscaled_YTs)]
 
 
         # TODO: change to use dictionary with empty mappings instead of list of empty lists
@@ -105,7 +106,7 @@ class SpiceMix:
             self.Es[replicate] = E
 
         self.total_edge_counts = [sum(map(len, E.values())) for E in self.Es.values()]
-        self.gene_sets = [np.loadtxt(self.path2dataset / 'files' / f'genes_{replicate}{expression_suffix}.txt', dtype=str) for replicate in self.replicate_names]
+        self.gene_sets = {replicate: np.char.encode(np.loadtxt(self.path2dataset / 'files' / f'genes_{replicate}{expression_suffix}.txt', dtype=str), encoding="utf-8") for replicate in range(self.num_repli)}
 
     def initialize_model(self, random_seed4kmeans, initial_nmf_iterations=5, sigma_x_inverse_mode='Constant'):
         logging.info(f'{print_datetime()}Initialization begins')
@@ -227,10 +228,11 @@ class SpiceMix:
     def save_dataset(self):
         state_update = {
             "dataset": {
-                "YTs": self.YTs,
-                "unscaled_YTs": self.unscaled_YTs,
+                "YTs": {replicate: YT for replicate, YT in enumerate(self.YTs)},
+                "scaling": self.scaling,
+                "unscaled_YTs": {replicate: unscaled_YT for replicate, unscaled_YT in enumerate(self.unscaled_YTs)},
                 "Es": self.Es,
-                "gene_sets": [np.char.encode(gene_set, encoding="utf-8") for gene_set in self.gene_sets]
+                "gene_sets": self.gene_sets
             }
         }
 
@@ -331,10 +333,12 @@ class SpiceMix:
         # if self.result_filename is None:
         #     return
 
-        f = openH5File(self.result_filename)
-        if f is None:
-            return
-
-        f[f'progress/Q/{iiter}'] = self.Q
-
-        f.close()
+        state_update = {
+            "progress": {
+                "Q": {
+                    iiter: self.Q
+                }
+            }
+        }
+        
+        save_dict_to_hdf5(self.result_filename, state_update)

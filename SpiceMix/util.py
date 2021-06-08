@@ -58,7 +58,7 @@ def save_dict_to_hdf5(filename, dic):
     """
     ....
     """
-    with h5py.File(filename, 'w') as h5file:
+    with h5py.File(filename, 'a') as h5file:
         save_dict_to_hdf5_group(h5file, '/', dic)
 
 def save_dict_to_hdf5_group(h5file, path, dic):
@@ -74,6 +74,26 @@ def save_dict_to_hdf5_group(h5file, path, dic):
             save_dict_to_hdf5_group(h5file, full_path + '/', item)
         else:
             raise ValueError('Cannot save %s type'%type(item))
+
+def dict_to_list(dictionary):
+    output = []
+    dictionary_with_integer_keys = {int(k) : v for k, v in dictionary.items()}
+    
+    for key, item in sorted(dictionary_with_integer_keys.items()):
+        if isinstance(item, dict):
+            output.append(dict_to_list(item))
+        else:
+            output.append(item)
+    return output
+
+def list_to_dict(array):
+    dictionary = {}
+    for key, item in enumerate(array):
+        if isinstance(item, list):
+            dictionary[key] = list_to_dict(item)
+        else:
+            dictionary[key] = item
+    return dictionary
 
 def load_dict_from_hdf5(filename):
     """
