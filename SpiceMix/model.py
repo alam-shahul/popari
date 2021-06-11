@@ -228,6 +228,7 @@ class SpiceMix:
     def save_dataset(self):
         state_update = {
             "dataset": {
+                "replicate_names": [replicate_name.encode('utf-8') for replicate_name in self.replicate_names],
                 "YTs": {replicate: YT for replicate, YT in enumerate(self.YTs)},
                 "scaling": self.scaling,
                 "unscaled_YTs": {replicate: unscaled_YT for replicate, unscaled_YT in enumerate(self.unscaled_YTs)},
@@ -243,7 +244,6 @@ class SpiceMix:
         #
         state_update = {
             "hyperparameters": {
-                "replicate_names": [replicate_name.encode('utf-8') for replicate_name in self.replicate_names],
                 "prior_x_modes": {
                     replicate_name: prior_x_mode.encode('utf-8') for replicate_name, prior_x_mode in zip(self.replicate_names, self.prior_x_modes)
                 },

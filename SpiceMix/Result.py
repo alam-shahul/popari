@@ -13,7 +13,11 @@ import umap
 import matplotlib
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.colors import BoundaryNorm, ListedColormap
+from matplotlib.colorbar import ColorbarBase
+        
 import seaborn as sns
+from scipy.stats import pearsonr
 
 # sns.set_style("white")
 # plt.rcParams['font.family'] = "Liberation Sans"
@@ -46,15 +50,14 @@ class SpiceMixResult:
         self.result_filename = result_filename
         print(f'Result file = {self.result_filename}')
 
-        with h5py.File(self.result_filename, 'r') as f:
-            self.hyperparameters = load_dict_from_hdf5_group(f, 'hyperparameters/')
+        self.load_hyperparameters()
 
         self.num_repli = len(self.hyperparameters["replicate_names"])
         self.use_spatial = [True] * self.num_repli
         self.load_dataset()
         
         self.weight_columns = np.array([f'Metagene {metagene}' for metagene in range(self.hyperparameters["K"])])
-        self.columns_exprs = np.array([f'{gene}' for gene in self.dataset["gene_sets"][0]])
+        self.columns_exprs = np.array([f'{gene}' for gene in self.dataset["gene_sets"]["0"]])
         self.data = pd.DataFrame(index=range(sum(self.dataset["Ns"])))
         self.data[['x', 'y']] = np.concatenate([load_expression(self.path2dataset / 'files' / f'coordinates_{int(replicate)}.txt') for replicate in self.hyperparameters["replicate_names"]], axis=0)
         # self.data['cell type'] = np.concatenate([
@@ -68,6 +71,12 @@ class SpiceMixResult:
 
         self.metagene_order = np.arange(self.hyperparameters["K"])
 
+    def load_hyperparameters(self):
+        with h5py.File(self.result_filename, 'r') as f:
+            self.hyperparameters = load_dict_from_hdf5_group(f, 'hyperparameters/')
+
+        self.hyperparameters["replicate_names"] =  [replicate_name.decode("utf-8")  for replicate_name in self.hyperparameters["replicate_names"]]
+
     def load_dataset(self):
         with h5py.File(self.result_filename, 'r') as f:
             self.dataset = load_dict_from_hdf5_group(f, 'dataset/')
@@ -75,7 +84,8 @@ class SpiceMixResult:
         self.dataset["Es"] = {int(node): adjacency_list for node, adjacency_list in self.dataset["Es"].items()} 
         self.dataset["unscaled_YTs"] = dict_to_list(self.dataset["unscaled_YTs"])
         self.dataset["YTs"] = dict_to_list(self.dataset["YTs"])
-        self.dataset["gene_sets"] = dict_to_list(self.dataset["gene_sets"])
+        for replicate_name in self.dataset["gene_sets"]:
+            self.dataset["gene_sets"][replicate_name] =  np.char.decode(self.dataset["gene_sets"][replicate_name], encoding="utf-8")
         
         self.dataset["Ns"], self.dataset["Gs"] = zip(*map(np.shape, self.dataset["unscaled_YTs"]))
         self.dataset["max_genes"] = max(self.dataset["Gs"])
@@ -105,11 +115,12 @@ class SpiceMixResult:
             print(f'Iteration {iiter}')
             self.weights = load_dict_from_hdf5_group(f, "weights/")
         
-        self.weights = dict_to_list(self.weights)
+        for replicate_name in self.weights:
+            self.weights[replicate_name] = dict_to_list(self.weights[replicate_name])
             # XTs = [f[f'latent_states/XT/{repli}/{iiter}'][()] for repli in self.replicate_names]
         
         # XTs = [XT/ YT for XT, YT in zip(XTs, self.dataset["YTs"])]
-        self.data[self.weight_columns] = np.concatenate([self.weights[replicate][iiter] / scale for replicate, scale in enumerate(self.dataset["scaling"])])
+        self.data[self.weight_columns] = np.concatenate([self.weights[replicate_name][iiter] / scale for replicate_name, scale in zip(self.hyperparameters["replicate_names"], self.dataset["scaling"])])
 
     def determine_optimal_clusters(self, ax, K_range):
         XTs = self.data[self.weight_columns].values
@@ -148,12 +159,12 @@ class SpiceMixResult:
         self.orders[key] = np.array(order)
 
     def UMAP(self, **kwargs):
-        XT = self.data[self.weight_columns].values
-        XT = StandardScaler().fit_transform(XT)
-        XT = umap.UMAP(**kwargs).fit_transform(XT)
-        self.data[[f'UMAP {i+1}' for i in range(XT.shape[1])]] = XT
+        XTs = self.data[self.weight_columns].values
+        XTs = StandardScaler().fit_transform(XTs)
+        XTs = umap.UMAP(**kwargs).fit_transform(XTs)
+        self.data[[f'UMAP {i+1}' for i in range(XTs.shape[1])]] = XTs
 
-    def plot_feature(self, ax, key, key_x='UMAP 1', key_y='UMAP 2', replicate=None, **kwargs):
+    def plot_feature(self, ax, key, key_x='UMAP 1', key_y='UMAP 2', replicate=None, show_colorbar=True, **kwargs):
         if isinstance(replicate, int):
             replicate = self.dataset["replicate_names"][replicate]
 
@@ -169,7 +180,26 @@ class SpiceMixResult:
         else:
             kwargs.setdefault('cmap', self.colors.get(key, None))
             sca = ax.scatter(data[key_x], data[key_y], c=data[key], **kwargs)
+            if show_colorbar:
+                cbar = plt.colorbar(sca, ax=ax, pad=.01, shrink=1, aspect=40)
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.legend(bbox_to_anchor=(1.04,1), loc="upper left")
+        ax.tick_params(axis='both', labelsize=10)
+
+    def plot_aggregated_feature(self, ax, keys, key_x="x", key_y="y", replicate=None, show_colorbar=True, **kwargs):
+        if isinstance(replicate, int):
+            replicate = self.dataset["replicate_names"][replicate]
+
+        if replicate:
+            data = self.data.groupby('replicate').get_group(replicate)
+        else:
+            data = self.data
+
+        sca = ax.scatter(data[key_x], data[key_y], c=data[keys].sum(axis="columns"), **kwargs)
+        if show_colorbar:
             cbar = plt.colorbar(sca, ax=ax, pad=.01, shrink=1, aspect=40)
+        
         ax.set_xticklabels([])
         ax.set_yticklabels([])
         ax.tick_params(axis='both', labelsize=10)
@@ -179,7 +209,7 @@ class SpiceMixResult:
         keys = keys[self.metagene_order]
         self.plot_multifeature(axes, keys, replicate)
 
-    def plot_multifeature(self, axes, keys, replicate, key_x='x', key_y='y', *args, **kwargs):
+    def plot_multifeature(self, axes, keys, replicate, key_x='x', key_y='y', show_colorbar=True, *args, **kwargs):
         # if len(keys) == 0:
         #     keys = self.weight_columns
 
@@ -189,8 +219,61 @@ class SpiceMixResult:
         #     keys = keys[self.metagene_order]
 
         for ax, key in zip(axes.flat, keys):
-            self.plot_feature(ax, key, key_x, key_y, replicate, *args, **kwargs)
+            self.plot_feature(ax, key, key_x, key_y, replicate, show_colorbar=show_colorbar, *args, **kwargs)
             ax.set_title(key)
+
+    def plot_multireplicate(self, axes, key, key_x="x", key_y="y", *args, **kwargs):
+        categories = self.data[key].unique()
+        category_map = {category: index for index, category in enumerate(categories)}
+        num_categories = len(categories)
+        
+        palette = sns.color_palette("Set2", num_categories)
+        sns.set_palette(palette)
+        
+        colormap = ListedColormap(palette)
+        bounds = np.linspace(0, num_categories, num_categories + 1)
+        norm = BoundaryNorm(bounds, colormap.N)
+        
+        # sns.scatterplot(ax=axes[0], x='x',y='y', color=color, hue='cluster_raw', data=sorted_data.groupby("replicate").get_group(replicate))
+        # sns.scatterplot(ax=axes[1], x='x',y='y', color=color, hue='cluster_raw', data=sorted_data.groupby("replicate").get_group("15"))
+        for ax, replicate in zip(axes.flat, self.hyperparameters["replicate_names"]):
+            if replicate not in self.data["replicate"].values:
+                ax.axis('off')
+                continue
+                
+            subdata = self.data.groupby("replicate").get_group(replicate).groupby(key)
+            for subkey, group in subdata:
+                group.plot(ax=ax, kind='scatter', x='x', y='y', label=subkey, color=colormap(category_map[subkey]))
+        
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            ax.set_title(replicate)
+            ax.get_legend().remove()
+            ax.set(adjustable='box', aspect='equal')
+        
+        legend_axis = axes.flat[-1]
+        legend_axis.set_title("Legend")
+        legend_axis.imshow(np.arange(num_categories)[:, np.newaxis], cmap=colormap, aspect=1)
+        legend_axis.set_xticks([])
+        legend_axis.set_yticks(np.arange(num_categories))
+        legend_axis.set_yticklabels(categories)
+        plt.tight_layout()
+
+    def calculate_metagene_correlations(self, replicate, benchmark, comparison_features):
+        correlations = pd.DataFrame(index=self.weight_columns, columns=comparison_features)
+
+        replicate_data = self.data.groupby("replicate").get_group(replicate)
+
+        for feature in comparison_features:
+            feature_values = benchmark[feature]
+            for metagene in self.weight_columns:
+                correlation = pearsonr(replicate_data[metagene].values, feature_values.values)[0]
+                correlations.loc[metagene, feature] = correlation
+
+        return correlations
+
+    def get_important_features(self):
+        self.parameters["M"][-1]
 
     def visualizeLabelEnrichment(
             self, ax,
