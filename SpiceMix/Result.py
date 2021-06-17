@@ -55,7 +55,9 @@ class SpiceMixResult:
         self.num_repli = len(self.hyperparameters["replicate_names"])
         self.use_spatial = [True] * self.num_repli
         self.load_dataset()
-        
+  
+        self.load_parameters()
+
         self.weight_columns = np.array([f'Metagene {metagene}' for metagene in range(self.hyperparameters["K"])])
         self.columns_exprs = np.array([f'{gene}' for gene in self.dataset["gene_sets"]["0"]])
         self.data = pd.DataFrame(index=range(sum(self.dataset["Ns"])))
@@ -72,6 +74,12 @@ class SpiceMixResult:
         self.metagene_order = np.arange(self.hyperparameters["K"])
 
     def load_hyperparameters(self):
+        with h5py.File(self.result_filename, 'r') as f:
+            self.hyperparameters = load_dict_from_hdf5_group(f, 'hyperparameters/')
+
+        self.hyperparameters["replicate_names"] =  [replicate_name.decode("utf-8")  for replicate_name in self.hyperparameters["replicate_names"]]
+
+    def load_parameters(self):
         with h5py.File(self.result_filename, 'r') as f:
             self.hyperparameters = load_dict_from_hdf5_group(f, 'hyperparameters/')
 
