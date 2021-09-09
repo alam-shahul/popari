@@ -2,7 +2,7 @@ import sys, time, itertools, psutil, resource, logging, h5py, os
 from pathlib import Path
 import multiprocessing
 from multiprocessing import Pool
-from util import print_datetime, parseSuffix, openH5File, encode4h5, save_dict_to_hdf5
+from util import print_datetime, parseSuffix, openH5File, encode4h5, save_dict_to_hdf5, load_dict_from_hdf5_group, dict_to_list
 
 import numpy as np
 import gurobipy as grb
@@ -32,36 +32,36 @@ class SpiceMix:
 
         self.device = device
         self.num_processes = num_processes
+        self.epoch_size = 10
 
-        self.path2dataset = Path(path2dataset)
-        self.replicate_names = replicate_names
-        self.use_spatial = use_spatial
-        self.num_repli = len(self.replicate_names)
-        assert len(self.replicate_names) == len(self.use_spatial)
-        self.K = K
-        self.load_dataset(neighbor_suffix=neighbor_suffix, expression_suffix=expression_suffix)
-
-        self.completed_iterations = 0
-        self.lambda_sigma_x_inverse = lambda_sigma_x_inverse
-        self.betas = betas
-        self.prior_x_modes = prior_x_modes
         self.M_constraint = 'sum2one'
         self.X_constraint = 'none'
         self.dropout_mode = 'raw'
         self.sigma_yx_inverse_mode = 'average'
         self.pairwise_potential_mode = 'normalized'
-
+        
         self.result_filename = Path(result_filename)
         logging.info(f'{print_datetime()}result file = {self.result_filename}')
-
-        self.save_hyperparameters()
-        self.save_dataset()
-
-    # def __del__(self):
-    #   pass
-        # if self.result_h5 is not None:
-        #   self.result_h5.close()
-
+        
+        if resume_training:
+            self.reload_model()
+        else:
+            self.path2dataset = Path(path2dataset)
+            self.replicate_names = replicate_names
+            self.use_spatial = use_spatial
+            self.num_replicates = len(self.replicate_names)
+            assert len(self.replicate_names) == len(self.use_spatial)
+            self.K = K
+            self.load_dataset(neighbor_suffix=neighbor_suffix, expression_suffix=expression_suffix)
+    
+            self.completed_iterations = 0
+            self.lambda_sigma_x_inverse = lambda_sigma_x_inverse
+            self.betas = betas
+            self.prior_x_modes = prior_x_modes
+    
+            self.save_hyperparameters()
+            self.save_dataset()
+            
     def load_dataset(self, neighbor_suffix=None, expression_suffix=None):
         """Load spatial transcriptomics data from relevant filepaths.
 
@@ -81,7 +81,7 @@ class SpiceMix:
             # TODO: is it necessary to allow multiple extensions, or can we require that the expression data are
             # in .txt files?
             for extension in ['txt', 'pkl', 'pickle']:
-                filepath = self.path2dataset / 'files' / f'expression_{replicate}{expression_suffix}.{extension}'
+                filepath = self.path2dataset / 'files' / f'expression_{replicate}.{extension}'
                 if not filepath.exists():
                     continue
 
@@ -92,23 +92,30 @@ class SpiceMix:
         self.max_genes = max(self.Gs)
         
         self.scaling = [G / self.max_genes * self.K / unscaled_YT.sum(axis=1).mean() for unscaled_YT, G in zip(self.unscaled_YTs, self.Gs)]
-        self.YTs = [scale * unscaled_YT for scale, unscaled_YT in zip(self.scaling, unscaled_YTs)]
+        self.YTs = [scale * unscaled_YT for scale, unscaled_YT in zip(self.scaling, self.unscaled_YTs)]
 
 
-        # TODO: change to use dictionary with empty mappings instead of list of empty lists
         self.Es = {}
-        for replicate, num_nodes, use_spatial in zip(range(self.num_repli), self.Ns, self.use_spatial):
+        self.labels = {}
+        for replicate_index, (replicate, num_nodes, use_spatial) in enumerate(zip(self.replicate_names, self.Ns, self.use_spatial)):
             if use_spatial:
-                E = load_edges(self.path2dataset / 'files' / f'neighborhood_{replicate}{neighbor_suffix}.txt', num_nodes)
+                E = load_edges(self.path2dataset / 'files' / f'neighborhood_{replicate}.txt', num_nodes)
             else:
                 E = {node: [] for node in range(num_nodes)}
 
-            self.Es[replicate] = E
+            self.Es[replicate_index] = E
+            
+            labels_filepath = self.path2dataset / 'files' / f'labels_{replicate}.txt'
+            
+            if labels_filepath.exists():
+                label = np.char.encode(np.loadtxt(labels_filepath, dtype=str, delimiter='\t'), encoding="utf-8")
+                
+                self.labels[replicate_index] = label
 
         self.total_edge_counts = [sum(map(len, E.values())) for E in self.Es.values()]
-        self.gene_sets = {replicate: np.char.encode(np.loadtxt(self.path2dataset / 'files' / f'genes_{replicate}{expression_suffix}.txt', dtype=str), encoding="utf-8") for replicate in range(self.num_repli)}
+        self.gene_sets = {replicate: np.char.encode(np.loadtxt(self.path2dataset / 'files' / f'genes_{replicate}.txt', dtype=str), encoding="utf-8") for replicate in self.replicate_names}
 
-    def initialize_model(self, random_seed4kmeans, initial_nmf_iterations=5, sigma_x_inverse_mode='Constant'):
+    def initialize_model(self, random_seed4kmeans, lambda_x=1, initial_nmf_iterations=5, sigma_x_inverse_mode='Constant'):
         logging.info(f'{print_datetime()}Initialization begins')
         
         # initialize M
@@ -122,7 +129,7 @@ class SpiceMix:
     
         # initialize XT and perhaps update M
         # sigma_yx is estimated from XT and M
-        self.M, self.XTs, self.sigma_yx_inverses, self.prior_x_parameter_sets = partial_nmf(self, prior_x_modes=self.prior_x_modes, initial_nmf_iterations=initial_nmf_iterations)
+        self.M, self.XTs, self.sigma_yx_inverses, self.prior_x_parameter_sets = partial_nmf(self, prior_x_modes=self.prior_x_modes, initial_nmf_iterations=initial_nmf_iterations, lambda_x=lambda_x)
     
         if sum(self.total_edge_counts) == 0: 
             sigma_x_inverse_mode = 'Constant'
@@ -159,12 +166,79 @@ class SpiceMix:
         self.save_parameters(iiter=0)
     #     return ret
 
+    def reload_hyperparameters(self):
+        with h5py.File(self.result_filename, 'r') as f:
+            hyperparameters = load_dict_from_hdf5_group(f, 'hyperparameters/')
+
+        self.prior_x_modes = [hyperparameters["prior_x_modes"][replicate_name].decode("utf-8") for replicate_name in self.replicate_names]
+        self.use_spatial = [hyperparameters["use_spatial"][replicate_name] for replicate_name in self.replicate_names]
+        self.lambda_sigma_x_inverse = hyperparameters["lambda_sigma_x_inverse"]
+        self.betas = hyperparameters["betas"]
+        self.K = int(hyperparameters["K"])
+        self.completed_iterations = hyperparameters["completed_iterations"]
+        print(self.completed_iterations)
+                    
+    def reload_parameters(self):
+        with h5py.File(self.result_filename, 'r') as f:
+            parameters = load_dict_from_hdf5_group(f, 'parameters/')
+
+        self.sigma_x_inverse = dict_to_list(parameters["sigma_x_inverse"])[-1]
+        self.M = dict_to_list(parameters["M"])[-1]
+        self.sigma_yx_inverses = np.array(dict_to_list(parameters["sigma_yx_inverses"]))[:, -1]
+        self.prior_x_parameter = np.array(dict_to_list(parameters["prior_x_parameter"]))[:, -1]
+        self.prior_x_parameter_sets = [(prior_x_mode, prior_x_parameter) for prior_x_mode, prior_x_parameter in zip(self.prior_x_modes, self.prior_x_parameter)]
+        
+    def reload_weights(self):
+        with h5py.File(self.result_filename, 'r') as f:
+            weights = load_dict_from_hdf5_group(f, 'weights/')
+            
+        self.XTs = dict_to_list(weights)[-1]
+
+    def reload_dataset(self):
+        with h5py.File(self.result_filename, 'r') as f:
+            dataset = load_dict_from_hdf5_group(f, 'dataset/')
+       
+        self.replicate_names = [replicate_name.decode('utf-8') for replicate_name in dataset["replicate_names"]]
+        self.num_replicates = len(self.replicate_names)
+        self.Es = {}
+        for replicate_index in dataset["Es"].keys():
+            E = dataset["Es"][replicate_index]
+            new_E = {}
+            for node in E.keys():
+                new_E[int(node)] = E[node].astype(int)
+            self.Es[int(replicate_index)] = new_E
+            
+        self.unscaled_YTs = dict_to_list(dataset["unscaled_YTs"])
+        self.YTs = dict_to_list(dataset["YTs"])
+        
+        if "labels" in dataset:
+            self.labels = {}
+        self.gene_sets = {}
+            
+        for replicate_index, replicate_name in enumerate(dataset["gene_sets"]):
+            self.gene_sets[replicate_name] =  np.char.decode(dataset["gene_sets"][replicate_name], encoding="utf-8")
+            replicate_index = str(replicate_index)
+            if "labels" in dataset:
+                self.labels[replicate_index] =  np.char.decode(dataset["labels"][replicate_index], encoding="utf-8")
+        
+        self.Ns, self.Gs = zip(*map(np.shape, self.unscaled_YTs))
+        self.max_genes = max(self.Gs)
+        self.total_edge_counts = [sum(map(len, E.values())) for E in dataset["Es"].values()]
+        
+        self.scaling = dataset["scaling"]
+        
+    def reload_model(self):
+        self.reload_dataset()
+        self.reload_hyperparameters()
+        self.reload_parameters()
+        self.reload_weights()
+        
     def estimate_weights(self, iiter):
         logging.info(f'{print_datetime()}Updating latent states')
 
         updated_XTs = []
-        with Pool(min(self.num_processes, self.num_repli)) as pool:
-            for replicate in range(self.num_repli):
+        with Pool(min(self.num_processes, self.num_replicates)) as pool:
+            for replicate in range(self.num_replicates):
                 if self.total_edge_counts[replicate] == 0:
                     updated_XTs.append(pool.apply_async(estimate_weights_no_neighbors, args=(
                         self.YTs[replicate],
@@ -211,19 +285,22 @@ class SpiceMix:
         """
 
         last_Q = np.nan
-        for iteration in range(self.completed_iterations + 1, max_iterations+1):
+        for iteration in range(self.completed_iterations + 1, max_iterations + 1):
             logging.info(f'{print_datetime()}Iteration {iteration} begins')
 
             self.estimate_weights(iiter=iteration)
             self.estimate_parameters(iiter=iteration)
-            self.saveProgress(iiter=iteration)
-
             logging.info(f'{print_datetime()}Q = {self.Q:.4f}\tdiff Q = {self.Q-last_Q:.4e}')
             last_Q = self.Q
-            self.completed_iterations += 1
+            
+            if self.is_checkpoint_iteration(iteration):
+                self.completed_iterations += self.epoch_size
+                
+            self.save_progress(iiter=iteration)
 
-    def skipSaving(self, iiter):
-        return iiter % 10 != 0
+
+    def is_checkpoint_iteration(self, iiter):
+        return iiter % self.epoch_size == 0
 
     def save_dataset(self):
         state_update = {
@@ -233,7 +310,9 @@ class SpiceMix:
                 "scaling": self.scaling,
                 "unscaled_YTs": {replicate: unscaled_YT for replicate, unscaled_YT in enumerate(self.unscaled_YTs)},
                 "Es": self.Es,
-                "gene_sets": self.gene_sets
+                "gene_sets": self.gene_sets,
+                "labels": self.labels,
+                # "coordinates": {replicate: coordinate for replicate, coordinate in enumerate(self.coordinates)}
             }
         }
 
@@ -265,79 +344,48 @@ class SpiceMix:
             #     f[f'hyperparameters/{k}'] = encode4h5(getattr(self, k))
 
     def save_weights(self, iiter):
-        # if self.result_filename is None:
-        #     return
-        if self.skipSaving(iiter):
-            return
-
-        # f = openH5File(self.result_filename)
-        # if f is None: return
-
-        # for repli, XT in zip(self.replicate_names, self.XTs):
-        #     f[f'latent_states/XT/{repli}/{iiter}'] = XT
-
-        # f.close()
-        state_update = {
-            "weights": {
-                replicate_name: {iiter: XT} for replicate_name, XT in zip(self.replicate_names, self.XTs)
+        if self.is_checkpoint_iteration(iiter):
+            print("saving weights")
+            state_update = {
+                "weights": {
+                    replicate_index: {iiter: XT} for replicate_index, XT in zip(range(self.num_replicates), self.XTs)
+                }
             }
-        }
-
-        if self.skipSaving(iiter):
-            return 
-        
-        save_dict_to_hdf5(self.result_filename, state_update)
+            
+            save_dict_to_hdf5(self.result_filename, state_update)
 
     def save_parameters(self, iiter):
         # if self.result_filename is None:
         #     return
-        state_update = {
-            "parameters": {
-                "sigma_x_inverse": {
-                    iiter: self.sigma_x_inverse
-                },
-                "M": {
-                    iiter: self.M
-                },
-                "sigma_yx_inverses": {
-                    replicate_name: {iiter: sigma_yx_inverse} for replicate_name, sigma_yx_inverse in zip(self.replicate_names, self.sigma_yx_inverses)
-                },
-                "prior_x_parameter": {
-                    replicate_name: {iiter: prior_x_parameters} for replicate_name, (_, prior_x_parameters) in zip(self.replicate_names, self.prior_x_parameter_sets)
+        if self.is_checkpoint_iteration(iiter):
+            state_update = {
+                "parameters": {
+                    "sigma_x_inverse": {
+                        iiter: self.sigma_x_inverse
+                    },
+                    "M": {
+                        iiter: self.M
+                    },
+                    "sigma_yx_inverses": {
+                        replicate_index: {iiter: sigma_yx_inverse} for replicate_index, sigma_yx_inverse in zip(range(self.num_replicates), self.sigma_yx_inverses)
+                    },
+                    "prior_x_parameter": {
+                        replicate_index: {iiter: prior_x_parameters} for replicate_index, (_, prior_x_parameters) in zip(range(self.num_replicates), self.prior_x_parameter_sets)
+                    }
                 }
             }
-        }
-
-        if self.skipSaving(iiter):
-            return 
         
-        save_dict_to_hdf5(self.result_filename, state_update)
+            save_dict_to_hdf5(self.result_filename, state_update)
 
-        # f = openH5File(self.result_filename)
-
-        # for k in ['M', 'sigma_x_inverse']:
-        #     f[f'parameters/{k}/{iiter}'] = getattr(self, k)
-
-        # for k in ['sigma_yx_inverses']:
-        #     for repli, v in zip(self.replicate_names, getattr(self, k)):
-        #         f[f'parameters/{k}/{repli}/{iiter}'] = v
-
-        # for k in ['prior_x_parameter_sets']:
-        #     for repli, v in zip(self.replicate_names, getattr(self, k)):
-        #         f[f'parameters/{k}/{repli}/{iiter}'] = np.array(v[1:])
-
-        # f.close()
-
-
-    def saveProgress(self, iiter):
-        # if self.result_filename is None:
-        #     return
-
+    def save_progress(self, iiter):
         state_update = {
             "progress": {
                 "Q": {
                     iiter: self.Q
                 }
+            },
+            "hyperparameters": {
+                "completed_iterations": self.completed_iterations
             }
         }
         

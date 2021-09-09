@@ -28,6 +28,8 @@ def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inv
 
     updated_XT = np.zeros_like(XT)
     weight_model = grb.Model('X w/o n')
+    weight_model.Params.OptimalityTol=1e-4
+    weight_model.Params.FeasibilityTol=1e-4
     weight_model.setParam('OutputFlag', False)
     weight_model.Params.Threads = 1
     weight_variables = weight_model.addVars(num_metagenes, lb=0.)
@@ -240,6 +242,8 @@ def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, 
     local_iterations = 100
 
     weight_model = grb.Model('ICM')
+    weight_model.Params.OptimalityTol=1e-4
+    weight_model.Params.FeasibilityTol=1e-4
     weight_model.Params.OutputFlag = False
     weight_model.Params.Threads = 1
     weight_model.Params.BarConvTol = 1e-6

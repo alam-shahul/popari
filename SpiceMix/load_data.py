@@ -25,7 +25,7 @@ def load_expression(filename):
 
     num_datapoints, num_genes = gene_expression.shape
     logging.info(f'{print_datetime()}Loaded {num_datapoints} cells and {num_genes} genes from {filename}')
-    
+   
     return gene_expression
 
 def load_edges(filename, num_nodes):
@@ -67,29 +67,6 @@ def loadGeneList(filename):
     logging.info(f'{print_datetime()}Loaded {len(genes)} genes from {filename}')
     return genes
 
-def load_dataset(path2dataset, replicate_names, neighbor_suffix=None, expression_suffix=None):
-    neighbor_suffix = parseSuffix(neighbor_suffix)
-    expression_suffix = parseSuffix(expression_suffix)
-
-    YTs = []
-    for i in replicate_names:
-        for s in ['txt', 'tsv', 'pkl', 'pickle']:
-            path2file = path2dataset / 'files' / f'expression_{i}{expression_suffix}.{s}'
-            if not path2file.exists():
-                continue
-
-            YTs.append(load_expression(path2file))
-    Ns, Gs = zip(*map(np.shape, YTs))
-    max_genes = max(Gs)
-    Es = [
-        load_edges(path2dataset / 'files' / f'neighborhood_{i}{neighbor_suffix}.txt', N)
-        if u else [[] for _ in range(N)]
-        for i, N, u in zip(replicate_names, Ns, use_spatial)
-    ]
-    Es_empty = [sum(map(len, E)) == 0 for E in Es]
-    genes = [loadGeneList(path2dataset / 'files' / f'genes_{i}{expression_suffix}.txt') for i in replicate_names]
-
-    return YTs, 
 # def loadImage(dataset, filename):
 #   path2file = os.path.join(dataFolder(dataset), filename)
 #   if os.path.exists(path2file): return plt.imread(path2file)

@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import networkx as nx
 
+from sklearn.neighbors import NearestNeighbors
 
 pid = os.getpid()
 psutil_process = psutil.Process(pid)
@@ -58,7 +59,7 @@ def save_dict_to_hdf5(filename, dic):
     """
     ....
     """
-    with h5py.File(filename, 'a') as h5file:
+    with h5py.File(filename) as h5file:
         save_dict_to_hdf5_group(h5file, '/', dic)
 
 def save_dict_to_hdf5_group(h5file, path, dic):
@@ -69,7 +70,10 @@ def save_dict_to_hdf5_group(h5file, path, dic):
     for key, item in sorted(dic.items()):
         full_path = path + str(key)
         if isinstance(item, permitted_dtypes):
-            h5file[full_path] = item
+            if full_path in h5file:
+                h5file[full_path][...] = item
+            else:
+                h5file[full_path] = item
         elif isinstance(item, dict):
             save_dict_to_hdf5_group(h5file, full_path + '/', item)
         else:
@@ -113,3 +117,29 @@ def load_dict_from_hdf5_group(h5file, path):
         elif isinstance(item, h5py._hl.group.Group):
             ans[key] = load_dict_from_hdf5_group(h5file, path + key + '/')
     return ans
+
+def moran_i_statistic(gene_expression, coordinates, k=5):
+    """Calculates per gene/metagene Moran's I statistic.
+    
+    """
+    num_factors, num_genes = gene_expression.shape
+    
+    knn_model = NearestNeighbors(n_neighbors=k, algorithm='auto', metric = 'euclidean').fit(coordinates)
+    _, indices = knn_model.kneighbors(coordinates)
+    W = np.zeros((num_factors, num_factors))
+    for i in range(num_factors):
+        W[i, indices[i, :]] = 1
+    for i in range(num_factors):
+        W[i, i] = 0
+        
+    I = np.zeros(num_genes)
+    for gene in range(num_genes):
+        normalized_expression = np.array(gene_expression[:, gene] - np.mean(gene_expression[:, gene]))
+        normalized_expression = np.reshape(normalized_expression, (len(normalized_expression), 1))
+        correlation = np.sum(np.multiply(W, np.matmul(normalized_expression, normalized_expression.T)))
+        autocorrelation = np.sum(np.multiply(normalized_expression, normalized_expression))
+        I[gene] = (correlation/autocorrelation)
+       
+    I *= num_factors / np.sum(W)
+    
+    return I

@@ -44,6 +44,8 @@ def estimate_parameters_y(self, max_iterations=10):
             raise NotImplementedError
 
     metagene_model = grb.Model('M')
+    metagene_model.Params.OptimalityTol=1e-4
+    metagene_model.Params.FeasibilityTol=1e-4
     metagene_model.setParam('OutputFlag', False)
     metagene_model.Params.Threads = 1
     if self.M_constraint == 'sum2one':
@@ -108,18 +110,18 @@ def estimate_parameters_y(self, max_iterations=10):
             self.sigma_yx_inverses = 1. / np.sqrt(sigma_yx_inverses)
         elif self.sigma_yx_inverse_mode == 'average':
             sigma_yx_inverses = np.dot(self.betas, unscaled_sigma_yx_inverses) / np.dot(self.betas, sizes)
-            self.sigma_yx_inverses = np.full(self.num_repli, 1 / (np.sqrt(sigma_yx_inverses) + 1e-20))
+            self.sigma_yx_inverses = np.full(self.num_replicates, 1 / (np.sqrt(sigma_yx_inverses) + 1e-20))
         elif self.sigma_yx_inverse_mode.startswith('average '):
             index = np.array(list(map(int, self.sigma_yx_inverse_mode.split(' ')[1:])))
             sigma_yx_inverses = np.dot(self.betas[index], unscaled_sigma_yx_inverses[index]) / np.dot(self.betas[index], sizes[index])
-            self.sigma_yx_inverses = np.full(self.num_repli, 1 / (np.sqrt(sigma_yx_inverses) + 1e-20))
+            self.sigma_yx_inverses = np.full(self.num_replicates, 1 / (np.sqrt(sigma_yx_inverses) + 1e-20))
         else:
             raise NotImplementedError
 
         delta = self.sigma_yx_inverses - last_sigma_yx_inverses
         logging.info(f"{print_datetime()}At iteration {iteration}, σ_yxInv: {array2string(delta)} -> {array2string(self.sigma_yx_inverses)}")
 
-        if (np.abs(delta) / self.sigma_yx_inverses).max() < 1e-5 or self.num_repli <= 1 or self.sigma_yx_inverse_mode.startswith('average'):
+        if (np.abs(delta) / self.sigma_yx_inverses).max() < 1e-5 or self.num_replicates <= 1 or self.sigma_yx_inverse_mode.startswith('average'):
             break
 
     # emission
@@ -245,7 +247,7 @@ def estimate_parameters_x(self, torch_dtype=torch.double, requires_grad=False, m
 
         # row_idx, col_idx = np.triu_indices(self.K, 0)
 
-        # tZes = [None] * self.num_repli
+        # tZes = [None] * self.num_replicates
         
         num_samples = 64
 

@@ -27,11 +27,11 @@ def parse_arguments():
         help='Suffix of the name of the file that contains expressions'
     )
     parser.add_argument(
-        '--replicate_names', type=lambda x: list(map(str, eval(x))),
+        '--replicate_names', type=lambda x: list(map(str, eval(x))), default='[]',
         help='list of names of the experiments, a Python expression, e.g., "[0,1,2]", "range(5)"'
     )
     parser.add_argument(
-        '--use_spatial', type=eval,
+        '--use_spatial', type=eval, default='[]',
         help='list of true/false indicating whether to use the spatial information in each experiment, '
              'a Python expression, e.g., "[True,True]", "[False,False,False]", "[True]*5"'
     )
@@ -40,7 +40,7 @@ def parse_arguments():
     parser.add_argument('--random_seed4kmeans', type=int, default=0)
 
     # training & hyperparameters
-    parser.add_argument('--lambda_sigma_x_inverse', type=float, default=1e-4, help='Regularization on Sigma_x^{-1}')
+    parser.add_argument('--lambda_sigma_x_inverse', type=float, default=1e-4, help='Regularization on sigma_x^{-1}')
     parser.add_argument('--max_iterations', type=int, default=500, help='Maximum number of outer optimization iteration')
     parser.add_argument('--initial_nmf_iterations', type=int, default=5, help='number of NMF iterations in initialization')
     parser.add_argument(
@@ -48,6 +48,8 @@ def parse_arguments():
         help='Positive weights of the experiments; the sum will be normalized to 1; can be scalar (equal weight) or array-like'
     )
 
+    parser.add_argument('--lambda_x', type=float, default=1., help='Prior of X')
+    
     def parse_device(device):
         if device == "-1" or device == "cpu":
             return "cpu"
@@ -67,6 +69,7 @@ def parse_arguments():
     parser.add_argument('--num_threads', type=int, default=1, help='Number of CPU threads for PyTorch')
     parser.add_argument('--num_processes', type=int, default=1, help='Number of processes')
     parser.add_argument('--result_filename', type=str, default="results.hdf5", help='The name of the h5 file to store results')
+    parser.add_argument('--resume_training', action="store_true", help='Whether or not to resume training from a previous run')
 
     return parser.parse_args()
 
@@ -98,10 +101,12 @@ if __name__ == '__main__':
         lambda_sigma_x_inverse=args.lambda_sigma_x_inverse, 
         betas=betas, 
         prior_x_modes=np.array(['Exponential shared fixed']*len(args.replicate_names)), 
-        result_filename=args.result_filename
+        result_filename=args.result_filename,
+        resume_training=args.resume_training
     )
 
-    model.initialize_model(random_seed4kmeans=args.random_seed4kmeans, initial_nmf_iterations=args.initial_nmf_iterations)
+    if not args.resume_training:
+        model.initialize_model(random_seed4kmeans=args.random_seed4kmeans, initial_nmf_iterations=args.initial_nmf_iterations, lambda_x=args.lambda_x)
     
     torch.cuda.empty_cache()
     model.fit(args.max_iterations)

@@ -56,7 +56,7 @@ def nmf_update(YT, M, XT, X_constraint, dropout_mode):
 
     return updated_XT
 
-def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
+def partial_nmf(model, prior_x_modes, initial_nmf_iterations, lambda_x=1, num_processes=1):
     """Determine initial values for XTs using partial NMF of gene expression array.
 
     Args:
@@ -82,8 +82,8 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
             sigma_x_inverse = np.full(model.K, np.sqrt(model.K) / total_gene_expression.std())
             model.prior_x_parameter_sets.append((prior_x_mode, mu_x, sigma_x_inverse))
         elif prior_x_mode in ('Exponential', 'Exponential shared', 'Exponential shared fixed'):
-            lambda_x = np.full(model.K, num_genes / model.max_genes * model.K / total_gene_expression.mean())
-            model.prior_x_parameter_sets.append((prior_x_mode, lambda_x))
+            # lambda_x = np.full(model.K, num_genes / model.max_genes * model.K / total_gene_expression.mean())
+            model.prior_x_parameter_sets.append((prior_x_mode, np.full(model.K, lambda_x)))
         else:
             raise NotImplementedError(f'Prior on X {prior_x_mode} is not implemented')
 
@@ -103,11 +103,12 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
     last_rmse = np.nan
 
     for iteration in range(initial_nmf_iterations):
+        print("Initial nmf iteration %d" % iteration)
         # update XT
         with Pool(min(num_processes, len(model.YTs))) as pool:
             model.XTs = pool.starmap(nmf_update, zip(
-                model.YTs, [model.M]*model.num_repli, model.XTs,
-                [model.X_constraint]*model.num_repli, [model.dropout_mode]*model.num_repli,
+                model.YTs, [model.M]*model.num_replicates, model.XTs,
+                [model.X_constraint]*model.num_replicates, [model.dropout_mode]*model.num_replicates,
             ))
         pool.close()
         pool.join()
@@ -167,12 +168,12 @@ def partial_nmf(model, prior_x_modes, initial_nmf_iterations, num_processes=1):
         elif model.sigma_yx_inverse_mode == 'average':
             sigma_yx_inverses = np.dot(model.betas, nmf_objective_values) / np.dot(model.betas, sizes)
             rmse = np.sqrt(sigma_yx_inverses)
-            model.sigma_yx_inverses = np.full(model.num_repli, 1 / np.sqrt(sigma_yx_inverses + 1e-10))
+            model.sigma_yx_inverses = np.full(model.num_replicates, 1 / np.sqrt(sigma_yx_inverses + 1e-10))
         elif model.sigma_yx_inverse_mode.startswith('average '):
             idx = np.fromiter(map(int, model.sigma_yx_inv_str.split(' ')[1:]), dtype=int)
             sigma_yx_inverses = np.dot(model.betas[idx], nmf_objective_values[idx]) / np.dot(model.betas[idx], sizes[idx])
             rmse = np.sqrt(sigma_yx_inverses)
-            model.sigma_yx_inverses = np.full(model.num_repli, 1 / np.sqrt(sigma_yx_inverses + 1e-10))
+            model.sigma_yx_inverses = np.full(model.num_replicates, 1 / np.sqrt(sigma_yx_inverses + 1e-10))
         else:
             raise NotImplementedError(f'σ_y|x mode {model.sigma_yx_inverse_mode} is not implemented')
 
