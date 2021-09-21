@@ -30,6 +30,7 @@ from scipy.stats import pearsonr
 
 from load_data import load_expression
 from model import SpiceMix
+from pathlib import Path
 
 class SpiceMixResult:
     """Provides methods to interpret a SpiceMix result.
@@ -41,6 +42,7 @@ class SpiceMixResult:
         self.result_filename = result_filename
         print(f'Result file = {self.result_filename}')
 
+        self.load_progress()
         self.load_hyperparameters()
 
         self.load_dataset()
@@ -51,7 +53,7 @@ class SpiceMixResult:
 
         self.weight_columns = np.array([f'Metagene {metagene}' for metagene in range(self.hyperparameters["K"])])
         self.columns_exprs = np.array(self.dataset["gene_sets"][self.dataset["replicate_names"][0]])
-        
+    
         self.data = pd.DataFrame(index=range(sum(self.dataset["Ns"])))
         self.data[['x', 'y']] = np.concatenate([load_expression(self.path2dataset / 'files' / f'coordinates_{replicate}.txt') for replicate in self.dataset["replicate_names"]], axis=0)
         # self.data['cell type'] = np.concatenate([
@@ -59,6 +61,9 @@ class SpiceMixResult:
         #     for repli in self.replicate_names
         # ], axis=0)
         self.data["replicate"] = sum([[replicate] * N for replicate, N in zip(self.dataset["replicate_names"], self.dataset["Ns"])], [])
+        print(self.columns_exprs)
+        self.columns_exprs = [" ".join(symbols) for symbols in self.columns_exprs]
+        print(self.columns_exprs)
         self.data[self.columns_exprs] = np.concatenate(self.dataset["unscaled_YTs"], axis=0)
         
         if "labels" in self.dataset:
@@ -73,6 +78,12 @@ class SpiceMixResult:
     def load_hyperparameters(self):
         with h5py.File(self.result_filename, 'r') as f:
             self.hyperparameters = load_dict_from_hdf5_group(f, 'hyperparameters/')
+    
+    def load_progress(self):
+        with h5py.File(self.result_filename, 'r') as f:
+            self.progress = load_dict_from_hdf5_group(f, 'progress/')
+            
+        self.progress["Q"] = dict_to_list(self.progress["Q"])
 
     def load_parameters(self):
         with h5py.File(self.result_filename, 'r') as f:
@@ -91,7 +102,8 @@ class SpiceMixResult:
         self.dataset["unscaled_YTs"] = dict_to_list(self.dataset["unscaled_YTs"])
         self.dataset["YTs"] = dict_to_list(self.dataset["YTs"])
         for replicate_index, replicate_name in enumerate(self.dataset["gene_sets"]):
-            self.dataset["gene_sets"][replicate_name] =  np.char.decode(self.dataset["gene_sets"][replicate_name], encoding="utf-8")
+            self.dataset["gene_sets"][replicate_name] =  np.loadtxt(Path(self.path2dataset) / "files" / f"genes_{replicate_name}.txt", dtype=str)
+            # np.char.decode(self.dataset["gene_sets"][replicate_name], encoding="utf-8")
             replicate_index = str(replicate_index)
             if "labels" in self.dataset:
                 self.dataset["labels"][replicate_index] =  np.char.decode(self.dataset["labels"][replicate_index], encoding="utf-8")

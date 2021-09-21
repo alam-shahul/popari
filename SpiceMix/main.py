@@ -102,6 +102,7 @@ if __name__ == '__main__':
         betas=betas, 
         prior_x_modes=np.array(['Exponential shared fixed']*len(args.replicate_names)), 
         result_filename=args.result_filename,
+        num_processes=args.num_processes,
         resume_training=args.resume_training
     )
 
