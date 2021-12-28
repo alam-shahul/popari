@@ -1,337 +1,212 @@
-import sys, logging, time, resource, gc, os
-import multiprocessing
-from multiprocessing import Pool
-from util import print_datetime
+import sys, logging, time, gc, os
+from tqdm.auto import tqdm, trange
 
 import numpy as np
-import gurobipy as grb
 import torch
 
-def estimate_weights_no_neighbors(YT, M, XT, prior_x_parameter_set, sigma_yx_inverse, X_constraint, dropout_mode, replicate):
-    """Estimate weights for a single replicate in the SpiceMix model without considering neighbors.
+from sample_for_integral import project2simplex
 
-    This is essentially a benchmarking convenience function, and should return similar results to running vanilla NMF.
 
-    Args:
-        YT: transpose of gene expression matrix for sample, with shape (num_cells, num_genes)
-        M: current estimate of metagene matrix, with shape (num_genes, num_metagenes)
-        XT: transpose of metagene weights for sample, with shape
-    Returns:
-        New estimate of transposed metagene weight matrix XT.
-    """
+@torch.no_grad()
+def estimate_weight_wonbr(
+		Y, M, X, sigma_yx, prior_x_mode, prior_x, context, n_epochs=100, tol=1e-5, update_alg='mu'):
+	"""
+	min 1/2σ^2 || Y - X MT ||_2^2 + lam || X ||_1
+	grad = X MT M / σ^2 - Y MT / σ^2 + lam
+	"""
+	MTM = M.T @ M / (sigma_yx ** 2)
+	YM = Y.to(M.device) @ M / (sigma_yx ** 2)
+	Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx ** 2)
+	loss_prev, loss = np.inf, np.nan
+	pbar = trange(n_epochs, leave=False, disable=True)
+	for i_epoch in pbar:
+		if update_alg == 'mu':
+			loss = ((X @ MTM) * X).sum() / 2 - X.view(-1) @ YM.view(-1) + Ynorm / 2
+			numerator = YM
+			denominator = X @ MTM
+			if prior_x_mode == 'exponential shared fixed':
+				# see sklearn.decomposition.NMF
+				loss += (X @ prior_x[0]).sum()
+				denominator.add_(prior_x[0][None])
+			else:
+				raise NotImplementedError
 
-    if dropout_mode != 'raw':
-        raise NotImplemented
+			loss = loss.item()
+			assert loss <= loss_prev * (1 + 1e-4), (loss_prev, loss, (loss_prev - loss) / loss)
+			mul_fac = numerator / denominator
+			pbar.set_description(
+				f'Updating weight w/o neighbors: loss = {loss:.1e}, '
+				f'%δloss = {(loss_prev - loss) / loss:.1e}, '
+				f'update = {mul_fac.min().item():.1e} ~ {mul_fac.max().item():.1e}'
+			)
 
-    logging.info(f'{print_datetime()}Estimating weights without neighbors in repli {replicate}')
-    _, num_metagenes = XT.shape
+			loss_prev = loss
+			if mul_fac.sub(1).abs().max() < tol: break
+			X.mul_(mul_fac).clip_(min=1e-10)
+		else:
+			raise NotImplementedError
+	pbar.close()
+	return loss
 
-    updated_XT = np.zeros_like(XT)
-    weight_model = grb.Model('X w/o n')
-    weight_model.Params.OptimalityTol=1e-4
-    weight_model.Params.FeasibilityTol=1e-4
-    weight_model.setParam('OutputFlag', False)
-    weight_model.Params.Threads = 1
-    weight_variables = weight_model.addVars(num_metagenes, lb=0.)
-    assert X_constraint == 'none'
 
-    # Adding shared components of the objective
-    # quadratic term in log Pr[ Y | X, Theta ]
-    shared_objective = 0
-    if dropout_mode == 'raw':
-        # MTM = M.T @ M * (sigma_yx_inverse**2 / 2.)
-        MTM = (M.T @ M + 1e-6 * np.eye(num_metagenes)) * (sigma_yx_inverse ** 2 / 2.)
-        shared_objective += grb.quicksum([weight_variables[index] * MTM[index, index] * weight_variables[index] for index in range(num_metagenes)])
-        MTM *= 2
-        shared_objective += grb.quicksum([weight_variables[index] * MTM[index, j] * weight_variables[j] for index in range(num_metagenes) for j in range(index+1, num_metagenes)])
-        
-        del MTM
-        YTM = YT @ M * (-sigma_yx_inverse ** 2)
-    else:
-        raise NotImplementedError
+@torch.no_grad()
+def estimate_weight_wnbr(
+		Y, M, X, sigma_yx, Sigma_x_inv, E, prior_x_mode, prior_x, context, n_epochs=100, tol=1e-4, update_alg='gd',
+):
+	"""
+	The optimization for all variables
+	min 1/2σ^2 || Y - diag(S) Z MT ||_2^2 + lam || S ||_1 + sum_{ij in E} ziT Σx-1 zj
 
-    # prior on X
-    prior_x_mode, *prior_x_parameters = prior_x_parameter_set
-    if prior_x_mode in ('Truncated Gaussian', 'Gaussian'):
-        mu_x, sigma_x_inv = prior_x_parameters
-        assert (sigma_x_inv > 0).all()
-        t = sigma_x_inv ** 2 / 2
-        shared_objective += grb.quicksum([t[metagene] * weight_variables[metagene] * weight_variables[metagene] for metagene in range(num_metagenes)])
-        t *= - 2 * mu_x
-        shared_objective += grb.quicksum([t[metagene] * weight_variables[metagene] for metagene in range(num_metagenes)])
-        shared_objective += np.dot(mu_x**2, sigma_x_inv**2) / 2
-    elif prior_x_mode in ('Exponential', 'Exponential shared', 'Exponential shared fixed'):
-        lambda_x, = prior_x_parameters
-        assert (lambda_x >= 0).all()
-        shared_objective += grb.quicksum([lambda_x[metagene] * weight_variables[metagene] for metagene in range(num_metagenes)])
-    else:
-        raise NotImplementedError
+	for s_i
+	min 1/2σ^2 || y - M z s ||_2^2 + lam s
+	s* = max(0, ( yT M z / σ^2 - lam ) / ( zT MT M z / σ^2) )
 
-    for cell_index, (y, yTM) in enumerate(zip(YT, YTM)):
-        objective = shared_objective + grb.quicksum(yTM[metagene] * weight_variables[metagene] for metagene in range(num_metagenes)) + np.dot(y, y) * sigma_yx_inverse / 2.
-        weight_model.setObjective(objective, grb.GRB.MINIMIZE)
-        weight_model.optimize()
-        updated_XT[cell_index] = [weight_variables[metagene].x for metagene in range(num_metagenes)]
+	for Z
+	min 1/2σ^2 || Y - diag(S) Z MT ||_2^2 + sum_{ij in E} ziT Σx-1 zj
+	grad_i = MT M z s^2 / σ^2 - MT y s / σ^2 + sum_{j in Ei} Σx-1 zj
+	"""
+	MTM = M.T @ M / (sigma_yx**2)
+	YM = Y.to(M.device) @ M / (sigma_yx ** 2)
+	Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx**2)
+	step_size_base = 1 / torch.linalg.eigvalsh(MTM).max()
+	S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
+	Z = X / S
+	N = len(Z)
 
-    return updated_XT
+	E_adj_list = np.array(E, dtype=object)
 
-def estimate_weights_icm(YT, E, M, XT, prior_x_parameter_set, sigma_yx_inverse, sigma_x_inverse, X_constraint, dropout_mode, pairwise_potential_mode, replicate):
-    r"""Estimate weights for a single replicate in the SpiceMix model using the Iterated Conditional Model (ICM).
+	def get_adj_mat(adj_list):
+		edges = [(i, j) for i, e in enumerate(adj_list) for j in e]
+		adj_mat = torch.sparse_coo_tensor(np.array(edges).T, np.ones(len(edges)), size=[len(adj_list), N], **context)
+		return adj_mat
 
-    Notes:
-        .. math::
-           \hat{X}_{\text{MAP}} &= \mathop{\text{\argmax}}_{X \in \mathbb{R}_+^{K \times N}} \left{ \sum_{i \in \mathcal{V}}\right} \\
+	E_adj_mat = get_adj_mat(E_adj_list)
 
-           s_i &= \frac{ - \lambda_x^\top z_i}{(Mz_i)^\top Mz_i} \\
-           z_i &= \frac{}{}
+	def update_s():
+		S[:] = (YM * Z).sum(1, keepdim=True)
+		if prior_x_mode == 'exponential shared fixed':
+			S.sub_(prior_x[0][0])
+		else:
+			raise NotImplementedError
+		S.div_(((Z @ MTM) * Z).sum(1, keepdim=True))
+		S.clip_(min=1e-5)
 
-        We write XT in terms of size factors S such that XT = S * ZT.
+	def update_z_mu(Z):
+		indices = np.random.permutation(len(S))
+		# bs = len(indices) // 50
+		bs = 1
+		thr = 1e3
+		for i in range(0, len(indices), bs):
+			idx = indices[i: i+bs]
+			adj_mat = get_adj_mat(E_adj_list[idx])
+			numerator = YM[idx] * S[idx]
+			denominator = (Z[idx] @ MTM).mul_(S[idx] ** 2)
+			t = (adj_mat @ Z) @ Sigma_x_inv
+			# not sure if this works
+			numerator -= t.clip(max=0)
+			denominator += t.clip(min=0)
+			mul_fac = numerator / denominator
+			mul_fac.clip_(min=1/thr, max=thr)
+			# Z.mul_(mul_fac)
+			Z[idx] *= mul_fac
+			project2simplex(Z, dim=1)
 
-    Args:
-        YT: transpose of gene expression matrix for replicate, with shape (num_cells, num_genes)
-        E: adjacency list for neighborhood graph in this replicate
-        M: current estimate of metagene matrix, with shape (num_genes, num_metagenes)
-        XT: transpose of weight matrix, with shape (num_cells, num_metagenes)
-        prior_x_parameter_set: set of parameters defining prior distribution on weights, with structure (prior_x_mode, ∗prior_x_parameters)
-        sigma_yx_inverse: TODO
-        sigma_x_inverse: inverse of metagene affinity matrix
-        X_constraint: constraint on elements of weight matrix
-        dropout_mode: TODO:
-        pairwise_potential_mode: TODO
+	def update_z_gd(Z):
+		def calc_func_grad(Z, idx):
+			# grad = (Z @ MTM).mul_(S ** 2)
+			# grad.addcmul_(YM, S, value=-1)
+			# grad.addmm_(E @ Z, Sigma_x_inv)
+			# grad.sub_(grad.sum(1, keepdim=True))
+			t = (Z[idx] @ MTM).mul_(S[idx] ** 2)
+			f = (t * Z[idx]).sum().item() / 2
+			g = t
+			t = YM[idx] * S[idx]
+			f -= (t * Z[idx]).sum().item()
+			g -= t
+			t = get_adj_mat(E_adj_list[idx]) @ Z @ Sigma_x_inv
+			f += (t * Z[idx]).sum().item()
+			g += t
+			# f += Ynorm / 2
+			return f, g
+		step_size = step_size_base / S.square()
+		bs = 50
+		indices_remaining = set(range(N))
+		# indices = np.random.permutation(len(S))
+		# pbar = trange(0, N, bs, leave=False)
+		pbar = tqdm(range(N), leave=False)
+		# for i in pbar:
+		while len(indices_remaining) > 0:
+			step_size_scale = 1
+			# idx = indices[i: i+bs]
+			indices_candidates = np.random.choice(list(indices_remaining), size=min(bs, len(indices_remaining)), replace=False)
+			indices = []
+			indices_exclude = set()
+			for i in indices_candidates:
+				if i in indices_exclude:
+					continue
+				else:
+					indices.append(i)
+					indices_exclude |= set(E_adj_list[i])
+			indices_remaining -= set(indices)
+			idx = list(indices)
+			func, grad = calc_func_grad(Z, idx)
+			while True:
+				# Z_new = Z.sub(grad, alpha=step_size * step_size_scale)
+				Z_new = Z.clone()
+				Z_new[idx] -= (step_size[idx] * step_size_scale) * grad
+				Z_new[idx] = project2simplex(Z_new[idx], dim=1)
+				dZ = Z_new[idx].sub(Z[idx]).abs().max().item()
+				func_new, grad_new = calc_func_grad(Z_new, idx)
+				# print(
+				# 	func, func_new, func - func_new,
+				# 	step_size_scale,
+				# 	(grad * step_size * step_size_scale).abs().max().item(),
+				# 	dZ,
+				# )
+				if func_new < func:
+					Z[:] = Z_new
+					func = func_new
+					grad = grad_new
+					step_size_scale *= 2
+					continue
+				else:
+					step_size_scale *= .5
+				if dZ < 1e-4 or step_size_scale < .5: break
+			assert step_size_scale > .1
+			pbar.set_description(f'Updating Z w/ nbrs via line search: lr={step_size_scale:.1e}')
+			pbar.update(len(idx))
+		pbar.close()
 
-    Returns:
-        New estimate of transposed metagene weight matrix XT.
-    """
+	def calc_loss(loss_prev):
+		X = Z * S
+		loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
+		if prior_x_mode == 'exponential shared fixed':
+			loss += prior_x[0][0] * S.sum()
+		else:
+			raise NotImplementedError
+		loss += ((E_adj_mat @ Z) @ Sigma_x_inv).mul(Z).sum()
+		loss = loss.item()
+		# assert loss <= loss_prev, (loss_prev, loss)
+		return loss, loss_prev - loss
 
-    prior_x_mode, *prior_x_parameters = prior_x_parameter_set
-    num_cells, _ = YT.shape
-    _, num_metagenes = M.shape
-    MTM = None
-    YTM = None
-    
-    # Precomputing some important matrix products
-    if dropout_mode == 'raw':
-        MTM = M.T @ M * sigma_yx_inverse**2 / 2
-        YTM = YT @ M * sigma_yx_inverse**2 / 2
-    else:
-        raise NotImplementedError
+	# consider combine calc_loss and update_z to remove a call to torch.sparse.mm
 
-    def calculate_objective(S, ZT):
-        """Calculate current value of ICM objective.
+	loss = np.inf
+	pbar = trange(n_epochs)
+	Z_prev = Z.clone().detach()
+	for i_epoch in pbar:
+		update_s()
+		# update_z_mu(Z)
+		update_z_gd(Z)
+		loss, dloss = calc_loss(loss)
+		dZ = (Z_prev - Z).abs().max().item()
+		pbar.set_description(
+			f'Updating weight w/ neighbors: loss = {loss:.1e}, '
+			f'δloss = {dloss:.1e}, '
+			f'δZ = {dZ:.1e}'
+		)
+		if dZ < tol: break
+		Z_prev[:] = Z
 
-        Args:
-            YT: transpose of gene expression matrix for a particular sample
-            S: a vector of total metagene expressions for each cell
-            ZT: current estimate of weights for the sample, divided by the total for each cell
-
-        Returns:
-            value of ICM objective
-        """
-        
-        objective = 0
-        difference = YT - ( S * ZT ) @ M.T
-        if dropout_mode == 'raw':
-            difference = difference.ravel()
-        else:
-            raise NotImplementedError
-
-        objective += np.dot(difference, difference) * sigma_yx_inverse**2 / 2
-        if pairwise_potential_mode == 'normalized':
-            for neighbors, z_i in zip(E.values(), ZT):
-                objective += z_i @ sigma_x_inverse @ ZT[neighbors].sum(axis=0) / 2
-        else:
-            raise NotImplementedError
-
-        if prior_x_mode in ('Exponential', 'Exponential shared', 'Exponential shared fixed'):
-            lambda_x, = prior_x_parameters
-            objective += lambda_x @ (S * ZT).sum(axis=0)
-            del lambda_x
-        else:
-            raise NotImplementedError
-
-        objective /= YT.size
-
-        return objective
-
-    def update_s_i(z_i, yTM):
-        """Calculate closed form update for s_i.
-
-        Assuming fixed value of z_i, update for s_i takes the following form:
-        TODO
-
-        Args:
-            z_i: current estimate of normalized metagene expression
-            neighbors: list of neighbors of current cell
-            yTM: row of YTM corresponding to current cell
-            MTM: row of MTM corresponding to current cell
-
-        Returns:
-            Updated estimate of s_i
-
-        """
-
-        denominator =  z_i @ MTM @ z_i
-        numerator = yTM @ z_i
-        if prior_x_mode in ('Exponential', 'Exponential shared', 'Exponential shared fixed'):
-            lambda_x, = prior_x_parameters
-            # TODO: do we need the 1/2 here?
-            numerator -= lambda_x @ z_i / 2
-            del lambda_x
-        else:
-            raise NotImplementedError
-        
-        numerator = np.maximum(numerator, 0)
-        s_i_new = numerator / denominator
-
-        return s_i_new
-
-    def update_z_i(s_i, y_i, yTM, eta):
-        """Calculate update for z_i using Gurobi simplex algorithm.
-
-        Assuming fixed value of s_i, update for z_i is a linear program of the following form:
-        TODO
-
-        Args:
-            s_i: current estimate of size factor
-            yTM: row of YTM corresponding to current cell
-            eta: aggregate contribution of neighbor z_j's, weighted by affinity matrix (sigma_x_inverse)
-
-        Returns:
-            Updated estimate of z_i
-
-        """
-
-        objective = 0
-
-        # Element-wise matrix multiplication (Mz_is_i)^\top(Mz_is_i)
-        factor = s_i**2 * MTM
-        objective += grb.quicksum([weight_variables[index] * factor[index, index] * weight_variables[index] for index in range(num_metagenes)])
-        factor *= 2
-        objective += grb.quicksum([weight_variables[index] * factor[index, j] * weight_variables[j] for index in range(num_metagenes) for j in range(index+1, num_metagenes)])
-       
-       
-        # Adding terms for -2 y_i M z_i s_i
-        factor = -2 * s_i * yTM
-        # TODO: fix formula below
-        # objective += grb.quicksum([weight_variables[index] * factor[index] for index in range(num_metagenes)])
-        # objective += y_i @ y_i
-        # objective *= sigma_yx_inverse**2 / 2
-        factor += eta
-        # factor = eta
-
-        if prior_x_mode in ('Exponential'):
-            lambda_x, = prior_x_parameters
-            factor += lambda_x * s_i
-            del lambda_x
-        elif prior_x_mode in ('Exponential shared', 'Exponential shared fixed'):
-            pass
-        else:
-            raise NotImplementedError
-
-        objective += grb.quicksum([weight_variables[index] * factor[index] for index in range(num_metagenes)])
-        # TODO: is this line necessary? Doesn't seem like z_i affects this term of the objective
-        objective += y_i @ y_i * sigma_yx_inverse**2 / 2
-        weight_model.setObjective(objective, grb.GRB.MINIMIZE)
-        weight_model.optimize()
-
-        z_i_new = np.array([weight_variables[index].x for index in range(num_metagenes)])
-
-        return z_i_new
-
-    global_iterations = 100
-    local_iterations = 100
-
-    weight_model = grb.Model('ICM')
-    weight_model.Params.OptimalityTol=1e-4
-    weight_model.Params.FeasibilityTol=1e-4
-    weight_model.Params.OutputFlag = False
-    weight_model.Params.Threads = 1
-    weight_model.Params.BarConvTol = 1e-6
-    weight_variables = weight_model.addVars(num_metagenes, lb=0.)
-    weight_model.addConstr(weight_variables.sum() == 1)
-
-    S = XT.sum(axis=1, keepdims=True)
-    ZT = XT / (S +  1e-30)
-
-    last_objective = calculate_objective(S, ZT)
-    best_objective, best_iteration = last_objective, -1
-
-    for global_iteration in range(global_iterations):
-        last_ZT = np.copy(ZT)
-        last_S = np.copy(S)
-
-        locally_converged = False
-        if pairwise_potential_mode == 'normalized':
-            for index, (neighbors, y_i, yTM, z_i, s_i) in enumerate(zip(E.values(), YT, YTM, ZT, S)):
-                eta = ZT[neighbors].sum(axis=0) @ sigma_x_inverse
-                for local_iteration in range(local_iterations):
-                    s_i_new = update_s_i(z_i, yTM) 
-                    s_i_new = np.maximum(s_i_new, 1e-15)
-                    delta_s_i = s_i_new - s_i
-                    s_i = s_i_new
-
-                    z_i_new = update_z_i(s_i, y_i, yTM, eta)
-                    delta_z_i = z_i_new - z_i
-                    z_i = z_i_new
-                    
-                    locally_converged |= (np.abs(delta_s_i) / (s_i + 1e-15) < 1e-3 and np.abs(delta_z_i).max() < 1e-3)
-                    if locally_converged:
-                        break
-
-                if not locally_converged:
-                    logging.warning(f'Cell {i} in the {replicate}-th replicate did not converge in {local_iterations} iterations;\ts = {s:.2e}, delta_s_i = {delta_s_i:.2e}, max delta_z_i = {np.abs(delta_z_i).max():.2e}')
-
-                ZT[index] = z_i
-                S[index] = s_i
-        else:
-            raise NotImplementedError
-
-        globally_converged = False
-
-        dZT = ZT - last_ZT
-        dS = S - last_S
-        current_objective = calculate_objective(S, ZT)
-
-        globally_converged |= (np.abs(dZT).max() < 1e-2 and np.abs(dS / (S + 1e-15)).max() < 1e-2 and current_objective > last_objective - 1e-4) 
-
-        # TODO: do we need to keep this?
-        force_show_flag = False
-        # force_show_flag |= np.abs(dZT).max() > 1-1e-5
-
-        if global_iteration % 5 == 0 or globally_converged or force_show_flag:
-            print(f'>{replicate} current_objective at iteration {global_iteration} = {current_objective:.2e},\tdiff = {np.abs(dZT).max():.2e}\t{np.abs(dS).max():.2e}\t{current_objective - last_objective:.2e}')
-
-            print(
-                f'ZT summary statistics: '
-                f'# <0 = {(ZT < 0).sum().astype(np.float) / num_cells:.1f}, '
-                f'# =0 = {(ZT == 0).sum().astype(np.float) / num_cells:.1f}, '
-                f'# <1e-10 = {(ZT < 1e-10).sum().astype(np.float) / num_cells:.1f}, '
-                f'# <1e-5 = {(ZT < 1e-5).sum().astype(np.float) / num_cells:.1f}, '
-                f'# <1e-2 = {(ZT < 1e-2).sum().astype(np.float) / num_cells:.1f}, '
-                f'# >1e-1 = {(ZT > 1e-1).sum().astype(np.float) / num_cells:.1f}'
-            )
-
-            print(
-                f'S summary statistics: '
-                f'# 0 = {(S == 0).sum()}, '
-                f'min = {S.min():.1e}, '
-                f'max = {S.max():.1e}'
-            )
-
-            sys.stdout.flush()
-
-        # TODO: do we need this assertion still?
-        assert not current_objective > last_objective + 1e-6
-        last_objective = current_objective
-        if current_objective < best_objective:
-            best_objective, best_iteration = current_objective, global_iteration
-
-        if globally_converged:
-            break
-
-    del weight_model
-
-    # Enforce positivity constraint on S
-    XT = np.maximum(S, 1e-15) * ZT
-    
-    return XT
+	X[:] = Z * S
+	return loss
