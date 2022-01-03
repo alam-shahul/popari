@@ -25,7 +25,7 @@ class SpiceMixPlus:
 	"""
 	def __init__(
 			self,
-			K, lambda_SigmaXInv, repli_list, betas=None, prior_x_modes=None,
+			K, lambda_Sigma_x_inv, repli_list, betas=None, prior_x_modes=None,
 			path2result=None, context=None, context_Y=None,
 	):
 		if context is None: context = dict(device='cpu', dtype=torch.float32)
@@ -36,7 +36,7 @@ class SpiceMixPlus:
 		self.num_repli = len(self.repli_list)
 
 		self.K = K
-		self.lambda_SigmaXInv = lambda_SigmaXInv
+		self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
 		if betas is None: betas = np.full(self.num_repli, 1/self.num_repli)
 		else: betas = np.array(betas, copy=False) / sum(betas)
 		self.betas = betas
@@ -85,17 +85,26 @@ class SpiceMixPlus:
 			for i in self.repli_list
 		]
 		self.Ys = [G / self.GG * self.K * YT / YT.sum(1).mean() for YT, G in zip(self.Ys, self.Gs)]
-		self.Ys = [torch.tensor(Y, **self.context_Y) for Y in self.Ys]
+		self.Ys = [torch.tensor(Y, **self.context_Y).pin_memory() for Y in self.Ys]
 		# TODO: save Ys in cpu and calculate matrix multiplications (e.g., MT Y) using mini-batch.
 
 	# def resume(self, iiter):
 
-	def initialize(self):
-		# self.M, self.Xs = initialize_kmeans(self.K, self.Ys, kwargs_kmeans=dict(random_state=0), context=self.context)
-		self.M, self.Xs = initialize_svd(self.K, self.Ys, context=self.context)
+	def initialize(self, method='kmeans', random_state=0):
+		if method == 'kmeans':
+			self.M, self.Xs = initialize_kmeans(
+				self.K, self.Ys,
+				kwargs_kmeans=dict(random_state=random_state),
+				context=self.context,
+			)
+		elif method == 'svd':
+			self.M, self.Xs = initialize_svd(self.K, self.Ys, context=self.context)
+		else:
+			raise NotImplementedError
 		scale_fac = self.M.sum(0, keepdim=True)
 		self.M.div_(scale_fac)
 		for X in self.Xs: X.mul_(scale_fac)
+		del scale_fac
 		if all(_ == 'exponential shared fixed' for _ in self.prior_x_modes):
 			self.prior_xs = [(torch.ones(self.K, **self.context),) for _ in range(self.num_repli)]
 		else:
@@ -111,7 +120,7 @@ class SpiceMixPlus:
 		self.optimizer_Sigma_x_inv = torch.optim.Adam(
 			[self.Sigma_x_inv],
 			lr=1e-1,
-			# betas=(.5, .9),
+			betas=(.5, .9),
 		)
 		# self.optimizer_Sigma_x_inv = torch.optim.SGD([self.Sigma_x_inv], lr=1e-2)
 		# self.optimizer_Sigma_x_inv = None
@@ -153,16 +162,21 @@ class SpiceMixPlus:
 
 		return loss_list
 
-	def estimate_parameters(self, iiter, use_spatial):
+	def estimate_parameters(self, iiter, use_spatial, update_Sigma_x_inv=True):
 		logging.info(f'{print_datetime()}Updating model parameters')
 
-		estimate_Sigma_x_inv(
-			self.Xs, self.Sigma_x_inv, self.Es, use_spatial, self.lambda_SigmaXInv,
-			self.betas, self.optimizer_Sigma_x_inv, self.context)
-		# self.estimate_sigma_yx()
-		# estimate_M(self.Ys, self.Xs, self.M, self.betas, self.context)
+		if update_Sigma_x_inv:
+			history = estimate_Sigma_x_inv(
+				self.Xs, self.Sigma_x_inv, self.Es, use_spatial, self.lambda_Sigma_x_inv,
+				self.betas, self.optimizer_Sigma_x_inv, self.context)
+		else:
+			history = []
+		self.estimate_sigma_yx()
+		estimate_M(self.Ys, self.Xs, self.M, self.betas, self.context)
 
 		self.save_parameters(iiter=iiter)
+
+		return history
 
 	def skip_saving(self, iiter):
 		return iiter % 10 != 0
@@ -175,7 +189,7 @@ class SpiceMixPlus:
 			for k in ['prior_x_modes']:
 				for repli, v in zip(self.repli_list, getattr(self, k)):
 					f[f'hyperparameters/{k}/{repli}'] = encode4h5(v)
-			for k in ['lambda_SigmaXInv', 'betas', 'K']:
+			for k in ['lambda_Sigma_x_inv', 'betas', 'K']:
 				f[f'hyperparameters/{k}'] = encode4h5(getattr(self, k))
 
 	def save_weights(self, iiter):

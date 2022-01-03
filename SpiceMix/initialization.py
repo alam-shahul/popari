@@ -6,7 +6,7 @@ import torch
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.decomposition import TruncatedSVD
+from sklearn.decomposition import TruncatedSVD, PCA
 
 
 def initialize_kmeans(K, Ys, kwargs_kmeans, context):
@@ -16,12 +16,18 @@ def initialize_kmeans(K, Ys, kwargs_kmeans, context):
 	repli_valid = np.array(Gs) == GG
 	Ys = [Y.cpu().numpy() for Y in Ys]
 	Y_cat = np.concatenate(list(itertools.compress(Ys, repli_valid)), axis=0)
-	kmeans = KMeans(n_clusters=K, **kwargs_kmeans).fit(Y_cat)
-	M = kmeans.cluster_centers_.T
+	pca = PCA(n_components=20)
+	# pca = None
+	Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
+	kmeans = KMeans(n_clusters=K, **kwargs_kmeans)
+	label = kmeans.fit_predict(Y_cat_reduced)
+	M = np.stack([Y_cat[label == l].mean(0) for l in np.unique(label)]).T
+	# M = kmeans.cluster_centers_.T
 	Xs = []
 	for is_valid, N, Y in zip(repli_valid, Ns, Ys):
 		if is_valid:
-			label = kmeans.predict(Y)
+			Y_reduced = Y if pca is None else pca.transform(Y)
+			label = kmeans.predict(Y_reduced)
 			X = np.full([N, K], 1e-10)
 			X[(range(N), label)] = 1
 		else:
@@ -48,7 +54,12 @@ def initialize_svd(K, Ys, context):
 	for is_valid, N, Y in zip(repli_valid, Ns, Ys):
 		if is_valid:
 			X = svd.transform(Y)
-			X = np.clip(X * sign, a_min=1e-10, a_max=None)
+			# fill negative elements by zero
+			# X = np.clip(X * sign, a_min=1e-10, a_max=None)
+			# fill negative elements by the average of nonnegative elements
+			for x in X.T:
+				idx = x < 1e-10
+				x[idx] = x[~idx].mean()
 		else:
 			X = np.full([N, K], 1/K)
 		Xs.append(X)

@@ -1,10 +1,18 @@
 import os, sys, time, itertools, resource, gc, argparse, re, logging
-from util import psutil_process, print_datetime
+from tqdm.auto import tqdm, trange
+from pathlib import Path
 
-import numpy as np
+import numpy as np, pandas as pd
 import torch
 
-from Model import Model
+from model import SpiceMixPlus
+from util import clustering_louvain_nclust
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.decomposition import PCA, NMF, TruncatedSVD
+from sklearn.metrics import silhouette_score, adjusted_rand_score
+
+from umap import UMAP
 
 
 def parse_arguments():
@@ -12,7 +20,7 @@ def parse_arguments():
 
 	# dataset
 	parser.add_argument(
-		'--path2dataset', type=str,
+		'--path2dataset', type=Path,
 		help='name of the dataset, ../data/<dataset> should be a folder containing a subfolder named \'files\''
 	)
 	parser.add_argument(
@@ -37,11 +45,11 @@ def parse_arguments():
 			 'a Python expression, e.g., "[True,True]", "[False,False,False]", "[True]*5"'
 	)
 
-	parser.add_argument('--random_seed', type=int, default=0)
-	parser.add_argument('--random_seed4kmeans', type=int, default=0)
+	parser.add_argument('--random_seed', type=int, default=None)
+	# parser.add_argument('--random_seed4kmeans', type=int, default=0)
 
 	# training & hyperparameters
-	parser.add_argument('--lambda_SigmaXInv', type=float, default=1e-4, help='Regularization on Sigma_x^{-1}')
+	parser.add_argument('--lambda_Sigma_x_inv', type=float, default=1e-4, help='Regularization on Σx^{-1}')
 	parser.add_argument('--max_iter', type=int, default=500, help='Maximum number of outer optimization iteration')
 	parser.add_argument('--init_NMF_iter', type=int, default=10, help='2 * number of NMF iterations in initialization')
 	parser.add_argument(
@@ -55,7 +63,7 @@ def parse_arguments():
 		if re.match('\d+$', x): return f'cuda:{x}'
 		if re.match('cuda:\d+$', x): return x
 	parser.add_argument(
-		'--device', type=parse_cuda, default='cpu', dest='PyTorch_device',
+		'--device', type=parse_cuda, default='cpu',
 		help="Which GPU to use. The value should be either string of form 'cuda:<GPU id>' "
 			 "or an integer denoting the GPU id. -1 or 'cpu' for cpu only",
 	)
@@ -69,6 +77,33 @@ def parse_arguments():
 	return parser.parse_args()
 
 
+def short_eval(obj, df_meta):
+	return
+	Xs = [X.cpu().numpy() for X in obj.Xs]
+
+	x = np.concatenate(Xs, axis=0)
+	x = StandardScaler().fit_transform(x)
+
+#     y = AgglomerativeClustering(
+#         n_clusters=8,
+#         linkage='ward',
+#     ).fit_predict(x)
+#     y = pd.Categorical(y, categories=np.unique(y))
+	y = clustering_louvain_nclust(
+		x.copy(), 8,
+		kwargs_neighbors=dict(n_neighbors=10),
+		kwargs_clustering=dict(),
+		# resolution_boundaries=(.1, 1.),
+	)
+	df_meta['label SpiceMixPlus'] = y
+	print('ari', adjusted_rand_score(*df_meta[['cell type', 'label SpiceMixPlus']].values.T))
+
+	x = UMAP(
+		n_neighbors=10,
+	).fit_transform(x)
+	print('sil', silhouette_score(x, df_meta['cell type']))
+
+
 if __name__ == '__main__':
 	np.set_printoptions(linewidth=100000)
 
@@ -78,38 +113,50 @@ if __name__ == '__main__':
 
 	logging.info(f'pid = {os.getpid()}')
 
-	np.random.seed(args.random_seed)
-	logging.info(f'random seed = {args.random_seed}')
+	# for the on-the-fly short-eval
+	df_meta = []
+	for r in args.repli_list:
+		try:
+			df = pd.read_csv(args.path2dataset / 'files' / f'meta_{r}.csv')
+		except:
+			df = pd.read_csv(args.path2dataset / 'files' / f'celltypes_{r}.txt', header=None)
+			df.columns = ['cell type']
+		df['repli'] = r
+		df_meta.append(df)
+	df_meta = pd.concat(df_meta, axis=0).reset_index(drop=True)
+	df_meta['cell type'] = pd.Categorical(df_meta['cell type'], categories=np.unique(df_meta['cell type']))
+
+	if args.random_seed is not None:
+		np.random.seed(args.random_seed)
+		logging.info(f'random seed = {args.random_seed}')
 
 	torch.set_num_threads(args.num_threads)
 
-	N = len(args.repli_list)
-	betas = np.broadcast_to(args.betas, [N]).copy().astype(np.float)
-	assert (betas>0).all()
+	betas = np.broadcast_to(args.betas, [len(args.repli_list)]).copy().astype(float)
+	assert (betas > 0).all()
 	betas /= betas.sum()
 
-	model = Model(
-		PyTorch_device=args.PyTorch_device, path2dataset=args.path2dataset, repli_list=args.repli_list,
-		use_spatial=args.use_spatial, neighbor_suffix=args.neighbor_suffix, expression_suffix=args.expression_suffix,
-		K=args.K, lambda_SigmaXInv=args.lambda_SigmaXInv, betas=betas,
-		prior_x_modes=np.array(['Exponential shared fixed']*len(args.repli_list)),
-		result_filename=args.result_filename, num_processes=int(args.num_processes),
+	context = dict(device=args.device, dtype=torch.float32)
+
+	obj = SpiceMixPlus(
+		K=args.K, lambda_Sigma_x_inv=args.lambda_Sigma_x_inv,
+		repli_list=args.repli_list,
+		context=context,
+		context_Y=dict(dtype=torch.float32, device='cpu'),
 	)
-
-	model.initialize(
-		random_seed4kmeans=args.random_seed4kmeans, num_NMF_iter=args.init_NMF_iter,
-		lambda_x=args.lambda_x,
+	obj.load_dataset(args.path2dataset)
+	obj.initialize(
+		# method='kmeans',
+		method='svd',
+		random_state=args.random_seed,
 	)
-
-	torch.cuda.empty_cache()
-	last_Q = np.nan
-	max_iter = args.max_iter
-
-	for iiter in range(1, max_iter+1):
-		logging.info(f'{print_datetime()}Iteration {iiter} begins')
-
-		model.estimateWeights(iiter=iiter)
-		Q = model.estimateParameters(iiter=iiter)
-
-		logging.info(f'{print_datetime()}Q = {Q:.4f}\tdiff Q = {Q-last_Q:.4e}')
-		last_Q = Q
+	for iiter in range(args.init_NMF_iter):
+		obj.estimate_weights(iiter=iiter, use_spatial=[False] * obj.num_repli)
+		obj.estimate_parameters(iiter=iiter, use_spatial=[False] * obj.num_repli)
+	short_eval(obj, df_meta)
+	obj.initialize_Sigma_x_inv()
+	for iiter in range(1, args.max_iter+1):
+		obj.estimate_parameters(iiter=iiter, use_spatial=args.use_spatial)
+		obj.estimate_weights(iiter=iiter, use_spatial=args.use_spatial)
+		if iiter % 10 == 0 or iiter == args.max_iter:
+			short_eval(obj, df_meta)

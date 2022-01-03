@@ -46,7 +46,8 @@ def integrate_of_exponential_over_simplex(eta):
 		t[:, k] = 1
 		tsign = t.sign()
 		signs[:, k] = tsign.prod(-1)
-		t = t.abs().clip(min=1e-10).log()
+		# t = t.abs().clip(min=1e-10).log()
+		t = t.abs().add(1e-10).log()
 		assert torch.isfinite(t).all()
 		t[:, k] = eta[:, k]
 		A[:, k] = t.sum(-1).neg()

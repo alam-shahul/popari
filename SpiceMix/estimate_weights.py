@@ -18,9 +18,10 @@ def estimate_weight_wonbr(
 	YM = Y.to(M.device) @ M / (sigma_yx ** 2)
 	Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx ** 2)
 	loss_prev, loss = np.inf, np.nan
-	pbar = trange(n_epochs, leave=False, disable=True)
+	pbar = trange(n_epochs, leave=True, disable=False)
 	for i_epoch in pbar:
 		if update_alg == 'mu':
+			X.clip_(min=1e-10)
 			loss = ((X @ MTM) * X).sum() / 2 - X.view(-1) @ YM.view(-1) + Ynorm / 2
 			numerator = YM
 			denominator = X @ MTM
@@ -35,9 +36,9 @@ def estimate_weight_wonbr(
 			assert loss <= loss_prev * (1 + 1e-4), (loss_prev, loss, (loss_prev - loss) / loss)
 			mul_fac = numerator / denominator
 			pbar.set_description(
-				f'Updating weight w/o neighbors: loss = {loss:.1e}, '
-				f'%δloss = {(loss_prev - loss) / loss:.1e}, '
-				f'update = {mul_fac.min().item():.1e} ~ {mul_fac.max().item():.1e}'
+				f'Updating weight w/o nbrs: loss = {loss:.1e} '
+				f'%δloss = {(loss_prev - loss) / loss:.1e} '
+				f'%δX = {mul_fac.min().item():.1e} ~ {mul_fac.max().item():.1e}'
 			)
 
 			loss_prev = loss
@@ -102,7 +103,8 @@ def estimate_weight_wnbr(
 			numerator = YM[idx] * S[idx]
 			denominator = (Z[idx] @ MTM).mul_(S[idx] ** 2)
 			t = (adj_mat @ Z) @ Sigma_x_inv
-			# not sure if this works
+			# not sure if projected mu works
+			# seems not
 			numerator -= t.clip(max=0)
 			denominator += t.clip(min=0)
 			mul_fac = numerator / denominator
@@ -140,6 +142,8 @@ def estimate_weight_wnbr(
 			# idx = indices[i: i+bs]
 			indices_candidates = np.random.choice(list(indices_remaining), size=min(bs, len(indices_remaining)), replace=False)
 			indices = []
+			# make sure selected nodes are not adjacent to each other
+			# i.e., find an independent set of `indices_candidates` in a greedy manner
 			indices_exclude = set()
 			for i in indices_candidates:
 				if i in indices_exclude:
@@ -152,6 +156,7 @@ def estimate_weight_wnbr(
 			func, grad = calc_func_grad(Z, idx)
 			while True:
 				# Z_new = Z.sub(grad, alpha=step_size * step_size_scale)
+				# if the nodes to update form an independent set, we don't need line search
 				Z_new = Z.clone()
 				Z_new[idx] -= (step_size[idx] * step_size_scale) * grad
 				Z_new[idx] = project2simplex(Z_new[idx], dim=1)
@@ -190,6 +195,7 @@ def estimate_weight_wnbr(
 		return loss, loss_prev - loss
 
 	# consider combine calc_loss and update_z to remove a call to torch.sparse.mm
+	# the above to-do is not practical if we update only a subset of nodes each time
 
 	loss = np.inf
 	pbar = trange(n_epochs)
@@ -201,8 +207,8 @@ def estimate_weight_wnbr(
 		loss, dloss = calc_loss(loss)
 		dZ = (Z_prev - Z).abs().max().item()
 		pbar.set_description(
-			f'Updating weight w/ neighbors: loss = {loss:.1e}, '
-			f'δloss = {dloss:.1e}, '
+			f'Updating weight w/ neighbors: loss = {loss:.1e} '
+			f'δloss = {dloss:.1e} '
 			f'δZ = {dZ:.1e}'
 		)
 		if dZ < tol: break

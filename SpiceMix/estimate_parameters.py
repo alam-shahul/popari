@@ -25,7 +25,7 @@ def estimate_M(Ys, Xs, M, betas, context, n_epochs=100, tol=1e-5, update_alg='gd
 		YTX.addmm_(Y.T.to(X.device), X, alpha=beta)
 
 	loss_prev, loss = np.inf, np.nan
-	pbar = trange(n_epochs, leave=True, disable=False)
+	pbar = trange(n_epochs, leave=True, disable=False, desc='Updating M')
 	M_prev = M.clone().detach()
 	step_size = 1 / torch.linalg.eigvalsh(XTX).max().item()
 	for i_epoch in pbar:
@@ -59,7 +59,7 @@ def estimate_M(Ys, Xs, M, betas, context, n_epochs=100, tol=1e-5, update_alg='gd
 	return loss
 
 
-def estimate_Sigma_x_inv(Xs, Sigma_x_inv, Es, use_spatial, lambda_SigmaXInv, betas, optimizer, context, n_epochs=10000):
+def estimate_Sigma_x_inv(Xs, Sigma_x_inv, Es, use_spatial, lambda_Sigma_x_inv, betas, optimizer, context, n_epochs=10000):
 	if not any(sum(map(len, E)) > 0 and u for E, u in zip(Es, use_spatial)): return
 	linear_term = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
 	# Zs = [torch.tensor(X / np.linalg.norm(X, axis=1, ord=1, keepdims=True), **context) for X in Xs]
@@ -81,28 +81,33 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, Es, use_spatial, lambda_SigmaXInv, bet
 
 	assumption_str = 'mean-field'
 
+	history = []
+
 	if optimizer is not None:
 		loss_prev, loss = np.inf, np.nan
-		pbar = trange(n_epochs)
-		Sigma_x_inv_best, loss_best = None, np.inf
+		pbar = trange(n_epochs, desc='Updating Σx-1')
+		Sigma_x_inv_best, loss_best, i_epoch_best = None, np.inf, -1
 		dSigma_x_inv = np.inf
 		early_stop_iepoch = 0
 		for i_epoch in pbar:
 			optimizer.zero_grad()
 
 			loss = Sigma_x_inv.view(-1) @ linear_term.view(-1)
-			loss = loss + lambda_SigmaXInv * Sigma_x_inv.pow(2).sum() * num_edges / 2
+			loss = loss + lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() * num_edges / 2
 			for Z, nu, beta in zip(Zs, nus, betas):
 				if nu is None: continue
 				eta = nu @ Sigma_x_inv
 				logZ = integrate_of_exponential_over_simplex(eta)
 				loss = loss + beta * logZ.sum()
 			loss = loss / num_edges
-			if i_epoch == 0: print(loss.item())
+			# if i_epoch == 0: print(loss.item())
 
 			if loss < loss_best:
 				Sigma_x_inv_best = Sigma_x_inv.clone().detach()
 				loss_best = loss.item()
+				i_epoch_best = i_epoch
+
+			history.append((Sigma_x_inv.detach().cpu().numpy(), loss.item()))
 
 			with torch.no_grad():
 				Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
@@ -119,7 +124,7 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, Es, use_spatial, lambda_SigmaXInv, bet
 			with torch.no_grad():
 				dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
 			pbar.set_description(
-				f'Updating Σx-1: loss = {dloss:.1e} -> {loss:.1e}, '
+				f'Updating Σx-1: loss = {dloss:.1e} -> {loss:.1e} '
 				f'δΣx-1 = {dSigma_x_inv:.1e} '
 				f'Σx-1 range = {Sigma_x_inv.min().item():.1e} ~ {Sigma_x_inv.max().item():.1e}'
 			)
@@ -128,7 +133,7 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, Es, use_spatial, lambda_SigmaXInv, bet
 				early_stop_iepoch += 1
 			else:
 				early_stop_iepoch = 0
-			if early_stop_iepoch >= 10:
+			if early_stop_iepoch >= 10 or i_epoch > i_epoch_best + 100:
 				break
 
 		with torch.no_grad():
@@ -140,7 +145,7 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, Es, use_spatial, lambda_SigmaXInv, bet
 			if Sigma_x_inv.grad is None: Sigma_x_inv.grad = torch.zeros_like(Sigma_x_inv)
 			else: Sigma_x_inv.grad.zero_()
 			loss = Sigma_x_inv.view(-1) @ linear_term.view(-1)
-			loss = loss + lambda_SigmaXInv * Sigma_x_inv.pow(2).sum() * num_edges / 2
+			loss = loss + lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() * num_edges / 2
 			for Z, nu, beta in zip(Zs, nus, betas):
 				if nu is None: continue
 				eta = nu @ Sigma_x_inv
@@ -185,3 +190,4 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, Es, use_spatial, lambda_SigmaXInv, bet
 		with torch.no_grad():
 			Sigma_x_inv_storage[:] = Sigma_x_inv
 
+	return history
