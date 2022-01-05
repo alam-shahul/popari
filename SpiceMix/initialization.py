@@ -38,13 +38,13 @@ def initialize_kmeans(K, Ys, kwargs_kmeans, context):
 	return M, Xs
 
 
-def initialize_svd(K, Ys, context):
+def initialize_svd(K, Ys, context, random_state):
 	Ns, Gs = zip(*[Y.shape for Y in Ys])
 	GG = max(Gs)
 	repli_valid = np.array(Gs) == GG
 	Ys = [Y.cpu().numpy() for Y in Ys]
 	Y_cat = np.concatenate(list(itertools.compress(Ys, repli_valid)), axis=0)
-	svd = TruncatedSVD(K).fit(Y_cat)
+	svd = TruncatedSVD(K, random_state=0).fit(Y_cat)
 	M = svd.components_.T
 	norm_p = np.linalg.norm(np.clip(M, a_min=0, a_max=None), axis=0, ord=1, keepdims=True)
 	norm_n = np.linalg.norm(np.clip(M, a_min=None, a_max=0), axis=0, ord=1, keepdims=True)
