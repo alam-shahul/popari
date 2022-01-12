@@ -1,6 +1,7 @@
 from model import SpiceMixPlus
 from util import clustering_louvain_nclust
 
+import os
 import pandas as pd
 import pytest
 import torch
@@ -11,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score, adjusted_rand_score
 
 @pytest.fixture(scope="module")
-def spicemix_with_neighbors(): 
+def spicemix_with_neighbors():
     path2dataset = Path('../tests/test_data/synthetic_500_100_20_15_0_0_i4')
     obj = SpiceMixPlus(
         K=10, lambda_Sigma_x_inv=1e-5,
@@ -103,6 +104,11 @@ def test_louvain_clustering(spicemix_with_neighbors):
     silhouette = silhouette_score(x, df_meta['cell type'])
     print(silhouette)
     assert 0.16432503 == pytest.approx(silhouette)
+
+# def test_project2simplex():
+#     x = torch.rand(100, 100)
+#     x = x * 3 - 1
+#     project2simplex(x, dim=0)
 
 if __name__ == "__main__":
     test_Sigma_x_inv(example_spicemix_run)

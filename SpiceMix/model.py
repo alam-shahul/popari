@@ -127,7 +127,7 @@ class SpiceMixPlus:
 
     def initialize_Sigma_x_inv(self):
         self.Sigma_x_inv = initialize_Sigma_x_inv(self.K, self.Xs, self.Es, self.betas, self.context)
-        self.Sigma_x_inv.sub_(self.Sigma_x_inv.mean())
+        self.Sigma_x_inv -= self.Sigma_x_inv.mean()
         self.Sigma_x_inv.requires_grad_(True)
         self.optimizer_Sigma_x_inv = torch.optim.Adam(
             [self.Sigma_x_inv],
@@ -184,7 +184,7 @@ class SpiceMixPlus:
         else:
             history = []
         self.estimate_sigma_yx()
-        estimate_M(self.Ys, self.Xs, self.M, self.betas, self.context)
+        self.M = estimate_M(self.Ys, self.Xs, self.M, self.betas, self.context)
 
         self.save_parameters(iiter=iiter)
 
