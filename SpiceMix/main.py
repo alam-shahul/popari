@@ -6,7 +6,7 @@ import numpy as np, pandas as pd
 import torch
 
 from model import SpiceMixPlus
-from util import clustering_louvain_nclust
+from util import clustering_louvain_nclust, evaluate_embedding
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.decomposition import PCA, NMF, TruncatedSVD
@@ -77,54 +77,28 @@ def parse_arguments():
 	return parser.parse_args()
 
 
-def short_eval(obj, df_meta):
-	return
-	Xs = [X.cpu().numpy() for X in obj.Xs]
-
-	x = np.concatenate(Xs, axis=0)
-	x = StandardScaler().fit_transform(x)
-
-#     y = AgglomerativeClustering(
-#         n_clusters=8,
-#         linkage='ward',
-#     ).fit_predict(x)
-#     y = pd.Categorical(y, categories=np.unique(y))
-	y = clustering_louvain_nclust(
-		x.copy(), 8,
-		kwargs_neighbors=dict(n_neighbors=10),
-		kwargs_clustering=dict(),
-		# resolution_boundaries=(.1, 1.),
-	)
-	df_meta['label SpiceMixPlus'] = y
-	print('ari', adjusted_rand_score(*df_meta[['cell type', 'label SpiceMixPlus']].values.T))
-
-	x = UMAP(
-		n_neighbors=10,
-	).fit_transform(x)
-	print('sil', silhouette_score(x, df_meta['cell type']))
-
-
 if __name__ == '__main__':
 	np.set_printoptions(linewidth=100000)
 
 	args = parse_arguments()
 
-	logging.basicConfig(level=logging.INFO)
+	# logging.basicConfig(level=logging.INFO)
+	logging.basicConfig(level=logging.WARNING)
 
 	logging.info(f'pid = {os.getpid()}')
 
 	# for the on-the-fly short-eval
-	df_meta = []
-	for r in args.repli_list:
-		try:
-			df = pd.read_csv(args.path2dataset / 'files' / f'meta_{r}.csv')
-		except:
-			df = pd.read_csv(args.path2dataset / 'files' / f'celltypes_{r}.txt', header=None)
-			df.columns = ['cell type']
-		df['repli'] = r
-		df_meta.append(df)
-	df_meta = pd.concat(df_meta, axis=0).reset_index(drop=True)
-	df_meta['cell type'] = pd.Categorical(df_meta['cell type'], categories=np.unique(df_meta['cell type']))
+	# df_meta = []
+	# for r in args.repli_list:
+	# 	try:
+	# 		df = pd.read_csv(args.path2dataset / 'files' / f'meta_{r}.csv')
+	# 	except:
+	# 		df = pd.read_csv(args.path2dataset / 'files' / f'celltypes_{r}.txt', header=None)
+	# 		df.columns = ['cell type']
+	# 	df['repli'] = r
+	# 	df_meta.append(df)
+	# df_meta = pd.concat(df_meta, axis=0).reset_index(drop=True)
+	# df_meta['cell type'] = pd.Categorical(df_meta['cell type'], categories=np.unique(df_meta['cell type']))
 
 	if args.random_seed is not None:
 		np.random.seed(args.random_seed)
@@ -142,21 +116,25 @@ if __name__ == '__main__':
 		K=args.K, lambda_Sigma_x_inv=args.lambda_Sigma_x_inv,
 		repli_list=args.repli_list,
 		context=context,
-		context_Y=dict(dtype=torch.float32, device='cpu'),
+		# context_Y=dict(dtype=torch.float32, device='cpu'),
+		context_Y=context,
 	)
 	obj.load_dataset(args.path2dataset)
 	obj.initialize(
-		# method='kmeans',
-		method='svd',
+		method='kmeans',
+		# method='svd',
 		random_state=args.random_seed,
 	)
+
 	for iiter in range(args.init_NMF_iter):
 		obj.estimate_weights(iiter=iiter, use_spatial=[False] * obj.num_repli)
 		obj.estimate_parameters(iiter=iiter, use_spatial=[False] * obj.num_repli)
-	short_eval(obj, df_meta)
+	# short_eval(obj, df_meta)
+	evaluate_embedding(obj, embedding='X', do_plot=False, do_sil=False)
 	obj.initialize_Sigma_x_inv()
 	for iiter in range(1, args.max_iter+1):
 		obj.estimate_parameters(iiter=iiter, use_spatial=args.use_spatial)
 		obj.estimate_weights(iiter=iiter, use_spatial=args.use_spatial)
 		if iiter % 10 == 0 or iiter == args.max_iter:
-			short_eval(obj, df_meta)
+			# short_eval(obj, df_meta)
+			evaluate_embedding(obj, embedding='X', do_plot=False, do_sil=False)

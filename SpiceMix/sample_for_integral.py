@@ -8,7 +8,7 @@ from scipy.stats import truncnorm, multivariate_normal, mvn
 from scipy.special import erf, loggamma
 
 
-def project2simplex(x, dim, eps=1e-5):
+def project2simplex(x, dim, eps=1e-10):
 	"""
 	# https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex
 	find a scalar u such that || (x-u)_+ ||_1 = 1
@@ -35,7 +35,7 @@ def test_project2simplex():
 	project2simplex(x, dim=0)
 
 
-def integrate_of_exponential_over_simplex(eta):
+def integrate_of_exponential_over_simplex(eta, eps=1e-15):
 	assert torch.isfinite(eta).all()
 	N, K = eta.shape
 	A = torch.empty_like(eta)
@@ -47,9 +47,9 @@ def integrate_of_exponential_over_simplex(eta):
 		tsign = t.sign()
 		signs[:, k] = tsign.prod(-1)
 		# t = t.abs().clip(min=1e-10).log()
-		t = t.abs().add(1e-10).log()
+		t = t.abs().add(eps).log()
 		assert torch.isfinite(t).all()
-		t[:, k] = eta[:, k]
+		t[:, k] = -eta[:, k]
 		A[:, k] = t.sum(-1).neg()
 	assert torch.isfinite(A).all()
 	# signed logsumexp
@@ -57,7 +57,7 @@ def integrate_of_exponential_over_simplex(eta):
 	ret = A.sub(o).exp()
 	assert torch.isfinite(ret).all()
 	ret = ret.mul(signs).sum(-1)
-	ret = ret.clip(min=1e-10)
+	ret = ret.clip(min=eps)
 	assert (ret > 0).all(), ret.min().item()
 	ret = ret.log().add(o.squeeze(-1))
 	return ret

@@ -3,8 +3,20 @@ from collections import Iterable
 from tqdm.auto import tqdm, trange
 
 import numpy as np, pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics import silhouette_score, adjusted_rand_score, accuracy_score, f1_score
+from umap import UMAP
+
 from anndata import AnnData
 import scanpy as sc
+
+import torch
+
+import matplotlib
+from matplotlib import pyplot as plt
+import matplotlib.patches as patches
+import seaborn as sns
 
 
 def calc_modularity(A, label, resolution=1):
@@ -36,7 +48,7 @@ def clustering_louvain(X, *, kwargs_neighbors, kwargs_clustering, num_rs=100, me
 		if not best['score'] >= score: best.update({'score': score, 'cluster': cluster.copy(), 'rs': rs})
 		pbar.set_description(
 			f'Louvain clustering: res={resolution:.2e}; '
-			f"best: score = {best['score']} rs = {best['rs']} # of clusters = {len(set(best['cluster']))}"
+			f"best: score = {best['score']:.2f} rs = {best['rs']} # of clusters = {len(set(best['cluster']))}"
 		)
 	y = best['cluster']
 	y = pd.Categorical(y, categories=np.unique(y))
@@ -95,15 +107,130 @@ def clustering_louvain_nclust(
 			num_rs=num_rs,
 		)
 		n_clust = len(set(y))
-		print(
-			f'binary search for resolution: lb={lb:.2f}\trb={rb:.2f}\tmid={mid:.2f}\tn_clust={n_clust}',
-			# '{:.2f}'.format(adjusted_rand_score(obj.data['cell type'], obj.data['cluster'])),
-			sep='\t',
-		)
+		# print(
+		# 	f'binary search for resolution: lb={lb:.2f}\trb={rb:.2f}\tmid={mid:.2f}\tn_clust={n_clust}',
+		# 	# '{:.2f}'.format(adjusted_rand_score(obj.data['cell type'], obj.data['cluster'])),
+		# 	sep='\t',
+		# )
 		if n_clust == n_clust_target: break
 		if n_clust > n_clust_target: rb = mid
 		else: lb = mid
 	return y
+
+
+def evaluate_embedding(obj, embedding='X', do_plot=True, do_sil=True):
+	if embedding == 'X':
+		Xs = [X.cpu().numpy() for X in obj.Xs]
+	elif embedding in obj.phenotype_predictors:
+		Xs = [
+			obj.phenotype_predictors['cell type encoded'][0](X).cpu().numpy()
+			for X in obj.Xs
+		]
+	else:
+		raise NotImplementedError
+
+	x = np.concatenate(Xs, axis=0)
+	x = StandardScaler().fit_transform(x)
+
+	for n_clust in [6, 7, 8, 9]:
+		y = AgglomerativeClustering(
+			n_clusters=n_clust,
+			linkage='ward',
+		).fit_predict(x)
+		y = pd.Categorical(y, categories=np.unique(y))
+		print(
+			f"hierarchical w/ K={n_clust}."
+			f"ARI = {adjusted_rand_score(obj.meta['cell type'].values, y):.2f}",
+			sep=' ',
+		)
+	y = clustering_louvain_nclust(
+		x.copy(), 8,
+		kwargs_neighbors=dict(n_neighbors=10),
+		kwargs_clustering=dict(),
+		resolution_boundaries=(.1, 1.),
+	)
+	obj.meta['label SpiceMixPlus'] = y
+	print('ari = {:.2f}'.format(adjusted_rand_score(*obj.meta[['cell type', 'label SpiceMixPlus']].values.T)))
+	for repli, df in obj.meta.groupby('repli'):
+		print('ari {} = {:.2f}'.format(repli, adjusted_rand_score(*df[['cell type', 'label SpiceMixPlus']].values.T)))
+	if do_plot:
+		ncol = 4
+		nrow =(obj.num_repli + ncol - 1) // ncol
+		fig, axes = plt.subplots(nrow, ncol, figsize=(4*ncol, 4*nrow))
+		for ax, (repli, df) in zip(axes.flat, obj.meta.groupby('repli')):
+			sns.heatmap(
+				df.groupby(['cell type', 'label SpiceMixPlus']).size().unstack().fillna(0).astype(int),
+				ax=ax, annot=True, fmt='d',
+			)
+		plt.show()
+		plt.close()
+
+	if do_sil:
+		x = UMAP(
+			n_neighbors=10,
+		).fit_transform(x)
+		print('sil', silhouette_score(x, obj.meta['cell type']))
+		if do_plot:
+			keys = ['cell type', 'repli', 'label SpiceMixPlus']
+			ncol = len(keys)
+			nrow = 1 + obj.num_repli
+			fig, axes = plt.subplots(nrow, ncol, figsize=(5*ncol, 5*nrow))
+			def plot(axes, idx):
+				for ax, key in zip(axes, keys):
+					sns.scatterplot(ax=ax, data=obj.meta.iloc[idx], x=x[idx, 0], y=x[idx, 1], hue=key, s=5)
+			plot(axes[0], slice(None))
+			for ax_row, (repli, df) in zip(axes[1:], obj.meta.reset_index().groupby('repli')):
+				plot(ax_row, df.index)
+			plt.show()
+			plt.close()
+
+
+def evaluate_prediction_wrapper(obj, *, key_truth='cell type encoded', display_fn=print, **kwargs):
+	X_all = torch.cat([X for X in obj.Xs], axis=0)
+	obj.meta['label SpiceMixPlus predictor'] = obj.phenotype_predictors[key_truth][0](X_all)\
+		.argmax(1).cpu().numpy()
+	display_fn(evaluate_prediction(obj.meta, key_pred='label SpiceMixPlus predictor', key_truth=key_truth, **kwargs))
+
+
+def evaluate_prediction(df_meta, *, key_pred='label SpiceMixPlus', key_truth='cell type', key_repli='repli'):
+	df_score = {}
+	for repli, df in df_meta.groupby(key_repli):
+		t = tuple(df[[key_truth, key_pred]].values.T)
+		r = {
+			'acc': accuracy_score(*t),
+			'f1 micro': f1_score(*t, average='micro'),
+			'f1 macro': f1_score(*t, average='macro'),
+			'ari': adjusted_rand_score(*t),
+		}
+		df_score[repli] = r
+	df_score = pd.DataFrame(df_score).T
+	return df_score
+
+
+class NesterovGD:
+	# https://blogs.princeton.edu/imabandit/2013/04/01/acceleratedgradientdescent/
+	def __init__(self, x, step_size):
+		self.x = x
+		self.step_size = step_size
+		# self.y = x.clone()
+		self.y = torch.zeros_like(x)
+		# self.lam = 0
+		self.k = 0
+
+	def step(self, grad):
+		# method 1
+		# lam_new = (1 + np.sqrt(1 + 4 * self.lam ** 2)) / 2
+		# gamma = (1 - self.lam) / lam_new
+		# method 2
+		self.k += 1
+		gamma = - (self.k - 1) / (self.k + 2)
+		# method 3 - GD
+		# gamma = 0
+		# y_new = self.x.sub(grad, alpha=self.step_size)
+		y_new = self.x - grad * self.step_size # use addcmul
+		self.x[:] = self.y.mul_(gamma).add_(y_new, alpha=1 - gamma)
+		# self.lam = lam_new
+		self.y[:] = y_new
 
 
 def print_datetime():
