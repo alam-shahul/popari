@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import scipy
 
-def project2simplex(y, dim=0, zero_threshold=1e-5):
+def project2simplex(y, dim=0, zero_threshold=1e-10):
     """
     # https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex
     find a scalar mu such that || (y-mu)_+ ||_1 = 1
@@ -36,7 +36,7 @@ def project2simplex(y, dim=0, zero_threshold=1e-5):
     
     y = (y - mu).clip(min=zero_threshold)
 
-    assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-4, y.sum(dim=dim).sub_(1).abs_().max()
+    assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-3, y.sum(dim=dim).sub_(1).abs_().max()
     
     return y
 
@@ -50,33 +50,32 @@ def test_project2simplex_basic():
     x = torch.tensor([1/2, 1/4, 1/4])
     assert x.allclose(project2simplex(x.clone(), dim=0))
 
-def integrate_of_exponential_over_simplex(eta):
-    assert torch.isfinite(eta).all()
-    N, K = eta.shape
-    A = torch.empty_like(eta)
-    signs = torch.empty_like(eta)
-    for k in range(K):
-        t = eta - eta[:, [k]]
-        assert torch.isfinite(t).all()
-        t[:, k] = 1
-        tsign = t.sign()
-        signs[:, k] = tsign.prod(-1)
-        # t = t.abs().clip(min=1e-10).log()
-        t = t.abs().add(1e-10).log()
-        assert torch.isfinite(t).all()
-        t[:, k] = eta[:, k]
-        A[:, k] = -t.sum(dim=-1)
-    assert torch.isfinite(A).all()
-    # signed logsumexp
-    o = A.max(-1, keepdim=True)[0]
-    ret = A.sub(o).exp()
-    assert torch.isfinite(ret).all()
-    ret = ret.mul(signs).sum(-1)
-    ret = ret.clip(min=1e-10)
-    assert (ret > 0).all(), ret.min().item()
-    ret = ret.log().add(o.squeeze(-1))
-    return ret
+def integrate_of_exponential_over_simplex(eta, eps=1e-15):
+	assert torch.isfinite(eta).all()
+	N, K = eta.shape
+	A = torch.empty_like(eta)
+	signs = torch.empty_like(A)
+	for k in range(K):
+		t = eta - eta[:, [k]]
+		assert torch.isfinite(t).all()
+		t[:, k] = 1
+		tsign = t.sign()
+		signs[:, k] = tsign.prod(-1)
+		# t = t.abs().clip(min=1e-10).log()
+		t = t.abs().add(eps).log()
+		assert torch.isfinite(t).all()
+		t[:, k] = -eta[:, k]
+		A[:, k] = t.sum(-1).neg()
+	assert torch.isfinite(A).all()
+	# signed logsumexp
+	o = A.max(-1, keepdim=True)[0]
+	ret = A.sub(o).exp()
+	assert torch.isfinite(ret).all()
+	ret = ret.mul(signs).sum(-1)
+	ret = ret.clip(min=eps)
+	assert (ret > 0).all(), ret.min().item()
+	ret = ret.log().add(o.squeeze(-1))
+	return ret
 
 if __name__ == "__main__":
     test_project2simplex_basic()
-
