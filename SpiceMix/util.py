@@ -45,7 +45,8 @@ def clustering_louvain(X, *, kwargs_neighbors, kwargs_clustering, num_rs=100, me
         cluster = np.array(list(adata.obs[method]))
         score = calc_modularity(
             adata.obsp['connectivities'], cluster, resolution=resolution)
-        if not best['score'] >= score: best.update({'score': score, 'cluster': cluster.copy(), 'rs': rs})
+        if not best['score'] >= score:
+            best.update({'score': score, 'cluster': cluster.copy(), 'rs': rs})
         pbar.set_description(
             f'Louvain clustering: res={resolution:.2e}; '
             f"best: score = {best['score']:.2f} rs = {best['rs']} # of clusters = {len(set(best['cluster']))}"
@@ -61,7 +62,13 @@ def clustering_louvain_nclust(
         resolution_init=1, resolution_update=2,
         num_rs=100, method='louvain',
 ):
+    """Some sort of wrapper around Louvain clustering.
+
+    """
+
     adata = AnnData(X)
+
+    # Get nearest neighbors in embedding space
     sc.pp.neighbors(adata, use_rep='X', **kwargs_neighbors)
     kwargs_clustering = kwargs_clustering.copy()
     y = None
@@ -95,7 +102,8 @@ def clustering_louvain_nclust(
                 res *= resolution_update
                 y, n_clust = do_clustering(res)
             rb = res
-        if n_clust == n_clust_target: lb = rb = res
+        if n_clust == n_clust_target:
+            lb = rb = res
 
     while rb - lb > .01:
         mid = (lb * rb) ** .5
@@ -112,11 +120,14 @@ def clustering_louvain_nclust(
         #   # '{:.2f}'.format(adjusted_rand_score(obj.data['cell type'], obj.data['cluster'])),
         #   sep='\t',
         # )
-        if n_clust == n_clust_target: break
-        if n_clust > n_clust_target: rb = mid
-        else: lb = mid
-    return y
+        if n_clust == n_clust_target:
+            break
+        if n_clust > n_clust_target:
+            rb = mid
+        else:
+            lb = mid
 
+    return y
 
 def evaluate_embedding(obj, embedding='X', do_plot=True, do_sil=True):
     if embedding == 'X':
@@ -167,9 +178,10 @@ def evaluate_embedding(obj, embedding='X', do_plot=True, do_sil=True):
 
     if do_sil:
         x = UMAP(
+            random_state=obj.random_state,
             n_neighbors=10,
         ).fit_transform(x)
-        print('sil', silhouette_score(x, obj.meta['cell type']))
+        print('sil', silhouette_score(x, obj.meta['cell type'], random_state=obj.random_state))
         if do_plot:
             keys = ['cell type', 'repli', 'label SpiceMixPlus']
             ncol = len(keys)
