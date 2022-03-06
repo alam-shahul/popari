@@ -18,7 +18,7 @@ def spicemix_with_neighbors():
         K=10, lambda_Sigma_x_inv=1e-5,
         repli_list=[0],
         context=dict(device='cuda:0', dtype=torch.float32),
-        context_Y=dict(dtype=torch.float32, device='cpu'),
+        context_Y=dict(dtype=torch.float32, device='cuda:0'),
     )   
     obj.load_dataset(path2dataset)
     obj.initialize(
@@ -33,7 +33,9 @@ def spicemix_with_neighbors():
     for iteration in range(1, 5):
         obj.estimate_parameters(iiter=iteration, use_spatial=[True]*obj.num_repli)
         obj.estimate_weights(iiter=iteration, use_spatial=[True]*obj.num_repli)
-                
+        
+    obj.save_results(path2dataset, 5)
+
     return obj
 
 @pytest.fixture(scope="module")
@@ -43,13 +45,13 @@ def spicemix_without_neighbors():
         K=10, lambda_Sigma_x_inv=1e-5,
         repli_list=[0],
         context=dict(device='cuda:0', dtype=torch.float32),
-        context_Y=dict(dtype=torch.float32, device='cpu'),
+        context_Y=dict(dtype=torch.float32, device='cuda:0'),
     )   
     obj.load_dataset(path2dataset)
     obj.initialize(
     #     method='kmeans',
         method='svd',
-    )   
+    )
     obj.initialize_Sigma_x_inv()
     for iiter in trange(20):
         obj.estimate_weights(iiter=iiter, use_spatial=[False]*obj.num_repli)
@@ -97,6 +99,7 @@ def test_louvain_clustering(spicemix_with_neighbors):
     )
     
     df_meta['label SpiceMixPlus'] = y
+    print(df_meta[:10])
     ari = adjusted_rand_score(*df_meta[['cell type', 'label SpiceMixPlus']].values.T)
     print(ari)
     assert 0.5983583723816454 == pytest.approx(ari)
