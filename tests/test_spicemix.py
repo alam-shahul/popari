@@ -58,19 +58,16 @@ def spicemix_without_neighbors():
         
 def test_Sigma_x_inv(spicemix_with_neighbors):
     Sigma_x_inv = spicemix_with_neighbors.Sigma_x_inv.detach().cpu().numpy()
-    np.save("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv.npy", Sigma_x_inv)
     test_Sigma_x_inv = np.load("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
     
 def test_M(spicemix_with_neighbors):
     M = spicemix_with_neighbors.M.detach().cpu().numpy()
-    np.save("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M.npy", M)
     test_M = np.load("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M.npy")
     assert np.allclose(test_M, M)
     
 def test_X_0(spicemix_with_neighbors):
     X_0 = spicemix_with_neighbors.Xs[0].detach().cpu().numpy()
-    np.save("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0.npy", X_0)
     test_X_0 = np.load("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0.npy")
     assert np.allclose(test_X_0, X_0)
     

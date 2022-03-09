@@ -42,9 +42,9 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
     Args:
         Ys: list of gene expression data
         Xs: list of estimated hidden states
-        M: current estimate of metagene parameters
+        M (torch.Tensor): current estimate of metagene parameters
         betas: weight of each FOV in optimization scheme
-        context: unclear
+        context: context ith which to create PyTorch tensor
         n_epochs: number of epochs 
 
     Returns:
@@ -55,10 +55,15 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
     quadratic_factor = torch.zeros([K, K], **context)
     linear_term = torch.zeros_like(M)
     scaled_betas = betas / (sigma_yxs**2)
+    
+    # ||Y||_2^2
     constant = (np.array([torch.linalg.norm(torch.tensor(dataset.X, **context)).item()**2 for dataset in datasets]) * scaled_betas).sum()
     for dataset, X, sigma_yx, scaled_beta in zip(datasets, Xs, sigma_yxs, scaled_betas):
+        # X_c^TX_c
         quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
+        # MX_c^TY_c
         linear_term.addmm_(torch.tensor(dataset.X, **context).T.to(X.device), X, alpha=scaled_beta)
+
     if lambda_M > 0 and M_bar is not None:
         quadratic_factor.diagonal().add_(lambda_M)
         linear_term += lambda_M * M_bar
@@ -66,96 +71,120 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
     loss_prev, loss = np.inf, np.nan
     progress_bar = trange(n_epochs, leave=True, disable=not verbose, desc='Updating M', miniters=1000)
 
-    def calc_func_grad(M):
-        t = M @ quadratic_factor
-        f = (t * M).sum() / 2
-        g = t
-        t = linear_term
-        f -= (t * M).sum()
-        g -= t
-        f += constant / 2
+    def compute_loss_and_gradient(M):
+        quadratic_factor_grad = M @ quadratic_factor
+        loss = (quadratic_factor_grad * M).sum()
+        grad = quadratic_factor_grad
+        linear_term_grad = linear_term
+        loss -= 2 * (linear_term_grad * M).sum()
+        grad -= linear_term_grad
+        
+        loss += constant
+        loss /= 2
+
         if M_constraint == 'simplex':
-            g.sub_(g.sum(0, keepdim=True))
-        return f.item(), g
+            grad.sub_(grad.sum(0, keepdim=True))
+
+        return loss.item(), grad
+    
+    def estimate_M_nag(M):
+        """Estimate M using Nesterov accelerated gradient descent.
+
+        Args:
+            M (torch.Tensor) : current estimate of meteagene parameters
+        """
+        step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
+        loss = np.inf
+        optimizer = NesterovGD(M.clone(), step_size)
+        for epoch in progress_bar:
+            loss_prev = loss
+            M_prev = M.clone()
+
+            # Update M
+            loss, grad = compute_loss_and_gradient(M)
+            M = optimizer.step(grad)
+            M = project_M(M, M_constraint)
+            optimizer.set_parameters(M)
+
+            dloss = loss_prev - loss
+            dM = (M_prev - M).abs().max().item()
+            stop_criterion = dM < tol and epoch > 5
+            assert not np.isnan(loss)
+            if epoch % 1000 == 0 or stop_criterion:
+                progress_bar.set_description(
+                    f'Updating M: loss = {loss:.1e}, '
+                    f'%δloss = {dloss / loss:.1e}, '
+                    f'δM = {dM:.1e}'
+                    # f'lr={step_size_scale:.1e}'
+                )
+            if stop_criterion:
+                break
+
+        return M
     
     if backend_algorithm == 'mu':
         for epoch in progress_bar:
-            loss = ((M @ quadratic_factor) * M).sum() / 2 - (M * linear_term).sum() + constant / 2
+            loss = (((M @ quadratic_factor) * M).sum() - 2 * (M * linear_term).sum() + constant) / 2
             loss = loss.item()
             numerator = linear_term
             denominator = M @ quadratic_factor
-            mul_fac = numerator / denominator
+            multiplicative_factor = numerator / denominator
 
             M_prev = M.clone()
-            # mul_fac.clip_(max=10)
-            M.mul_(mul_fac)
+            # multiplicative_factor.clip_(max=10)
+            M *= multiplicative_factor
             M = project_M(M, M_constraint)
             dM = M_prev.sub(M).abs_().max().item()
 
-            do_stop = dM < tol and epoch > 5
-            if epoch % 1000 == 0 or do_stop:
+            stop_criterion = dM < tol and epoch > 5
+            if epoch % 1000 == 0 or stop_criterion:
                 progress_bar.set_description(
                     f'Updating M: loss = {loss:.1e}, '
                     f'%δloss = {(loss_prev - loss) / loss:.1e}, '
                     f'δM = {dM:.1e}'
                 )
-            if do_stop: break
+            if stop_criterion:
+                break
+
     elif backend_algorithm == 'gd':
         step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
         step_size_scale = 1
-        func, grad = calc_func_grad(M)
-        dM = df = np.inf
+        loss, grad = compute_loss_and_gradient(M)
+        dM = dloss = np.inf
         for epoch in progress_bar:
             M_new = M.sub(grad, alpha=step_size * step_size_scale)
             M_new = project_M(M_new, M_constraint)
-            func_new, grad_new = calc_func_grad(M_new)
-            if func_new < func or step_size_scale == 1:
+            loss_new, grad_new = compute_loss_and_gradient(M_new)
+            if loss_new < loss or step_size_scale == 1:
                 dM = (M_new - M).abs().max().item()
-                df = func - func_new
+                dloss = loss - loss_new
                 M[:] = M_new
-                func = func_new
+                loss = loss_new
                 grad = grad_new
                 step_size_scale *= 1.1
             else:
                 step_size_scale *= .5
                 step_size_scale = max(step_size_scale, 1.)
 
-            do_stop = dM < tol and epoch > 5
-            if epoch % 1000 == 0 or do_stop:
+            stop_criterion = dM < tol and epoch > 5
+            if epoch % 1000 == 0 or stop_criterion:
                 progress_bar.set_description(
-                    f'Updating M: loss = {func:.1e}, '
-                    f'%δloss = {df / func:.1e}, '
+                    f'Updating M: loss = {loss:.1e}, '
+                    f'%δloss = {dloss / loss:.1e}, '
                     f'δM = {dM:.1e}, '
                     f'lr={step_size_scale:.1e}'
                 )
-            if do_stop: break
+            if stop_criterion:
+                break
+
     elif backend_algorithm == 'gd Nesterov':
-        step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
-        func_prev = np.inf
-        optimizer = NesterovGD(M.clone(), step_size)
-        for epoch in progress_bar:
-            func, grad = calc_func_grad(M)
-            df = func_prev - func
-            M_prev = M.clone()
-            M = optimizer.step(grad)
-            M = project_M(M, M_constraint)
-            optimizer.set_parameters(M)
-            dM = M_prev.sub(M).abs().max().item()
-            do_stop = dM < tol and epoch > 5
-            assert not np.isnan(func)
-            if epoch % 1000 == 0 or do_stop:
-                progress_bar.set_description(
-                    f'Updating M: loss = {func:.1e}, '
-                    f'%δloss = {df / func:.1e}, '
-                    f'δM = {dM:.1e}'
-                    # f'lr={step_size_scale:.1e}'
-                )
-            if do_stop: break
-            func_prev = func
+        M = estimate_M_nag(M)
+
     else:
         raise NotImplementedError
     
     return M
+
     # step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
     # for epoch in progress_bar:
     #   loss = ((M @ quadratic_factor) * M).sum() / 2 - (M * linear_term).sum() + constant / 2
@@ -186,14 +215,14 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
     #   loss_prev = loss
     #   dM = M_prev.sub(M).abs_().max().item()
     #
-    #   do_stop = dM < tol and epoch > 5
-    #   if epoch % 1000 == 0 or do_stop:
+    #   stop_criterion = dM < tol and epoch > 5
+    #   if epoch % 1000 == 0 or stop_criterion:
     #       progress_bar.set_description(
     #           f'Updating M: loss = {loss:.1e}, '
     #           f'%δloss = {(loss_prev - loss) / loss:.1e}, '
     #           f'δM = {dM:.1e}'
     #       )
-    #   if do_stop: break
+    #   if stop_criterion: break
     # progress_bar.close()
     # return loss
 
@@ -297,7 +326,7 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, adjacency_lists, spatial_flags, lambda
         pass
         # Sigma_x_inv_storage = Sigma_x_inv
 
-        # def calc_func_grad(Sigma_x_inv):
+        # def compute_loss_and_gradient(Sigma_x_inv):
         #     if Sigma_x_inv.grad is None:
         #         Sigma_x_inv.grad = torch.zeros_like(Sigma_x_inv)
         #     else:
@@ -316,14 +345,14 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, adjacency_lists, spatial_flags, lambda
         # step_size = 1e-1
         # step_size_update = 2
         # dloss = np.inf
-        # loss = calc_func_grad(Sigma_x_inv)
+        # loss = compute_loss_and_gradient(Sigma_x_inv)
         # loss.backward()
         # loss = loss.item()
         # for epoch in progress_bar:
         #     with torch.no_grad():
         #         Sigma_x_inv_new = Sigma_x_inv.add(Sigma_x_inv.grad, alpha=-step_size).requires_grad_(True)
         #         Sigma_x_inv_new.sub_(Sigma_x_inv_new.mean())
-        #     loss_new = calc_func_grad(Sigma_x_inv_new)
+        #     loss_new = compute_loss_and_gradient(Sigma_x_inv_new)
         #     with torch.no_grad():
         #         if loss_new.item() < loss:
         #             loss_new.backward()
@@ -377,7 +406,7 @@ def estimate_phenotype_predictor(input_list, phenotypes, phenotype_name, predict
             loss_total += loss.item()
             loss.backward()
             metrics['loss'] += loss.item()
-            metrics['acc'] += (yhat.argmax(1) == y).sum().item()
+            metrics['acc'] += (yhat.argmax(axis=1) == y).sum().item()
             metrics['# of samples'] += len(y)
         
         optimizer.step()
@@ -387,17 +416,22 @@ def estimate_phenotype_predictor(input_list, phenotypes, phenotype_name, predict
         dloss = loss_prev - loss_total
         loss_prev = loss_total
         if loss_total < loss_best:
+            print(loss_total)
+            print(loss_best)
             loss_best = loss_total
             epoch_best = epoch
         if dloss < 1e-4:
             early_stop_epoch_count += 1
         else:
             early_stop_epoch_count = 0
+
+        l2_loss = torch.sqrt(sum(torch.linalg.norm(param)**2 for param in predictor.parameters()))
+
         history.append(metrics)
         progress_bar.set_description(
             f'Updating `{phenotype_name}` predictor. '
             f'loss:{dloss:.1e} -> {loss_total:.1e} best={loss_best:.1e} '
-            f'L2={sum(torch.linalg.norm(param)**2 for param in predictor.parameters())**.5:.1e} '
+            f'L2={l2_loss:.1e} '
             f"acc={metrics['acc']:.2f}"
         )
         # if dloss < 1e-4: break

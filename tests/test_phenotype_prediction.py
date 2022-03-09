@@ -36,6 +36,7 @@ def phenotype_prediction():
     
     phenotype2predictor = {}
     df = model.meta
+
     # cell type
     label_raw = df['cell type']
     label_a2i = dict(zip(np.unique(label_raw), itertools.count()))
@@ -49,8 +50,8 @@ def phenotype_prediction():
     predictor.weight.data.normal_()
     predictor.bias.data.normal_()
 
-    # Changed from Adam to AdamW
-    optimizer = torch.optim.AdamW(predictor.parameters(), lr=1e-2, weight_decay=1e-2)
+    # Changed from Adam to AdamW...? Empirically, seems to make performance worse.
+    optimizer = torch.optim.Adam(predictor.parameters(), lr=1e-2, weight_decay=1e-2)
     
     # compute_loss = nn.CrossEntropyLoss()
     def compute_loss(yhat, y, mode="train"):
@@ -80,7 +81,9 @@ def phenotype_prediction():
     for iiter in range(1, 11):
         model.estimate_parameters(iiter=iiter, use_spatial=[True]*model.num_repli)
         model.estimate_weights(iiter=iiter, use_spatial=[True]*model.num_repli)
-  
+ 
+    model.save_results(path2dataset, iiter)
+ 
     return model
 
 def test_silhouette(phenotype_prediction):
@@ -94,4 +97,4 @@ def test_silhouette(phenotype_prediction):
  
     silhouette = silhouette_score(x, phenotype_prediction.meta['cell type'], random_state=phenotype_prediction.random_state)
     print(silhouette)
-    assert 0.7045777440071106 == pytest.approx(silhouette)
+    assert 0.7584578394889832 == pytest.approx(silhouette)

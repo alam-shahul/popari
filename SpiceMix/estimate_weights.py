@@ -103,7 +103,6 @@ class IndependentSet:
         self.indices_remaining -= set(indices)
         return list(indices)
 
-
 @torch.no_grad()
 def estimate_weight_wnbr(
         Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context, n_epochs=1000, tol=1e-5, update_alg='gd',

@@ -67,7 +67,7 @@ def load_anndata(filepath, replicate_names, context):
     for replicate, dataset in zip(replicate_names, datasets):
         # Keep only Sigma_x_inv corresponding to a particular replicate
         replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][f"{replicate}"]
-        if replicate_Sigma_x_inv is -1:
+        if replicate_Sigma_x_inv == -1:
             replicate_Sigma_x_inv = None
         else:
             replicate_Sigma_x_inv = torch.tensor(replicate_Sigma_x_inv, **context)

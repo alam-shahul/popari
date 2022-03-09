@@ -84,7 +84,7 @@ class SpiceMixPlus:
         self.phenotypes = self.phenotype_predictors = None
         self.meta_repli = None
 
-    def load_dataset(self, path2dataset, data_format="raw", neighbor_suffix=None, expression_suffix=None):
+    def load_dataset(self, path2dataset, data_format="raw", iteration=None, neighbor_suffix=None, expression_suffix=None):
         """Load dataset into SpiceMix object.
 
         TODO: change this to accept anndata objects.
@@ -95,7 +95,10 @@ class SpiceMixPlus:
         expression_suffix = parse_suffix(expression_suffix)
         
         if data_format == "anndata":
-            self.datasets = load_anndata(path2dataset / "all_data.h5", self.repli_list, self.context)
+            if not iteration:
+                raise ValueError("Must pass an integer value for iteration if using data_format=\"anndata\"")
+
+            self.datasets = load_anndata(path2dataset / f"trained_{iteration}_iterations.h5", self.repli_list, self.context)
             self.Ys = []
             for dataset in self.datasets:
                 Y = torch.tensor(dataset.X, **self.context_Y)
@@ -194,6 +197,7 @@ class SpiceMixPlus:
             df['repli'] = r
 
         df_all = pd.concat(df_all)
+        self.merged_dataset = ad.concat(self.datasets, label="batch", keys=self.repli_list, merge="unique", uns_merge="unique", pairwise=True)
         self.meta = df_all
 
         self.phenotypes = [{} for i in range(self.num_repli)]
@@ -246,7 +250,7 @@ class SpiceMixPlus:
         for param in predictor.parameters():
             param.requires_grad_(False)
         
-        for (repli, df), dataset in zip(self.meta.groupby('repli'), self.datasets):
+        for (repli, df) in self.merged_dataset.obs.groupby('batch'):
             phenotypes = {}
             phenotype = torch.tensor(df[phenotype_name].values, device=self.context.get('device', 'cpu'))
             self.phenotypes[self.repli_list.index(repli)][phenotype_name] = phenotype
@@ -282,25 +286,30 @@ class SpiceMixPlus:
         if self.phenotype_predictors:
             key = next(iter(self.phenotype_predictors.keys()))
             set_of_labels = np.unique(sum([phenotype[key].cpu().numpy().tolist() for phenotype in self.phenotypes if phenotype[key] is not None], []))
-            
+           
+            # Seeding some metagenes to explain the phenotype(s)
             L = len(set_of_labels)
             M = torch.zeros([self.GG, L], **self.context)
-            n = torch.zeros([L], **self.context)
+            num_by_class = torch.zeros([L], **self.context)
             Xs = [torch.zeros([N, L], **self.context) for N in self.Ns]
             is_valid = lambda Y, phenotype: Y.shape[1] == M.shape[0] and phenotype[key] is not None
             for phenotype, dataset, X, Y in zip(self.phenotypes, self.datasets, Xs, self.Ys):
-                if not is_valid(dataset.X, phenotype): continue
+                if not is_valid(dataset.X, phenotype):
+                    continue
+
                 for i, c in enumerate(set_of_labels):
                     mask = phenotype[key] == c
                     M[:, i] += Y[mask].sum(axis=0)
-                    n[i] += mask.sum()
+                    num_by_class[i] += mask.sum()
                     X[mask, i] = 1
 
-            M /= n
+            M /= num_by_class
 
             Ys = []
             for phenotype, dataset, Y in zip(self.phenotypes, self.datasets, self.Ys):
-                if not is_valid(dataset.X, phenotype): continue
+                if not is_valid(dataset.X, phenotype):
+                    continue
+
                 Y = Y.clone()
                 for i, c in enumerate(set_of_labels):
                     mask = phenotype[key] == c
@@ -313,8 +322,10 @@ class SpiceMixPlus:
             Xs_res_iter = iter(Xs_res)
             for phenotype, dataset, Y, X in zip(self.phenotypes, self.datasets, self.Ys, Xs):
                 if is_valid(Y, phenotype):
+                    # If phenotype information is available, use seeded hidden states
                     self.Xs.append(torch.cat([X, next(Xs_res_iter)], dim=1))
                 else:
+                    # Otherwise, use least squares to fit X to initialized M
                     self.Xs.append(torch.linalg.lstsq(self.M, Y.T)[0].clip_(min=0).T.contiguous())
 
         elif method == 'kmeans':
@@ -346,7 +357,7 @@ class SpiceMixPlus:
         self.M_bar = self.M
         self.Ms = {key: self.M_bar.clone() for key in keys}
 
-        if all(_ == 'exponential shared fixed' for _ in self.prior_x_modes):
+        if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.ones(self.K, **self.context),) for _ in range(self.num_repli)]
         else:
             raise NotImplementedError
@@ -513,7 +524,6 @@ class SpiceMixPlus:
                 self.Sigma_x_inv[:] = updated_Sigma_x_inv
                 for replicate, dataset in zip(self.repli_list, self.datasets):
                     dataset.uns["Sigma_x_inv"][f"{replicate}"][:] = updated_Sigma_x_inv
-                    print(dataset.uns["Sigma_x_inv"][f"{replicate}"])
 
             # self.optimizer_Sigma_x_inv.param_groups[0]["params"] = self.Sigma_x_inv
 
@@ -523,8 +533,12 @@ class SpiceMixPlus:
 
         # self.save_parameters(iiter=iiter)
 
-    def save_results(self, path2dataset, iterations):
-        save_anndata(path2dataset / f"trained_{iterations}_iterations.h5", self.datasets, self.repli_list)
+    def save_results(self, path2dataset, iteration, filename=None):
+        if not filename:
+            filename = f"trained_iteration_{iteration}.h5"
+
+        save_anndata(path2dataset, filename, self.datasets, self.repli_list)
+
     # def skip_saving(self, iiter):
     #     return iiter % 10 != 0
 
