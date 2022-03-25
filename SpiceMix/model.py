@@ -8,7 +8,7 @@ import numpy as np, pandas as pd
 import torch
 import anndata as ad
 
-from load_data import load_expression, load_edges, load_genelist, load_anndata, save_anndata
+from load_data import load_expression, load_edges, load_genelist, load_anndata, save_anndata, save_predictors
 from initialization import initialize_kmeans, initialize_Sigma_x_inv, initialize_svd
 from estimate_weights import estimate_weight_wonbr, estimate_weight_wnbr, \
     estimate_weight_wnbr_phenotype, estimate_weight_wnbr_phenotype_v2
@@ -72,7 +72,7 @@ class SpiceMixPlus:
             self.result_filename = None
         # self.save_hyperparameters()
 
-        self.Ys = self.meta = self.Es = self.Es_isempty = self.genes = self.Ns = self.Gs = self.GG = None
+        self.Ys = self.Es = self.Es_isempty = self.genes = self.Ns = self.Gs = self.GG = None
         self.Sigma_x_inv = self.Xs = self.sigma_yxs = None
         
         self.M = None
@@ -84,7 +84,7 @@ class SpiceMixPlus:
         self.phenotypes = self.phenotype_predictors = None
         self.meta_repli = None
 
-    def load_dataset(self, path2dataset, data_format="raw", iteration=None, neighbor_suffix=None, expression_suffix=None):
+    def load_dataset(self, path2dataset, data_format="raw", anndata_filepath=None, neighbor_suffix=None, expression_suffix=None):
         """Load dataset into SpiceMix object.
 
         TODO: change this to accept anndata objects.
@@ -95,39 +95,35 @@ class SpiceMixPlus:
         expression_suffix = parse_suffix(expression_suffix)
         
         if data_format == "anndata":
-            if not iteration:
-                raise ValueError("Must pass an integer value for iteration if using data_format=\"anndata\"")
-
-            self.datasets = load_anndata(path2dataset / f"trained_{iteration}_iterations.h5", self.repli_list, self.context)
+            self.datasets = load_anndata(path2dataset / anndata_filepath, self.repli_list, self.context)
             self.Ys = []
             for dataset in self.datasets:
                 Y = torch.tensor(dataset.X, **self.context_Y)
                 self.Ys.append(Y)
-
-        self.raw_Ys = []
-        for replicate in self.repli_list:
-            for s in ['pkl', 'txt', 'tsv', 'pickle']:
-                path2file = path2dataset / 'files' / f'expression_{replicate}{expression_suffix}.{s}'
-                if not path2file.exists():
-                    continue
-
-                self.raw_Ys.append(load_expression(path2file))
-                break
-        assert len(self.raw_Ys) == len(self.repli_list)
-        self.Ns, self.Gs = zip(*map(np.shape, self.raw_Ys))
-        self.GG = max(self.Gs)
-        self.genes =  [
-            load_genelist(path2dataset / 'files' / f'genes_{r}{expression_suffix}.txt')
-            for r in self.repli_list
-        ]
-
-        self.Es = [
-            load_edges(path2dataset / 'files' / f'neighborhood_{i}{neighbor_suffix}.txt', N)
-            for i, N in zip(self.repli_list, self.Ns)
-        ]
-        self.Es_isempty = [sum(map(len, E)) == 0 for E in self.Es]
-
         if data_format == "raw":
+            self.raw_Ys = []
+            for replicate in self.repli_list:
+                for s in ['pkl', 'txt', 'tsv', 'pickle']:
+                    path2file = path2dataset / 'files' / f'expression_{replicate}{expression_suffix}.{s}'
+                    if not path2file.exists():
+                        continue
+
+                    self.raw_Ys.append(load_expression(path2file))
+                    break
+            assert len(self.raw_Ys) == len(self.repli_list)
+            self.Ns, self.Gs = zip(*map(np.shape, self.raw_Ys))
+            self.GG = max(self.Gs)
+            self.genes =  [
+                load_genelist(path2dataset / 'files' / f'genes_{r}{expression_suffix}.txt')
+                for r in self.repli_list
+            ]
+
+            self.Es = [
+                load_edges(path2dataset / 'files' / f'neighborhood_{i}{neighbor_suffix}.txt', N)
+                for i, N in zip(self.repli_list, self.Ns)
+            ]
+            self.Es_isempty = [sum(map(len, E)) == 0 for E in self.Es]
+
             self.datasets = []
             self.Ys = []
             for index, (raw_gene_expression, gene_list, n_obs, replicate, adjacency_list) in enumerate(zip(self.raw_Ys, self.genes, self.Ns, self.repli_list, self.Es)):
@@ -164,41 +160,30 @@ class SpiceMixPlus:
                 
                 self.datasets.append(dataset)
 
-        # self.Ys = [G / self.GG * self.K * Y / Y.sum(1).mean() for Y, G in zip(self.Ys, self.Gs)]
-        # self.Ys = [
-        #     torch.tensor(Y, **self.context_Y).pin_memory()
-        #     if self.context_Y.get('device', 'cpu') == 'cpu' else
-        #     torch.tensor(Y, **self.context_Y)
-        #     for Y in self.Ys
-        # ]
-        # TODO: save Ys in cpu and calculate matrix multiplications (e.g., MT Y) using mini-batch.
-        df_all = []
-        for r, dataset in zip(self.repli_list, self.datasets):
-            path2file = path2dataset / 'files' / f'meta_{r}.pkl'
-            if os.path.exists(path2file):
-                with open(path2file, 'rb') as f:
-                    data = pickle.load(f)
-                    df_all.append(data)
-            path2file = path2dataset / 'files' / f'meta_{r}.csv'
-            if os.path.exists(path2file):
-                df_all.append(pd.read_csv(path2file))
-                continue
-            path2file = path2dataset / 'files' / f'celltypes_{r}.txt'
-            if os.path.exists(path2file):
-                df = pd.read_csv(path2file, header=None)
-                df.columns = ['cell type']
-                dataset.obs["cell_type"] = df.values
-                # df['repli'] = r
-                df_all.append(df)
-                continue
-            raise FileNotFoundError(r)
-        assert len(df_all) == len(self.repli_list)
-        for r, df in zip(self.repli_list, df_all):
-            df['repli'] = r
-
-        df_all = pd.concat(df_all)
-        self.merged_dataset = ad.concat(self.datasets, label="batch", keys=self.repli_list, merge="unique", uns_merge="unique", pairwise=True)
-        self.meta = df_all
+            # self.Ys = [G / self.GG * self.K * Y / Y.sum(1).mean() for Y, G in zip(self.Ys, self.Gs)]
+            # self.Ys = [
+            #     torch.tensor(Y, **self.context_Y).pin_memory()
+            #     if self.context_Y.get('device', 'cpu') == 'cpu' else
+            #     torch.tensor(Y, **self.context_Y)
+            #     for Y in self.Ys
+            # ]
+            # TODO: save Ys in cpu and calculate matrix multiplications (e.g., MT Y) using mini-batch.
+            for r, dataset in zip(self.repli_list, self.datasets):
+                path2file = path2dataset / 'files' / f'meta_{r}.pkl'
+                if os.path.exists(path2file):
+                    with open(path2file, 'rb') as f:
+                        data = pickle.load(f)
+                path2file = path2dataset / 'files' / f'meta_{r}.csv'
+                if os.path.exists(path2file):
+                    continue
+                path2file = path2dataset / 'files' / f'celltypes_{r}.txt'
+                if os.path.exists(path2file):
+                    df = pd.read_csv(path2file, header=None)
+                    df.columns = ['cell type']
+                    dataset.obs["cell_type"] = df.values
+                    # df['repli'] = r
+                    continue
+                raise FileNotFoundError(r)
 
         self.phenotypes = [{} for i in range(self.num_repli)]
         self.phenotype_predictors = {}
@@ -250,15 +235,18 @@ class SpiceMixPlus:
         for param in predictor.parameters():
             param.requires_grad_(False)
         
-        for (repli, df) in self.merged_dataset.obs.groupby('batch'):
+        # for (repli, df) in self.meta.groupby('repli'):
+        #     phenotypes = {}
+        #     phenotype = torch.tensor(df[phenotype_name].values, device=self.context.get('device', 'cpu'))
+        #     self.phenotypes[self.repli_list.index(repli)][phenotype_name] = phenotype
+        
+        for (repli, dataset) in zip(self.repli_list, self.datasets):
             phenotypes = {}
-            phenotype = torch.tensor(df[phenotype_name].values, device=self.context.get('device', 'cpu'))
+            phenotype = torch.tensor(dataset.obs[phenotype_name].values, device=self.context.get('device', 'cpu'))
             self.phenotypes[self.repli_list.index(repli)][phenotype_name] = phenotype
 
     def register_meta_repli(self, df_meta_repli):
         self.meta_repli = df_meta_repli
-
-    # def resume(self, iiter):
 
     def get_M(self, repli):
         key = 'metagene group'
@@ -358,7 +346,10 @@ class SpiceMixPlus:
         self.Ms = {key: self.M_bar.clone() for key in keys}
 
         if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
+            # TODO: try setting to zero
             self.prior_xs = [(torch.ones(self.K, **self.context),) for _ in range(self.num_repli)]
+        elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
+            self.prior_xs = [(torch.zeros(self.K, **self.context),) for _ in range(self.num_repli)]
         else:
             raise NotImplementedError
 
@@ -385,6 +376,13 @@ class SpiceMixPlus:
             dataset.uns["M_bar"] = {f"{replicate}": self.M_bar}
             dataset.obsm["X"] = X
 
+            dataset.uns["spicemixplus_hyperparameters"] = {
+                "a": 1,
+                "b": 2,
+                "c": 3,
+                "d": 4,
+            }
+
         # self.save_weights(iiter=0)
         # self.save_parameters(iiter=0)
 
@@ -396,6 +394,9 @@ class SpiceMixPlus:
         # self.Sigma_x_inv.requires_grad_(True)
         
         for replicate, dataset in zip(self.repli_list, self.datasets):
+            if "Sigma_x_inv" not in dataset.uns:
+                dataset.uns["Sigma_x_inv"] = {}
+
             dataset.uns["Sigma_x_inv"][f"{replicate}"] = self.Sigma_x_inv
        
         # This optimizer retains its state throughout the optimization
@@ -422,7 +423,7 @@ class SpiceMixPlus:
         for dataset, sigma_yx in zip(self.datasets, self.sigma_yxs):
             dataset.uns["sigma_yx"] = sigma_yx
 
-    def estimate_weights(self, iiter, use_spatial):
+    def estimate_weights(self, iiter, use_spatial, backend_algorithm="gd"):
         logging.info(f'{print_datetime()}Updating latent states')
         assert len(use_spatial) == self.num_repli
 
@@ -430,8 +431,8 @@ class SpiceMixPlus:
         assert self.pairwise_potential_mode == 'normalized'
 
         loss_list = []
-        for i, (X, sigma_yx, E, phenotype, prior_x_mode, prior_x, replicate, dataset, Y) in enumerate(zip(
-                self.Xs, self.sigma_yxs, self.Es, self.phenotypes, self.prior_x_modes, self.prior_xs, self.repli_list, self.datasets, self.Ys)):
+        for i, (X, sigma_yx, phenotype, prior_x_mode, prior_x, replicate, dataset, Y) in enumerate(zip(
+                self.Xs, self.sigma_yxs, self.phenotypes, self.prior_x_modes, self.prior_xs, self.repli_list, self.datasets, self.Ys)):
             valid_keys = [k for k, v in phenotype.items() if v is not None]
             if len(valid_keys) > 0:
                 loss = estimate_weight_wnbr_phenotype(
@@ -453,12 +454,12 @@ class SpiceMixPlus:
                 # )
                 #
                 # X[:] = Z * S
-            elif self.Es_isempty[i] or not use_spatial[i]:
-                loss = estimate_weight_wonbr(
-                    Y, self.M, X, sigma_yx, prior_x_mode, prior_x, context=self.context)
+            elif not use_spatial[i]:
+                loss, self.Xs[i] = estimate_weight_wonbr(
+                    Y, self.M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context=self.context, update_alg=backend_algorithm)
             else:
                 loss, self.Xs[i] = estimate_weight_wnbr(
-                    Y, self.M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context=self.context)
+                    Y, self.M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context=self.context, update_alg=backend_algorithm)
 
                 # S = self.Ss[i]
                 # Z = self.Zs[i]
@@ -533,11 +534,13 @@ class SpiceMixPlus:
 
         # self.save_parameters(iiter=iiter)
 
-    def save_results(self, path2dataset, iteration, filename=None):
+    def save_results(self, path2dataset, iteration, PredictorConstructor=None, predictor_hyperparams=None, filename=None):
         if not filename:
             filename = f"trained_iteration_{iteration}.h5"
 
-        save_anndata(path2dataset, filename, self.datasets, self.repli_list)
+        save_anndata(path2dataset / filename, self.datasets, self.repli_list)
+        if self.phenotype_predictors:
+            save_predictors(path2dataset, self.phenotype_predictors, iteration) 
 
     # def skip_saving(self, iiter):
     #     return iiter % 10 != 0

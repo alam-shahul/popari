@@ -235,9 +235,9 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, adjacency_lists, spatial_flags, lambda
         Sigma_x_inv: previous estimate of Σx-1
 
     """
-    num_edges_per_fov = [sum(map(len, adjacency_list)) for adjacency_list in adjacency_lists]
+    num_edges_per_fov = [sum(map(len, dataset.obs["adjacency_list"])) for dataset in datasets]
 
-    if not any(sum(map(len, edge)) > 0 and u for edge, u in zip(adjacency_lists, spatial_flags)):
+    if not any(sum(map(len, dataset.obs["adjacency_list"])) > 0 and u for dataset, u in zip(datasets, spatial_flags)):
         return
 
     linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
@@ -416,8 +416,6 @@ def estimate_phenotype_predictor(input_list, phenotypes, phenotype_name, predict
         dloss = loss_prev - loss_total
         loss_prev = loss_total
         if loss_total < loss_best:
-            print(loss_total)
-            print(loss_best)
             loss_best = loss_total
             epoch_best = epoch
         if dloss < 1e-4:
@@ -442,3 +440,6 @@ def estimate_phenotype_predictor(input_list, phenotypes, phenotype_name, predict
     predictor.eval()
     for param in predictor.parameters():
         param.requires_grad_(False)
+
+def estimate_M_and_predictor():
+    pass

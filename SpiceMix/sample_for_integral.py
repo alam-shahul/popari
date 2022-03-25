@@ -34,7 +34,14 @@ def project2simplex(y, dim=0, zero_threshold=1e-10):
         previous_derivative = derivative
     assert (derivative == previous_derivative).all()
     
+    assert not torch.isnan(y).any(), y
+    #print(mu)
+    if torch.isnan(mu).any():
+        np.save("../problematic_y.npy", y.detach().cpu().numpy())
+
     y = (y - mu).clip(min=zero_threshold)
+    assert not torch.isnan(y).any(), (mu, derivative)
+    # print(y.sum(dim=dim).sub_(1))
 
     assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-3, y.sum(dim=dim).sub_(1).abs_().max()
     
