@@ -36,7 +36,6 @@ def phenotype_prediction():
     )
     model.load_dataset(path2dataset)
 
-
     phenotype2predictor = {}
     
     label_encoder = LabelEncoder()
@@ -79,7 +78,7 @@ def phenotype_prediction():
     # evaluate(model)
     for iiter in trange(20):
         model.estimate_parameters(iiter=iiter, use_spatial=[False]*model.num_repli)
-        model.estimate_weights(iiter=iiter, use_spatial=[False]*model.num_repli)
+        model.estimate_weights(iiter=iiter, use_spatial=[False]*model.num_repli, backend_algorithm="gd")
     # evaluate(model)
     model.initialize_Sigma_x_inv()
     

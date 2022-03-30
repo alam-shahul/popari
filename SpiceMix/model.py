@@ -29,7 +29,7 @@ class SpiceMixPlus:
     def __init__(
             self,
             K, lambda_Sigma_x_inv, repli_list, betas=None, prior_x_modes=None,
-            path2result=None, context=None, context_Y=None, random_state=0
+            path2result=None, context=None, context_Y=None, metagene_mode="shared", lambda_M=0, random_state=0
     ):
 
         if not context:
@@ -74,10 +74,11 @@ class SpiceMixPlus:
 
         self.Ys = self.Es = self.Es_isempty = self.genes = self.Ns = self.Gs = self.GG = None
         self.Sigma_x_inv = self.Xs = self.sigma_yxs = None
-        
+       
+        self.metagene_mode = metagene_mode 
         self.M = None
-        self.Ms = self.M_bar = None
-        self.lambda_M = 0
+        self.M_bar = None
+        self.lambda_M = lambda_M
         self.Zs = self.Ss = self.Z_optimizers = None
         self.optimizer_Sigma_x_inv = None
         self.prior_xs = None
@@ -205,22 +206,6 @@ class SpiceMixPlus:
         for phenotype_name, (predictor, optimizer, loss_function) in phenotype2predictor.items():
             self.register_phenotype_predictor(phenotype_name, predictor, optimizer, loss_function)
 
-        # self.phenotype_predictors = phenotype2predictor
-        # for phenotype_name, (predictor, optimizer, _) in phenotype2predictor.items():
-        #     for param in predictor.parameters():
-        #         param.requires_grad_(False)
-        #     for dataset in self.datasets:
-        #         dataset.uns[f"{phenotype_name}_predictor"] = predictor
-        #         dataset.uns[f"{phenotype_name}_optimizer"] = optimizer
-
-        # self.phenotypes = [None] * len(self.repli_list)
-        # for (repli, df), dataset in zip(self.meta.groupby('repli'), self.datasets):
-        #     phenotypes = {}
-        #     for key in phenotype2predictor:
-        #         phenotype = torch.tensor(df[key].values, device=self.context.get('device', 'cpu'))
-        #         phenotypes[key] = phenotype
-        #     self.phenotypes[self.repli_list.index(repli)] = phenotypes
-    
     def register_phenotype_predictor(self, phenotype_name, predictor, optimizer, loss_function):
         """Register a phenotype and its predictor to the SpiceMixPlus object.
         
@@ -248,29 +233,7 @@ class SpiceMixPlus:
     def register_meta_repli(self, df_meta_repli):
         self.meta_repli = df_meta_repli
 
-    def get_M(self, repli):
-        key = 'metagene group'
-        if self.meta_repli is None or key not in self.meta_repli.columns:
-            key = 'shared'
-        else:
-            key = self.meta_repli.loc[repli, key]
-        if self.Ms is None:
-            return key
-        else:
-            return self.Ms[key]
-
     def initialize(self, method='kmeans'):
-        # if method == 'kmeans':
-        #   self.M, self.Xs = initialize_kmeans(
-        #       self.K, self.Ys,
-        #       kwargs_kmeans=dict(random_state=random_state),
-        #       context=self.context,
-        #   )
-        # elif method == 'svd':
-        #   self.M, self.Xs = initialize_svd(self.K, self.Ys, context=self.context)
-        # else:
-        #   raise NotImplementedError
-
         if self.phenotype_predictors:
             key = next(iter(self.phenotype_predictors.keys()))
             set_of_labels = np.unique(sum([phenotype[key].cpu().numpy().tolist() for phenotype in self.phenotypes if phenotype[key] is not None], []))
@@ -340,10 +303,12 @@ class SpiceMixPlus:
         self.M.div_(scale_factor)
         for X in self.Xs:
             X.mul_(scale_factor)
-        del scale_factor
-        keys = set(self.get_M(r) for r in self.repli_list)
+
         self.M_bar = self.M
-        self.Ms = {key: self.M_bar.clone() for key in keys}
+        # if self.metagene_mode == "shared":
+        #     self.Ms = {"shared": self.M_bar.clone()}
+        # elif self.metagene_mode == "differential":
+        #     self.Ms = {f"{replicate}": self.M_bar.clone() for replicate in self.repli_list}
 
         if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
             # TODO: try setting to zero
@@ -353,8 +318,6 @@ class SpiceMixPlus:
         else:
             raise NotImplementedError
 
-        self.estimate_sigma_yx()
-        self.estimate_phenotype_predictor()
         #
         # self.Zs = []
         # self.Ss = []
@@ -377,11 +340,14 @@ class SpiceMixPlus:
             dataset.obsm["X"] = X
 
             dataset.uns["spicemixplus_hyperparameters"] = {
-                "a": 1,
+                "metagene_mode": self.metagene_mode,
                 "b": 2,
                 "c": 3,
                 "d": 4,
             }
+
+        self.estimate_sigma_yx()
+        self.estimate_phenotype_predictor()
 
         # self.save_weights(iiter=0)
         # self.save_parameters(iiter=0)
@@ -407,9 +373,13 @@ class SpiceMixPlus:
         )
 
     def estimate_sigma_yx(self):
+        """Update sigma_yx for each replicate.
+
+        """
+
         squared_loss = np.array([
-            torch.linalg.norm(torch.addmm(Y, X, self.M.T, alpha=-1), ord='fro').item() ** 2
-            for Y, X in zip(self.Ys, self.Xs)
+            torch.linalg.norm(torch.addmm(Y, dataset.obsm["X"], dataset.uns["M"][f"{replicate}"].T, alpha=-1), ord='fro').item() ** 2
+            for Y, X, dataset, replicate in zip(self.Ys, self.Xs, self.datasets, self.repli_list)
         ])
         sizes = np.array([np.prod(dataset.X.shape) for dataset in self.datasets])
         if self.sigma_yx_inv_mode == 'separate':
@@ -423,7 +393,11 @@ class SpiceMixPlus:
         for dataset, sigma_yx in zip(self.datasets, self.sigma_yxs):
             dataset.uns["sigma_yx"] = sigma_yx
 
-    def estimate_weights(self, iiter, use_spatial, backend_algorithm="gd"):
+    def estimate_weights(self, iiter, use_spatial, backend_algorithm="nesterov"):
+        """Update weights (latent states) for each replicate.
+
+        """
+
         logging.info(f'{print_datetime()}Updating latent states')
         assert len(use_spatial) == self.num_repli
 
@@ -434,12 +408,16 @@ class SpiceMixPlus:
         for i, (X, sigma_yx, phenotype, prior_x_mode, prior_x, replicate, dataset, Y) in enumerate(zip(
                 self.Xs, self.sigma_yxs, self.phenotypes, self.prior_x_modes, self.prior_xs, self.repli_list, self.datasets, self.Ys)):
             valid_keys = [k for k, v in phenotype.items() if v is not None]
+
+            M = dataset.uns["M"][f"{replicate}"]
+
             if len(valid_keys) > 0:
-                loss = estimate_weight_wnbr_phenotype(
-                    Y, self.M, X, sigma_yx, replicate, prior_x_mode, prior_x,
+                loss, self.Xs[i] = estimate_weight_wnbr_phenotype(
+                    Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x,
                     {k: phenotype[k] for k in valid_keys}, {k: self.phenotype_predictors[k] for k in valid_keys},
                     dataset, context=self.context,
                 )
+                dataset.obsm["X"] = self.Xs[i]
 
                 # S = self.Ss[i]
                 # Z = self.Zs[i]
@@ -456,10 +434,12 @@ class SpiceMixPlus:
                 # X[:] = Z * S
             elif not use_spatial[i]:
                 loss, self.Xs[i] = estimate_weight_wonbr(
-                    Y, self.M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context=self.context, update_alg=backend_algorithm)
+                    Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context=self.context, update_alg=backend_algorithm)
+                dataset.obsm["X"] = self.Xs[i]
             else:
                 loss, self.Xs[i] = estimate_weight_wnbr(
-                    Y, self.M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context=self.context, update_alg=backend_algorithm)
+                    Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context=self.context, update_alg=backend_algorithm)
+                dataset.obsm["X"] = self.Xs[i]
 
                 # S = self.Ss[i]
                 # Z = self.Zs[i]
@@ -493,25 +473,32 @@ class SpiceMixPlus:
             estimate_phenotype_predictor(*zip(*input_target_list), phenotype_name, *predictor_tuple)
 
     def estimate_M(self):
-        for (group, M), dataset, replicate in zip(self.Ms.items(), self.datasets, self.repli_list):
-            is_valid = [self.get_M(repli) is M for repli in self.repli_list]
-            Xs, sigma_yxs, betas, datasets = zip(*itertools.compress(zip(
-                self.Xs, self.sigma_yxs, self.betas, self.datasets), is_valid))
-            betas = np.array(betas)
-            betas /= sum(betas) # not sure if we should do this
-            self.Ms[group] = estimate_M(
-                # self.Ys, self.Xs, self.M, self.sigma_yxs, self.betas,
-                Xs, M, np.array(sigma_yxs), betas, datasets,
-                M_bar=self.M_bar, lambda_M=self.lambda_M,
-                M_constraint=self.M_constraint, context=self.context,
-            )
-            dataset.uns["M"][f"{replicate}"] = self.Ms[group]
+        betas = self.betas / np.sum(self.betas) # not sure if we should do this
+        if self.metagene_mode == "shared":
+            # Since the metagenes are shared, we can just use the version stored in the first replicate
+            first_replicate = self.repli_list[0]
+            first_dataset = self.datasets[0]
+            M = estimate_M(self.Xs, first_dataset.uns["M"][f"{first_replicate}"], self.sigma_yxs, betas, self.datasets, M_bar=self.M_bar,
+                lambda_M=self.lambda_M, M_constraint=self.M_constraint, context=self.context)
+
+            for dataset, replicate in zip(self.datasets, self.repli_list):
+                dataset.uns["M"][f"{replicate}"] = M
+
+        elif self.metagene_mode == "differential":
+            for index, (dataset, replicate) in enumerate(zip(self.datasets, self.repli_list)):
+                dataset.uns["M"][f"{replicate}"] = estimate_M(self.Xs[index:index+1], dataset.uns["M"][f"{replicate}"], self.sigma_yxs[index:index+1], [1],
+                    self.datasets[index:index+1], M_bar=self.M_bar, lambda_M=self.lambda_M, M_constraint=self.M_constraint, context=self.context)
 
         # Set M_bar to average of self.Ms
         self.M_bar.zero_()
-        for group, M in self.Ms.items():
-            self.M_bar.add_(M)
-        self.M_bar.div_(len(self.Ms))
+        # for group, M in self.Ms.items():
+        #     self.M_bar.add_(M)
+        for dataset, replicate in zip(self.datasets, self.repli_list):
+            self.M_bar.add_(dataset.uns["M"][f"{replicate}"])
+        self.M_bar.div_(len(self.datasets))
+
+        for dataset, replicate in zip(self.datasets, self.repli_list):
+            dataset.uns["M_bar"][f"{replicate}"] = self.M_bar
 
     def estimate_parameters(self, iiter, use_spatial, update_Sigma_x_inv=True):
         logging.info(f'{print_datetime()}Updating model parameters')
@@ -542,9 +529,6 @@ class SpiceMixPlus:
         if self.phenotype_predictors:
             save_predictors(path2dataset, self.phenotype_predictors, iteration) 
 
-    # def skip_saving(self, iiter):
-    #     return iiter % 10 != 0
-
     # def save_hyperparameters(self):
     #     if self.result_filename is None: return
 
@@ -555,71 +539,3 @@ class SpiceMixPlus:
     #                 f[f'hyperparameters/{k}/{repli}'] = encode4h5(v)
     #         for k in ['lambda_Sigma_x_inv', 'betas', 'K']:
     #             f[f'hyperparameters/{k}'] = encode4h5(getattr(self, k))
-
-    # def save_weights(self, iiter):
-    #     if not self.result_filename:
-    #         return
-    #     if self.skip_saving(iiter):
-    #         return
-
-    #     f = openH5File(self.result_filename)
-    #     if f is None:
-    #         return
-
-    #     for repli, XT in zip(self.repli_list, self.Xs):
-    #         f[f'latent_states/XT/{repli}/{iiter}'] = XT.cpu().numpy()
-
-    #     f.close()
-
-    # def save_parameters(self, iiter):
-    #     if self.result_filename is None: return
-    #     if self.skip_saving(iiter): return
-
-    #     f = openH5File(self.result_filename)
-    #     if f is None: return
-
-    #     M = self.M
-    #     if M is not None:
-    #         print(M)
-    #         M = M.cpu().numpy()
-    #         f[f'parameters/M/{iiter}'] = M
-
-    #     M_bar = self.M_bar
-    #     if M_bar is not None:
-    #         print(M_bar)
-    #         M_bar = M_bar.cpu().numpy()
-    #         f[f'parameters/M_bar/{iiter}'] = M_bar
-
-    #     Sigma_x_inv = self.Sigma_x_inv
-    #     if Sigma_x_inv is not None:
-    #         Sigma_x_inv = Sigma_x_inv.cpu().numpy()
-    #         f[f'parameters/Sigma_x_inv/{iiter}'] = Sigma_x_inv
-
-    #     
-    #     for repli, M in zip(self.repli_list, self.Ms):
-    #         if M is not None and not isinstance(M, str):
-    #             print(M)
-    #             M = M.cpu().numpy()
-    #             f[f'latent_states/Ms/{repli}/{iiter}'] = M
-
-    #     for k in ['sigma_yxs']:
-    #         for repli, v in zip(self.repli_list, getattr(self, k)):
-    #             f[f'parameters/{k}/{repli}/{iiter}'] = v
-
-    #     for k in ['prior_xs']:
-    #         for repli, v in zip(self.repli_list, getattr(self, k)):
-    #             f[f'parameters/{k}/{repli}/{iiter}'] = np.array(v[1:])
-
-    #     f.close()
-
-    # def save_progress(self, iiter):
-    #     return
-    #     if self.result_filename is None: return
-
-    #     f = openH5File(self.result_filename)
-    #     if f is None:
-    #         return
-
-    #     f[f'progress/Q/{iiter}'] = self.Q
-
-    #     f.close()

@@ -27,7 +27,7 @@ def spicemix_without_neighbors():
     )   
     obj.initialize_Sigma_x_inv()
     for iiter in trange(5):
-        obj.estimate_weights(iiter=iiter, use_spatial=[False]*obj.num_repli)
+        obj.estimate_weights(iiter=iiter, use_spatial=[False]*obj.num_repli, backend_algorithm="gd")
         obj.estimate_parameters(iiter=iiter, use_spatial=[False]*obj.num_repli)
 
     return obj

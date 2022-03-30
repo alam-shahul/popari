@@ -107,7 +107,8 @@ def estimate_weight_wonbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, d
                 f'%δX = {dX:.1e}'
             )
         loss_prev = loss
-        if do_stop: break
+        if do_stop:
+            break
     progress_bar.close()
     return loss, X
 
@@ -225,6 +226,17 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
     #         Z = result
 
     #     return Z
+    
+    def calc_func_grad(Z_batch, S_batch, quad, linear):
+        t = (Z_batch @ quad).mul_(S_batch ** 2)
+        f = (t * Z_batch).sum() / 2
+        g = t
+        t = linear
+        f -= (t * Z_batch).sum()
+        g -= t
+        g.sub_(g.sum(1, keepdim=True))
+        
+        return f.item(), g
 
     def update_z_gd(Z):
         # def calc_func_grad(Z, idx, adjacency_matrix=None):
@@ -232,15 +244,6 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
         #   # grad.addcmul_(YM, S, value=-1)
         #   # grad.addmm_(E @ Z, Sigma_x_inv)
         #   # grad.sub_(grad.sum(1, keepdim=True))
-        def calc_func_grad(Z_batch, S_batch, quad, linear):
-            t = (Z_batch @ quad).mul_(S_batch ** 2)
-            f = (t * Z_batch).sum() / 2
-            g = t
-            t = linear
-            f -= (t * Z_batch).sum()
-            g -= t
-            g.sub_(g.sum(1, keepdim=True))
-            return f.item(), g
         step_size = base_step_size / S.square()
         pbar = tqdm(range(N), leave=False, disable=True)
         for idx in IndependentSet(E_adjacency_list, batch_size=128):
@@ -276,15 +279,6 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
         return Z
 
     def update_z_gd_nesterov(Z):
-        def calc_func_grad(Z_batch, S_batch, quad, linear):
-            t = (Z_batch @ quad).mul_(S_batch ** 2)
-            f = (t * Z_batch).sum() / 2
-            g = t
-            t = linear
-            f -= (t * Z_batch).sum()
-            g -= t
-            g.sub_(g.sum(1, keepdim=True))
-            return f.item(), g
         pbar = trange(N, leave=False, disable=True, desc='Updating Z w/ nbrs via Nesterov GD')
         for idx in IndependentSet(E_adjacency_list, batch_size=256):
         # for idx in [[N-1]]:
@@ -545,8 +539,8 @@ def estimate_weight_wnbr_phenotype(
     pbar.close()
 
     Z.requires_grad_(False)
-    X[:] = Z * S
-    return loss
+    X = Z * S
+    return loss, X
 
 
 @torch.no_grad()
