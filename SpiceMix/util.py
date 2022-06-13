@@ -140,61 +140,68 @@ def evaluate_embedding(obj, embedding='X', do_plot=True, do_sil=True):
     else:
         raise NotImplementedError
 
-    x = np.concatenate(Xs, axis=0)
-    x = StandardScaler().fit_transform(x)
+    # x = np.concatenate(Xs, axis=0)
 
-    for n_clust in [6, 7, 8, 9]:
-        y = AgglomerativeClustering(
-            n_clusters=n_clust,
-            linkage='ward',
-        ).fit_predict(x)
-        y = pd.Categorical(y, categories=np.unique(y))
-        print(
-            f"hierarchical w/ K={n_clust}."
-            f"ARI = {adjusted_rand_score(obj.meta['cell type'].values, y):.2f}",
-            sep=' ',
-        )
-    y = clustering_louvain_nclust(
-        x.copy(), 8,
-        kwargs_neighbors=dict(n_neighbors=10),
-        kwargs_clustering=dict(),
-        resolution_boundaries=(.1, 1.),
-    )
-    obj.meta['label SpiceMixPlus'] = y
-    print('ari = {:.2f}'.format(adjusted_rand_score(*obj.meta[['cell type', 'label SpiceMixPlus']].values.T)))
-    for repli, df in obj.meta.groupby('repli'):
-        print('ari {} = {:.2f}'.format(repli, adjusted_rand_score(*df[['cell type', 'label SpiceMixPlus']].values.T)))
+    for x, replicate, dataset in zip(Xs, obj.repli_list, obj.datasets):
+        x = StandardScaler().fit_transform(x)
+        for n_clust in [6, 7, 8, 9]:
+            y = AgglomerativeClustering(
+                n_clusters=n_clust,
+                linkage='ward',
+            ).fit_predict(x)
+            y = pd.Categorical(y, categories=np.unique(y))
+            dataset.obs["spicemixplus_label"] = y
+            
+            print(
+                f"replicate {replicate}"
+                f"hierarchical w/ K={n_clust}."
+                f"ARI = {adjusted_rand_score(dataset.obs['cell_type'].values, y):.2f}",
+                sep=' ',
+            )
+        # y = clustering_louvain_nclust(
+        #     x.copy(), 8,
+        #     kwargs_neighbors=dict(n_neighbors=10),
+        #     kwargs_clustering=dict(),
+        #     resolution_boundaries=(.1, 1.),
+        # )
+        
+    # obj.meta['label SpiceMixPlus'] = y
+    # print('ari = {:.2f}'.format(adjusted_rand_score(*obj.meta[['cell type', 'label SpiceMixPlus']].values.T)))
+    # for repli, df in obj.meta.groupby('repli'):
+    #     print('ari {} = {:.8f}'.format(repli, adjusted_rand_score(*df[['cell type', 'label SpiceMixPlus']].values.T)))
     if do_plot:
         ncol = 4
         nrow =(obj.num_repli + ncol - 1) // ncol
         fig, axes = plt.subplots(nrow, ncol, figsize=(4*ncol, 4*nrow))
-        for ax, (repli, df) in zip(axes.flat, obj.meta.groupby('repli')):
+        for ax, replicate, dataset in zip(axes.flat, obj.repli_list, obj.datasets):
             sns.heatmap(
-                df.groupby(['cell type', 'label SpiceMixPlus']).size().unstack().fillna(0).astype(int),
+                dataset.obs.groupby(['cell_type', 'spicemixplus_label']).size().unstack().fillna(0).astype(int),
                 ax=ax, annot=True, fmt='d',
             )
         plt.show()
         plt.close()
 
     if do_sil:
-        x = UMAP(
-            random_state=obj.random_state,
-            n_neighbors=10,
-        ).fit_transform(x)
-        print('sil', silhouette_score(x, obj.meta['cell type'], random_state=obj.random_state))
-        if do_plot:
-            keys = ['cell type', 'repli', 'label SpiceMixPlus']
-            ncol = len(keys)
-            nrow = 1 + obj.num_repli
-            fig, axes = plt.subplots(nrow, ncol, figsize=(5*ncol, 5*nrow))
-            def plot(axes, idx):
-                for ax, key in zip(axes, keys):
-                    sns.scatterplot(ax=ax, data=obj.meta.iloc[idx], x=x[idx, 0], y=x[idx, 1], hue=key, s=5)
-            plot(axes[0], slice(None))
-            for ax_row, (repli, df) in zip(axes[1:], obj.meta.reset_index().groupby('repli')):
-                plot(ax_row, df.index)
-            plt.show()
-            plt.close()
+        for x, replicate, dataset in zip(Xs, obj.repli_list, obj.datasets):
+            x = StandardScaler().fit_transform(x)
+            x = UMAP(
+                random_state=obj.random_state,
+                n_neighbors=10,
+            ).fit_transform(x)
+            print('sil', silhouette_score(x, dataset.obs['cell_type'], random_state=obj.random_state))
+            if do_plot:
+                keys = ['cell_type', 'replicate', 'spicemixplus_label']
+                ncol = len(keys)
+                nrow = 1 + obj.num_repli
+                fig, axes = plt.subplots(nrow, ncol, figsize=(5*ncol, 5*nrow))
+                def plot(axes, idx):
+                    for ax, key in zip(axes, keys):
+                        sns.scatterplot(ax=ax, data=dataset.obs.iloc[idx], x=x[idx, 0], y=x[idx, 1], hue=key, s=5)
+                plot(axes[0], slice(None))
+                for ax_row, (repli, df) in zip(axes[1:], dataset.obs.reset_index().groupby('replicate')):
+                    plot(ax_row, df.index)
+                plt.show()
+                plt.close()
 
 
 def evaluate_prediction_wrapper(obj, *, key_truth='cell type encoded', display_fn=print, **kwargs):

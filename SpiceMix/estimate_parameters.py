@@ -57,7 +57,10 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
     scaled_betas = betas / (sigma_yxs**2)
     
     # ||Y||_2^2
+    constant_magnitude = np.array([torch.linalg.norm(torch.tensor(dataset.X, **context)).item()**2 for dataset in datasets]).sum()
+
     constant = (np.array([torch.linalg.norm(torch.tensor(dataset.X, **context)).item()**2 for dataset in datasets]) * scaled_betas).sum()
+    regularization = [dataset.uns["spicemixplus_hyperparameters"]["prior_x"] for dataset in datasets]
     for dataset, X, sigma_yx, scaled_beta in zip(datasets, Xs, sigma_yxs, scaled_betas):
         # X_c^TX_c
         quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
@@ -71,16 +74,25 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
     loss_prev, loss = np.inf, np.nan
     progress_bar = trange(n_epochs, leave=True, disable=not verbose, desc='Updating M', miniters=1000)
 
-    def compute_loss_and_gradient(M):
+    def compute_loss_and_gradient(M, verbose=False):
         quadratic_factor_grad = M @ quadratic_factor
         loss = (quadratic_factor_grad * M).sum()
+        if verbose:
+            print(f"M quadratic term: {loss}")
         grad = quadratic_factor_grad
         linear_term_grad = linear_term
         loss -= 2 * (linear_term_grad * M).sum()
         grad -= linear_term_grad
-        
+    
         loss += constant
+        regularization_term = torch.sum(torch.Tensor([(regularizer[0] * X).sum() for regularizer, X in zip(regularization, Xs)]))
+        loss += regularization_term
+        if verbose:
+            print(f"M regularization term: {regularization_term}")
+            print(f"M constant term: {constant}")
+            print(f"M constant magnitude: {constant_magnitude}")
         loss /= 2
+
 
         if M_constraint == 'simplex':
             grad.sub_(grad.sum(0, keepdim=True))
@@ -93,8 +105,12 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
         Args:
             M (torch.Tensor) : current estimate of meteagene parameters
         """
+        loss, grad = compute_loss_and_gradient(M, verbose=True)
+        print(f"M NAG Initial Loss: {loss}")
+
         step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
         loss = np.inf
+        
         optimizer = NesterovGD(M.clone(), step_size)
         for epoch in progress_bar:
             loss_prev = loss
@@ -119,6 +135,10 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
                 )
             if stop_criterion:
                 break
+        
+        loss, grad = compute_loss_and_gradient(M, verbose=True)
+        print(f"M NAG Final Loss: {loss}")
+
 
         return M
     
@@ -248,13 +268,14 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, adjacency_lists, spatial_flags, lambda
     weighted_total_cells = 0
     for Z, dataset, use_spatial, beta in zip(Zs, datasets, spatial_flags, betas):
         adjacency_matrix = dataset.obsp["adjacency_matrix"]
+        adjacency_list = dataset.obs["adjacency_list"]
         if use_spatial:
             nu = adjacency_matrix @ Z
             linear_term_coefficient = linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
         else:
             nu = None
         nus.append(nu)
-        weighted_total_cells += beta * sum(map(len, adjacency_matrix))
+        weighted_total_cells += beta * sum(map(len, adjacency_list))
         del Z, adjacency_matrix
     # linear_term_coefficient = (linear_term_coefficient + linear_term_coefficient.T) / 2 # should be unnecessary as long as adjacency_list is symmetric
 
@@ -277,6 +298,8 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, adjacency_lists, spatial_flags, lambda
             for Z, nu, beta in zip(Zs, nus, betas):
                 if nu is None:
                     continue
+                assert torch.isfinite(nu).all()
+                assert torch.isfinite(Sigma_x_inv).all()
                 eta = nu @ Sigma_x_inv
                 logZ = integrate_of_exponential_over_simplex(eta)
                 log_partition_function += beta * logZ.sum()
@@ -321,7 +344,7 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, adjacency_lists, spatial_flags, lambda
 
         Sigma_x_inv = Sigma_x_inv_best
 
-        return Sigma_x_inv
+        return Sigma_x_inv, loss * weighted_total_cells
     else:
         pass
         # Sigma_x_inv_storage = Sigma_x_inv

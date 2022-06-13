@@ -4,7 +4,10 @@ import multiprocessing
 from multiprocessing import Pool
 from util import print_datetime, openH5File, encode4h5, parse_suffix
 
-import numpy as np, pandas as pd
+import numpy as np
+import pandas as pd
+from scipy.special import factorial
+
 import torch
 import anndata as ad
 
@@ -13,6 +16,7 @@ from initialization import initialize_kmeans, initialize_Sigma_x_inv, initialize
 from estimate_weights import estimate_weight_wonbr, estimate_weight_wnbr, \
     estimate_weight_wnbr_phenotype, estimate_weight_wnbr_phenotype_v2
 from estimate_parameters import estimate_M, estimate_Sigma_x_inv, estimate_phenotype_predictor
+from sample_for_integral import integrate_of_exponential_over_simplex
 
 class SpiceMixPlus:
     """SpiceMixPlus optimization model.
@@ -61,7 +65,7 @@ class SpiceMixPlus:
         # self.M_constraint = 'unit sphere'
         self.X_constraint = 'none'
         self.dropout_mode = 'raw'
-        self.sigma_yx_inv_mode = 'average'
+        self.sigma_yx_inv_mode = 'separate'
         self.pairwise_potential_mode = 'normalized'
 
         if path2result is not None:
@@ -79,11 +83,11 @@ class SpiceMixPlus:
         self.M = None
         self.M_bar = None
         self.lambda_M = lambda_M
-        self.Zs = self.Ss = self.Z_optimizers = None
-        self.optimizer_Sigma_x_inv = None
+        # self.Zs = self.Ss = self.Z_optimizers = None
+        # self.optimizer_Sigma_x_inv = None
         self.prior_xs = None
         self.phenotypes = self.phenotype_predictors = None
-        self.meta_repli = None
+        # self.meta_repli = None
 
     def load_dataset(self, path2dataset, data_format="raw", anndata_filepath=None, neighbor_suffix=None, expression_suffix=None):
         """Load dataset into SpiceMix object.
@@ -334,17 +338,25 @@ class SpiceMixPlus:
         #   for Z in self.Zs
         # ]
 
-        for dataset, X, replicate in zip(self.datasets, self.Xs, self.repli_list):
+        for dataset, X, replicate, prior_x in zip(self.datasets, self.Xs, self.repli_list, self.prior_xs):
             dataset.uns["M"] = {f"{replicate}": self.M}
             dataset.uns["M_bar"] = {f"{replicate}": self.M_bar}
             dataset.obsm["X"] = X
 
             dataset.uns["spicemixplus_hyperparameters"] = {
                 "metagene_mode": self.metagene_mode,
-                "b": 2,
+                "prior_x": prior_x[0],
+                "K": self.K,
                 "c": 3,
                 "d": 4,
             }
+            # if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
+            #     # TODO: try setting to zero
+            #     self.prior_xs = [(torch.ones(self.K, **self.context),) for _ in range(self.num_repli)]
+            # elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
+            #     self.prior_xs = [(torch.zeros(self.K, **self.context),) for _ in range(self.num_repli)]
+            # else:
+            #     raise NotImplementedError
 
         self.estimate_sigma_yx()
         self.estimate_phenotype_predictor()
@@ -371,6 +383,7 @@ class SpiceMixPlus:
             lr=1e-1,
             betas=(.5, .9),
         )
+        
 
     def estimate_sigma_yx(self):
         """Update sigma_yx for each replicate.
@@ -393,6 +406,99 @@ class SpiceMixPlus:
         for dataset, sigma_yx in zip(self.datasets, self.sigma_yxs):
             dataset.uns["sigma_yx"] = sigma_yx
 
+    def compute_likelihood_function(self, use_spatial):
+        """Function to compute overall likelihood function P(Y, X, Theta).
+
+        Everything is computed for negative of the log-likelihood, so at the end we compute $$e^{-\text{sum}}$$
+        
+        """
+
+        log_likelihood = 0
+
+        size_factors = [torch.linalg.norm(X, axis=1, ord=1, keepdim=True) for X in self.Xs ] # s_i
+        Zs = [X / size_factor for X, size_factor in zip(self.Xs, size_factors)] # z_i
+        weighted_total_cells = 0
+        for dataset, is_spatial_fov in zip(self.datasets, use_spatial):
+            if is_spatial_fov:
+                adjacency_list = dataset.obs["adjacency_list"]
+                weighted_total_cells += sum(map(len, adjacency_list)) # * beta
+
+        for replicate, dataset, X, Z, is_spatial_fov in zip(self.repli_list, self.datasets, self.Xs,Zs, use_spatial):
+            lambda_x = dataset.uns["spicemixplus_hyperparameters"]["prior_x"].detach().cpu().numpy()
+            K = dataset.uns["spicemixplus_hyperparameters"]["K"]
+            M = dataset.uns["M"][f"{replicate}"]
+            M_bar = dataset.uns["M_bar"][f"{replicate}"]
+            Y = torch.tensor(dataset.X, **self.context)
+            N, G = Y.shape
+
+            Sigma_x_inv = dataset.uns["Sigma_x_inv"][f"{replicate}"]
+            sigma_yx = dataset.uns["sigma_yx"]
+            adjacency_matrix = dataset.obsp["adjacency_matrix"]
+            
+            linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False) # Initialized as zero to handle NMF case
+            if is_spatial_fov:
+                nu = adjacency_matrix @ Z
+                linear_term_coefficient = Z.T @ nu # * beta
+            else:
+                nu = None
+
+            # Compute loss 
+            linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1) # sum_(i, j) z_i^T @ Sigma_x_inv @ z_j
+            
+            gaussian_factor = np.log(np.pi / self.lambda_Sigma_x_inv)*((K**2)/2)
+            Sigma_x_inv_prior_regularization = 0
+            if is_spatial_fov:
+                Sigma_x_inv_prior_regularization = weighted_total_cells * (gaussian_factor + self.lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() / 2) # lambda_Sigma_x_inv * ||Sigma_x_inv||^2_F / 2
+
+            log_partition_function = 0
+            logZ_i_Y = torch.full((N,), G/2 * np.log((2 * np.pi * sigma_yx**2)), **self.context)
+            if nu is None:
+                logZ_i_X =  torch.full((N,), K * np.log(lambda_x[0]), **self.context)
+                
+                # print(logZ_i_Y)
+                # print(logZ_i_X)
+                log_partition_function = (logZ_i_X + logZ_i_Y).sum() # * beta
+            else:
+                eta = nu @ Sigma_x_inv
+                logZ_i_z = -integrate_of_exponential_over_simplex(eta)
+                # print(logZ_i_z)
+                logZ_i_s = torch.full((N,), -K * np.log(lambda_x[0]) + np.log(factorial(K-1, exact=True)), **self.context)
+                # print(logZ_i_s)
+
+                log_partition_function = (logZ_i_z + logZ_i_s + logZ_i_Y).sum() # * beta
+
+            print(log_partition_function)
+            print(Sigma_x_inv_prior_regularization)
+            log_likelihood += (linear_term + log_partition_function) + Sigma_x_inv_prior_regularization
+           
+            assert log_likelihood != torch.inf
+
+            # phi = (Y - X @ M.T).T @ (Y - X @ M.T) / (2 * sigma_yx**2)
+            phi = (torch.linalg.norm((Y- X @ M.T)) ** 2) / (2 * sigma_yx **2)
+
+            print(phi)
+            log_likelihood += phi
+            assert log_likelihood != torch.inf
+
+            # -lambda_M ||M_bar - M||^2_2
+            if self.lambda_M > 0 and M_bar is not None:
+                print("Differential loss")
+                gaussian_factor = np.log(np.pi / self.lambda_M)*((G * K)/2)
+                metagene_regularization = gaussian_factor + self.lambda_M * (M_bar - M).pow(2).sum() / 2
+
+                print(metagene_regularization)
+                log_likelihood += metagene_regularization
+                assert log_likelihood != torch.inf
+            
+            x_regularization = -np.log(lambda_x[-1]) + lambda_x[-1] * torch.norm(X, p=1)
+            print(x_regularization)
+            log_likelihood += x_regularization
+            
+            # print(log_likelihood)
+            assert log_likelihood != torch.inf
+
+        return log_likelihood
+
     def estimate_weights(self, iiter, use_spatial, backend_algorithm="nesterov"):
         """Update weights (latent states) for each replicate.
 
@@ -407,6 +513,7 @@ class SpiceMixPlus:
         loss_list = []
         for i, (X, sigma_yx, phenotype, prior_x_mode, prior_x, replicate, dataset, Y) in enumerate(zip(
                 self.Xs, self.sigma_yxs, self.phenotypes, self.prior_x_modes, self.prior_xs, self.repli_list, self.datasets, self.Ys)):
+
             valid_keys = [k for k, v in phenotype.items() if v is not None]
 
             M = dataset.uns["M"][f"{replicate}"]
@@ -504,7 +611,7 @@ class SpiceMixPlus:
         logging.info(f'{print_datetime()}Updating model parameters')
 
         if update_Sigma_x_inv and np.any(use_spatial):
-            updated_Sigma_x_inv = estimate_Sigma_x_inv(
+            updated_Sigma_x_inv, Q_value = estimate_Sigma_x_inv(
                 self.Xs, self.Sigma_x_inv, self.Es, use_spatial, self.lambda_Sigma_x_inv,
                 self.betas, self.optimizer_Sigma_x_inv, self.context, self.datasets)
             with torch.no_grad():
@@ -514,6 +621,7 @@ class SpiceMixPlus:
                     dataset.uns["Sigma_x_inv"][f"{replicate}"][:] = updated_Sigma_x_inv
 
             # self.optimizer_Sigma_x_inv.param_groups[0]["params"] = self.Sigma_x_inv
+            print(Q_value)
 
         self.estimate_M()
         self.estimate_sigma_yx()
@@ -528,14 +636,3 @@ class SpiceMixPlus:
         save_anndata(path2dataset / filename, self.datasets, self.repli_list)
         if self.phenotype_predictors:
             save_predictors(path2dataset, self.phenotype_predictors, iteration) 
-
-    # def save_hyperparameters(self):
-    #     if self.result_filename is None: return
-
-    #     with h5py.File(self.result_filename, 'w') as f:
-    #         f['hyperparameters/repli_list'] = [_.encode('utf-8') for _ in self.repli_list]
-    #         for k in ['prior_x_modes']:
-    #             for repli, v in zip(self.repli_list, getattr(self, k)):
-    #                 f[f'hyperparameters/{k}/{repli}'] = encode4h5(v)
-    #         for k in ['lambda_Sigma_x_inv', 'betas', 'K']:
-    #             f[f'hyperparameters/{k}'] = encode4h5(getattr(self, k))

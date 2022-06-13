@@ -83,6 +83,7 @@ def initialize_svd(K, Ys, context, M_nonneg=True, X_nonneg=True):
     X_cat_iter = X_cat
     if M_nonneg:
         M = np.clip(M, a_min=1e-10, a_max=None)
+        
     Xs = []
     for is_valid, N, Y in zip(repli_valid, Ns, Ys):
         if is_valid:
@@ -94,7 +95,9 @@ def initialize_svd(K, Ys, context, M_nonneg=True, X_nonneg=True):
                 # fill negative elements by the average of nonnegative elements
                 for x in X.T:
                     idx = x < 1e-10
-                    x[idx] = x[~idx].mean()
+                    # Bugfix below: if statement necessary, otherwise nan elements may be introduced...
+                    if len(x[~idx]) > 0:
+                        x[idx] = x[~idx].mean()
         else:
             X = np.full([N, K], 1/K)
         Xs.append(X)

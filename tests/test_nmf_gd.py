@@ -27,8 +27,12 @@ def spicemix_without_neighbors():
     )   
     obj.initialize_Sigma_x_inv()
     for iiter in trange(5):
+        print(f"----- Iteration {iiter} -----")
         obj.estimate_weights(iiter=iiter, use_spatial=[False]*obj.num_repli, backend_algorithm="gd")
         obj.estimate_parameters(iiter=iiter, use_spatial=[False]*obj.num_repli)
+        negative_log_likelihood = obj.compute_likelihood_function(use_spatial=[False]*obj.num_repli)
+        print(f"negative_log_likelihood: {negative_log_likelihood}")
+        print(f"Joint probability: {torch.exp(-negative_log_likelihood)}")
 
     return obj
 

@@ -167,13 +167,17 @@ def save_anndata(filepath, datasets, replicate_names):
                 replicate_M_bar = make_hdf5_compatible(dataset_copy.uns["M_bar"][f"{replicate}"])
                 dataset_copy.uns["M_bar"] = {f"{replicate}": replicate_M_bar}
         
+        if "spicemixplus_hyperparameters" in dataset_copy.uns:
+            if "prior_x" in dataset_copy.uns["spicemixplus_hyperparameters"]:
+                prior_x = make_hdf5_compatible(dataset_copy.uns["spicemixplus_hyperparameters"]["prior_x"])
+                dataset_copy.uns["spicemixplus_hyperparameters"]["prior_x"] = prior_x
+                
         if "X" in dataset_copy.obsm:
             replicate_X = make_hdf5_compatible(dataset_copy.obsm["X"])
             dataset_copy.obsm["X"] = replicate_X
  
         dataset_copies.append(dataset_copy)
 
-       
         if "adjacency_list" in dataset_copy.obs:
             del dataset_copy.obs["adjacency_list"]
 

@@ -60,6 +60,8 @@ def estimate_weight_wonbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, d
         linear_term_gradient = YM
         if prior_x_mode == 'exponential shared fixed':
             linear_term_gradient = linear_term_gradient - prior_x[0][None]
+        elif not prior_x_mode:
+            pass
         else:
             raise NotImplementedError
         loss = (quadratic_term_gradient * X).sum().item() / 2 - (linear_term_gradient * X).sum().item() + Ynorm / 2
@@ -191,15 +193,21 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
         return adjacency_matrix
 
     def update_s():
-        S[:] = (YM * Z).sum(1, keepdim=True)
+        # print(f"Minimum S: {S.min()}")
+        S[:] = (YM * Z).sum(axis=1, keepdim=True)
+        # print(f"Minimum S: {S.min()}")
+        # print(f"prior_x_mode: {prior_x_mode}")
+        # print(f"prior_x: {prior_x[0][0]}")
         if prior_x_mode == 'exponential shared fixed':
+            # TODO: why divide by two?
             S.sub_(prior_x[0][0] / 2)
         elif not prior_x_mode:
             pass
         else:
             raise NotImplementedError
 
-        S.div_(((Z @ MTM) * Z).sum(1, keepdim=True))
+        denominator = ((Z @ MTM) * Z).sum(axis=1, keepdim=True)
+        S.div_(denominator)
         S.clip_(min=1e-5)
 
     # def update_z_mu(Z):
@@ -226,6 +234,23 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
     #         Z = result
 
     #     return Z
+    
+    # Debugging for loss of M
+    def compute_loss_and_gradient(M):
+        quadratic_factor_grad = M @ quadratic_factor
+        loss = (quadratic_factor_grad * M).sum()
+        grad = quadratic_factor_grad
+        linear_term_grad = linear_term
+        loss -= 2 * (linear_term_grad * M).sum()
+        grad -= linear_term_grad
+        
+        loss += constant
+        loss /= 2
+
+        if M_constraint == 'simplex':
+            grad.sub_(grad.sum(0, keepdim=True))
+
+        return loss.item(), grad
     
     def calc_func_grad(Z_batch, S_batch, quad, linear):
         t = (Z_batch @ quad).mul_(S_batch ** 2)
@@ -280,6 +305,9 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
 
     def update_z_gd_nesterov(Z):
         pbar = trange(N, leave=False, disable=True, desc='Updating Z w/ nbrs via Nesterov GD')
+        batch_number = 0
+        func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
+        # print(f"Z initial loss: {func}")
         for idx in IndependentSet(E_adjacency_list, batch_size=256):
         # for idx in [[N-1]]:
             quad_batch = MTM
@@ -287,7 +315,9 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
             linear_batch_spatial = - get_adjacency_matrix(E_adjacency_list[idx]) @ Z @ Sigma_x_inv
             Z_batch = Z[idx].contiguous()
             S_batch = S[idx].contiguous()
+                
 
+            # print(f"Updated step size: {base_step_size / S_batch.square()}")
             optimizer = NesterovGD(Z_batch, base_step_size / S_batch.square())
             ppbar = trange(10000, leave=False, disable=True)
             # while True:
@@ -299,6 +329,11 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
                 # print(loss_old, loss_new, dloss, S_old.sub(S).abs().max().item())
                 S_batch = S[idx].contiguous()
                 linear_batch = linear_batch_spatial + YM[idx] * S_batch
+                if i_iter == 0:
+                    func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
+                    # print(f"Z_batch initial loss: {func}")
+                    func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
+                    # print(f"Z loss: {func}")
                 NesterovGD.step_size = base_step_size / S_batch.square() # TM: I think this converges as s converges
                 func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
                 Z_batch_prev = Z_batch.clone()
@@ -321,11 +356,16 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
                     break
             ppbar.close()
             Z[idx] = Z_batch
+            func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
+            print(f"Z_batch final loss: {func}")
+            func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv /2 )
+            print(f"Z loss: {func}")
             # assert False
             # pbar.set_description(f'Updating Z w/ nbrs via Nesterov GD')
             pbar.update(len(idx))
         pbar.close()
-        print(f"Function value: {func}")
+        func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
+        print(f"Z final loss: {func}")
         return Z
 
     def compute_loss():

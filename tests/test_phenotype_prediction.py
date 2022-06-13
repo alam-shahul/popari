@@ -62,7 +62,7 @@ def phenotype_prediction():
         elif mode == 'eval':
              return torch.nn.functional.cross_entropy(yhat, y, reduction='sum') * 10
         else:
-            raise NotImplementError
+            raise NotImplementedError
 
     # phenotype2predictor['cell type encoded'] = (predictor, optimizer, compute_loss)
     

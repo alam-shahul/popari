@@ -35,6 +35,9 @@ def spicemix_with_neighbors():
     for iteration in range(1, 5):
         obj.estimate_parameters(iiter=iteration, use_spatial=[True]*obj.num_repli)
         obj.estimate_weights(iiter=iteration, use_spatial=[True]*obj.num_repli)
+        negative_log_likelihood = obj.compute_likelihood_function(use_spatial=[True]*obj.num_repli)
+        print(f"negative_log_likelihood: {negative_log_likelihood}")
+        print(f"Joint probability: {torch.exp(-negative_log_likelihood)}")
                 
     return obj
 

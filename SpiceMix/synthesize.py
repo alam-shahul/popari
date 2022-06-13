@@ -123,6 +123,7 @@ def sample_2D_points(num_points, minimum_distance):
             if np.min(distances) > minimum_distance:
                 points[index] = point
                 break
+                
     return points
 
 
@@ -206,10 +207,10 @@ def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_
     for index in range(num_real_metagenes, num_metagenes):
         metagenes[index] = gamma.rvs(noise_metagene_parameter, size=num_genes)
         
-    metagenes = metagenes.T
+    metagenes = metagenes
     
     if normalize:
-        metagenes = metagenes / np.sum(metagenes, axis=0)
+        metagenes = metagenes / np.sum(metagenes, axis=1, keepdims=True)
        
     return metagenes
 
