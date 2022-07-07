@@ -27,7 +27,7 @@ class SpiceMixDataset(ad.AnnData):
         if self.coordinates_key not in self.obsm:
             raise ValueError("Dataset must include spatial coordinates.")
 
-        self.obs["name"] = f"{replicate_name}"
+        self.uns["name"] = f"{replicate_name}"
 
     def compute_spatial_neighbors(self):
         """Compute neighbor graph based on spatial coordinates.
