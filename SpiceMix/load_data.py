@@ -3,6 +3,7 @@ from matplotlib import pyplot as plt
 
 import numpy as np
 import anndata as ad
+from SpiceMixDataset import SpiceMixDataset
 import torch
 
 from util import print_datetime, parse_suffix
@@ -90,6 +91,18 @@ def load_anndata(filepath, replicate_names, context="numpy"):
             dataset.uns["Sigma_x_inv"] = {
                 f"{replicate}": replicate_Sigma_x_inv
             }
+        
+        if "Sigma_x_inv_bar" in dataset.uns:
+            # Keep only Sigma_x_inv_bar corresponding to a particular replicate
+            replicate_Sigma_x_inv_bar = dataset.uns["Sigma_x_inv_bar"][f"{replicate}"]
+            if np.isscalar(replicate_Sigma_x_inv_bar) and replicate_Sigma_x_inv_bar == -1:
+                replicate_Sigma_x_inv_bar = None
+            elif context != "numpy":
+                replicate_Sigma_x_inv_bar = torch.tensor(replicate_Sigma_x_inv_bar, **context)
+
+            dataset.uns["Sigma_x_inv_bar"] = {
+                f"{replicate}": replicate_Sigma_x_inv_bar
+            }
 
         adjacency_matrix = dataset.obsp["adjacency_matrix"].tocoo()
 
@@ -108,7 +121,6 @@ def load_anndata(filepath, replicate_names, context="numpy"):
             v = torch.FloatTensor(values)
             size = adjacency_matrix.shape
 
-        
             adjacency_matrix = torch.sparse_coo_tensor(i, v, size=size, **context)
             dataset.obsp["adjacency_matrix"] = adjacency_matrix
 
@@ -156,6 +168,17 @@ def save_anndata(filepath, datasets, replicate_names):
                     replicate_Sigma_x_inv = make_hdf5_compatible(replicate_Sigma_x_inv)
         
             dataset_copy.uns["Sigma_x_inv"] = {f"{replicate}": replicate_Sigma_x_inv}
+        
+        if "Sigma_x_inv_bar" in dataset_copy.uns:
+            replicate_Sigma_x_inv_bar = dataset_copy.uns["Sigma_x_inv_bar"][f"{replicate}"]
+            if f"{replicate}" in dataset_copy.uns["Sigma_x_inv_bar"]:
+                # Using a sentinel value - hopefully this can be fixed in the future!
+                if replicate_Sigma_x_inv_bar == None: 
+                    replicate_Sigma_x_inv_bar = -1
+                else:
+                    replicate_Sigma_x_inv_bar = make_hdf5_compatible(replicate_Sigma_x_inv_bar)
+        
+            dataset_copy.uns["Sigma_x_inv_bar"] = {f"{replicate}": replicate_Sigma_x_inv_bar}
 
         if "M" in dataset_copy.uns:
             if f"{replicate}" in dataset_copy.uns["M"]:

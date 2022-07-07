@@ -303,7 +303,7 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
 
         return Z
 
-    def update_z_gd_nesterov(Z):
+    def update_z_gd_nesterov(Z, verbose=False):
         pbar = trange(N, leave=False, disable=True, desc='Updating Z w/ nbrs via Nesterov GD')
         batch_number = 0
         func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
@@ -357,15 +357,19 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
             ppbar.close()
             Z[idx] = Z_batch
             func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-            print(f"Z_batch final loss: {func}")
+            if verbose:
+                print(f"Z_batch final loss: {func}")
             func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv /2 )
-            print(f"Z loss: {func}")
+            if verbose:
+                print(f"Z loss: {func}")
             # assert False
             # pbar.set_description(f'Updating Z w/ nbrs via Nesterov GD')
             pbar.update(len(idx))
         pbar.close()
         func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
-        print(f"Z final loss: {func}")
+        if verbose:
+            print(f"Z final loss: {func}")
+
         return Z
 
     def compute_loss():

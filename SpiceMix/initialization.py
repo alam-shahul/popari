@@ -120,11 +120,12 @@ def initialize_Sigma_x_inv(K, Xs, betas, context, datasets, scaling=10):
         scaling (int): scale of Sigma_x_inv values
 
     Returns:
-        Initial estiamte of Sigma_x_inv
+        Initial estimates of Sigma_x_invs
     """
 
-    Sigma_x_inv = torch.zeros([K, K], **context)
-    for X, beta, dataset in zip(Xs, betas, datasets):
+    num_replicates = len(Xs)
+    Sigma_x_invs = torch.zeros([num_replicates, K, K], **context)
+    for replicate, (X, beta, dataset) in enumerate(zip(Xs, betas, datasets)):
         adjacency_list = dataset.obs["adjacency_list"]
         Z = X / torch.linalg.norm(X, dim=1, keepdim=True, ord=1)
         edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
@@ -136,11 +137,17 @@ def initialize_Sigma_x_inv(K, Xs, betas, context, datasets, scaling=10):
         x = x - x.mean(dim=0, keepdim=True)
         y = y - y.mean(dim=0, keepdim=True)
         corr = (y / y.std(dim=0, keepdim=True)).T @ (x / x.std(dim=0, keepdim=True)) / len(x)
-        Sigma_x_inv -= beta * corr
+        Sigma_x_invs[replicate] = -beta * corr
+        # Sigma_x_inv -= beta * corr
+
+    # # Symmetrizing and zero-centering Sigma_x_inv
+    # Sigma_x_inv = (Sigma_x_inv + Sigma_x_inv.T) / 2
+    # Sigma_x_inv -= Sigma_x_inv.mean()
+    # Sigma_x_inv *= scaling
 
     # Symmetrizing and zero-centering Sigma_x_inv
-    Sigma_x_inv = (Sigma_x_inv + Sigma_x_inv.T) / 2
-    Sigma_x_inv -= Sigma_x_inv.mean()
-    Sigma_x_inv *= scaling
-
-    return Sigma_x_inv
+    Sigma_x_invs = (Sigma_x_invs + torch.transpose(Sigma_x_invs, 1, 2)) / 2
+    Sigma_x_invs -= Sigma_x_invs.mean(dim=(1, 2), keepdims=True)
+    Sigma_x_invs *= scaling
+    
+    return Sigma_x_invs

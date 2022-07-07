@@ -30,10 +30,10 @@ class SpiceMixPlus:
         replicate_names: names of replicates/FOVs in input dataset
         TODO: finish docstring
     """
-    def __init__(
-            self,
+    def __init__(self,
             K, lambda_Sigma_x_inv, repli_list, betas=None, prior_x_modes=None,
-            path2result=None, context=None, context_Y=None, metagene_mode="shared", lambda_M=0, random_state=0
+            path2result=None, context=None, context_Y=None, metagene_mode="shared", Sigma_x_inv_mode="shared",
+            lambda_M=0, random_state=0
     ):
 
         if not context:
@@ -76,10 +76,11 @@ class SpiceMixPlus:
             self.result_filename = None
         # self.save_hyperparameters()
 
-        self.Ys = self.Es = self.Es_isempty = self.genes = self.Ns = self.Gs = self.GG = None
+        self.Ys = None
         self.Sigma_x_inv = self.Xs = self.sigma_yxs = None
        
         self.metagene_mode = metagene_mode 
+        self.Sigma_x_inv_mode = Sigma_x_inv_mode 
         self.M = None
         self.M_bar = None
         self.lambda_M = lambda_M
@@ -309,10 +310,7 @@ class SpiceMixPlus:
             X.mul_(scale_factor)
 
         self.M_bar = self.M
-        # if self.metagene_mode == "shared":
-        #     self.Ms = {"shared": self.M_bar.clone()}
-        # elif self.metagene_mode == "differential":
-        #     self.Ms = {f"{replicate}": self.M_bar.clone() for replicate in self.repli_list}
+        self.Sigma_x_inv_bar = None
 
         if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
             # TODO: try setting to zero
@@ -322,68 +320,59 @@ class SpiceMixPlus:
         else:
             raise NotImplementedError
 
-        #
-        # self.Zs = []
-        # self.Ss = []
-        # for X in self.Xs:
-        #   S = torch.linalg.norm(X, ord=1, dim=1, keepdim=True)
-        #   self.Ss.append(S)
-        #   self.Zs.append(X / S)
-        # self.Z_optimizers = [
-        #   torch.optim.Adam(
-        #       [Z],
-        #       lr=1e-3,
-        #       betas=(.3, .9),
-        #   )
-        #   for Z in self.Zs
-        # ]
-
         for dataset, X, replicate, prior_x in zip(self.datasets, self.Xs, self.repli_list, self.prior_xs):
             dataset.uns["M"] = {f"{replicate}": self.M}
             dataset.uns["M_bar"] = {f"{replicate}": self.M_bar}
             dataset.obsm["X"] = X
 
+            print(f"Saved prior_x: {prior_x}")
             dataset.uns["spicemixplus_hyperparameters"] = {
                 "metagene_mode": self.metagene_mode,
                 "prior_x": prior_x[0],
                 "K": self.K,
-                "c": 3,
+                "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
                 "d": 4,
             }
-            # if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
-            #     # TODO: try setting to zero
-            #     self.prior_xs = [(torch.ones(self.K, **self.context),) for _ in range(self.num_repli)]
-            # elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
-            #     self.prior_xs = [(torch.zeros(self.K, **self.context),) for _ in range(self.num_repli)]
-            # else:
-            #     raise NotImplementedError
 
         self.estimate_sigma_yx()
         self.estimate_phenotype_predictor()
 
-        # self.save_weights(iiter=0)
-        # self.save_parameters(iiter=0)
-
     def initialize_Sigma_x_inv(self):
-        self.Sigma_x_inv = initialize_Sigma_x_inv(self.K, self.Xs, self.betas, self.context, self.datasets)
+        if self.Sigma_x_inv_mode == "differential":
+            Sigma_x_invs = initialize_Sigma_x_inv(self.K, self.Xs, self.betas, self.context, self.datasets)
+            self.Sigma_x_inv_bar = Sigma_x_invs.mean(axis=0)
+            for replicate, dataset, Sigma_x_inv in zip(self.repli_list, self.datasets, Sigma_x_invs):
+                if "Sigma_x_inv" not in dataset.uns:
+                    dataset.uns["Sigma_x_inv"] = {}
+                    dataset.uns["Sigma_x_inv_bar"] = {}
 
-        # Zero-centering Sigma_x_inv
-        self.Sigma_x_inv -= self.Sigma_x_inv.mean()
-        # self.Sigma_x_inv.requires_grad_(True)
-        
-        for replicate, dataset in zip(self.repli_list, self.datasets):
-            if "Sigma_x_inv" not in dataset.uns:
-                dataset.uns["Sigma_x_inv"] = {}
+                dataset.uns["Sigma_x_inv"][f"{replicate}"] = Sigma_x_inv
+                dataset.uns["Sigma_x_inv_bar"][f"{replicate}"] = self.Sigma_x_inv_bar
+            # This optimizer retains its state throughout the optimization
+            self.optimizer_Sigma_x_invs = []
+            for Sigma_x_inv in Sigma_x_invs:
+                optimizer = torch.optim.Adam(
+                    [Sigma_x_inv],
+                    lr=1e-1,
+                    betas=(.5, .9),
+                )
+                self.optimizer_Sigma_x_invs.append(optimizer)
 
-            dataset.uns["Sigma_x_inv"][f"{replicate}"] = self.Sigma_x_inv
-       
-        # This optimizer retains its state throughout the optimization
-        self.optimizer_Sigma_x_inv = torch.optim.Adam(
-            [self.Sigma_x_inv],
-            lr=1e-1,
-            betas=(.5, .9),
-        )
-        
+        elif self.Sigma_x_inv_mode == "shared":
+            Sigma_x_invs = initialize_Sigma_x_inv(self.K, self.Xs, self.betas, self.context, self.datasets)
+            self.Sigma_x_inv = Sigma_x_invs.mean(axis=0)
+            for replicate, dataset in zip(self.repli_list, self.datasets):
+                if "Sigma_x_inv" not in dataset.uns:
+                    dataset.uns["Sigma_x_inv"] = {}
+
+                dataset.uns["Sigma_x_inv"][f"{replicate}"] = self.Sigma_x_inv
+            
+            # This optimizer retains its state throughout the optimization
+            self.optimizer_Sigma_x_inv = torch.optim.Adam(
+                [self.Sigma_x_inv],
+                lr=1e-1,
+                betas=(.5, .9),
+            )
 
     def estimate_sigma_yx(self):
         """Update sigma_yx for each replicate.
@@ -431,11 +420,14 @@ class SpiceMixPlus:
             Y = torch.tensor(dataset.X, **self.context)
             N, G = Y.shape
 
-            Sigma_x_inv = dataset.uns["Sigma_x_inv"][f"{replicate}"]
+            if is_spatial_fov:
+                Sigma_x_inv = dataset.uns["Sigma_x_inv"][f"{replicate}"]
             sigma_yx = dataset.uns["sigma_yx"]
             adjacency_matrix = dataset.obsp["adjacency_matrix"]
             
-            linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False) # Initialized as zero to handle NMF case
+            linear_term = 0
+            if is_spatial_fov:
+                linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False) # Initialized as zero to handle NMF case
             if is_spatial_fov:
                 nu = adjacency_matrix @ Z
                 linear_term_coefficient = Z.T @ nu # * beta
@@ -443,17 +435,25 @@ class SpiceMixPlus:
                 nu = None
 
             # Compute loss 
-            linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1) # sum_(i, j) z_i^T @ Sigma_x_inv @ z_j
+            if is_spatial_fov:
+                linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1) # sum_(i, j) z_i^T @ Sigma_x_inv @ z_j
             
             gaussian_factor = np.log(np.pi / self.lambda_Sigma_x_inv)*((K**2)/2)
             Sigma_x_inv_prior_regularization = 0
             if is_spatial_fov:
                 Sigma_x_inv_prior_regularization = weighted_total_cells * (gaussian_factor + self.lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() / 2) # lambda_Sigma_x_inv * ||Sigma_x_inv||^2_F / 2
 
+                if self.Sigma_x_inv_bar is not None:
+                    Sigma_x_inv_bar = dataset.uns["Sigma_x_inv_bar"][f"{replicate}"]
+                    Sigma_x_inv_prior_regularization += self.lambda_Sigma_x_inv * 100 * (self.Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
+
             log_partition_function = 0
             logZ_i_Y = torch.full((N,), G/2 * np.log((2 * np.pi * sigma_yx**2)), **self.context)
+            print(f"Lambda x:{lambda_x}")
             if nu is None:
-                logZ_i_X =  torch.full((N,), K * np.log(lambda_x[0]), **self.context)
+                logZ_i_X = torch.full((N,), 0, **self.context)
+                if lambda_x[0]:
+                    logZ_i_X +=  torch.full((N,), K * np.log(lambda_x[0]), **self.context)
                 
                 # print(logZ_i_Y)
                 # print(logZ_i_X)
@@ -462,7 +462,9 @@ class SpiceMixPlus:
                 eta = nu @ Sigma_x_inv
                 logZ_i_z = -integrate_of_exponential_over_simplex(eta)
                 # print(logZ_i_z)
-                logZ_i_s = torch.full((N,), -K * np.log(lambda_x[0]) + np.log(factorial(K-1, exact=True)), **self.context)
+                logZ_i_s = torch.full((N,), 0, **self.context)
+                if lambda_x[0]:
+                    logZ_i_s = torch.full((N,), -K * np.log(lambda_x[0]) + np.log(factorial(K-1, exact=True)), **self.context)
                 # print(logZ_i_s)
 
                 log_partition_function = (logZ_i_z + logZ_i_s + logZ_i_Y).sum() # * beta
@@ -489,8 +491,10 @@ class SpiceMixPlus:
                 print(metagene_regularization)
                 log_likelihood += metagene_regularization
                 assert log_likelihood != torch.inf
-            
-            x_regularization = -np.log(lambda_x[-1]) + lambda_x[-1] * torch.norm(X, p=1)
+          
+            x_regularization = torch.tensor(0)
+            if lambda_x[-1]:
+                x_regularization = -np.log(lambda_x[-1]) + lambda_x[-1] * torch.norm(X, p=1)
             print(x_regularization)
             log_likelihood += x_regularization
             
@@ -525,20 +529,6 @@ class SpiceMixPlus:
                     dataset, context=self.context,
                 )
                 dataset.obsm["X"] = self.Xs[i]
-
-                # S = self.Ss[i]
-                # Z = self.Zs[i]
-                # S[:] = torch.linalg.norm(X, ord=1, dim=1, keepdim=True)
-                # Z[:] = X / S
-                #
-                # loss = estimate_weight_wnbr_phenotype_v2(
-                #   Y, self.M, Z, S, sigma_yx, self.Sigma_x_inv, E, prior_x_mode, prior_x,
-                #   self.Z_optimizers[i],
-                #   {k: phenotype[k] for k in valid_keys}, {k: self.phenotype_predictors[k] for k in valid_keys},
-                #   context=self.context,
-                # )
-                #
-                # X[:] = Z * S
             elif not use_spatial[i]:
                 loss, self.Xs[i] = estimate_weight_wonbr(
                     Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context=self.context, update_alg=backend_algorithm)
@@ -548,22 +538,7 @@ class SpiceMixPlus:
                     Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context=self.context, update_alg=backend_algorithm)
                 dataset.obsm["X"] = self.Xs[i]
 
-                # S = self.Ss[i]
-                # Z = self.Zs[i]
-                # S[:] = torch.linalg.norm(X, ord=1, dim=1, keepdim=True)
-                # Z[:] = X / S
-                #
-                # loss = estimate_weight_wnbr_phenotype_v2(
-                #   Y, self.M, Z, S, sigma_yx, self.Sigma_x_inv, E, prior_x_mode, prior_x,
-                #   self.Z_optimizers[i],
-                #   {k: phenotype[k] for k in valid_keys}, {k: self.phenotype_predictors[k] for k in valid_keys},
-                #   context=self.context,
-                # )
-                #
-                # X[:] = Z * S
             loss_list.append(loss)
-
-        # self.save_weights(iiter=iiter)
 
         return loss_list
 
@@ -611,17 +586,36 @@ class SpiceMixPlus:
         logging.info(f'{print_datetime()}Updating model parameters')
 
         if update_Sigma_x_inv and np.any(use_spatial):
-            updated_Sigma_x_inv, Q_value = estimate_Sigma_x_inv(
-                self.Xs, self.Sigma_x_inv, self.Es, use_spatial, self.lambda_Sigma_x_inv,
-                self.betas, self.optimizer_Sigma_x_inv, self.context, self.datasets)
-            with torch.no_grad():
-                # Note: in-place update is necessary here in order for optimizer to track same object
-                self.Sigma_x_inv[:] = updated_Sigma_x_inv
-                for replicate, dataset in zip(self.repli_list, self.datasets):
-                    dataset.uns["Sigma_x_inv"][f"{replicate}"][:] = updated_Sigma_x_inv
+            if self.Sigma_x_inv_mode == "shared":
+                updated_Sigma_x_inv, Q_value = estimate_Sigma_x_inv(
+                    self.Xs, self.Sigma_x_inv, use_spatial, self.lambda_Sigma_x_inv,
+                    self.betas, self.optimizer_Sigma_x_inv, self.context, self.datasets)
+                with torch.no_grad():
+                    # Note: in-place update is necessary here in order for optimizer to track same object
+                    self.Sigma_x_inv[:] = updated_Sigma_x_inv
+                    for replicate, dataset in zip(self.repli_list, self.datasets):
+                        dataset.uns["Sigma_x_inv"][f"{replicate}"][:] = updated_Sigma_x_inv
 
-            # self.optimizer_Sigma_x_inv.param_groups[0]["params"] = self.Sigma_x_inv
-            print(Q_value)
+                # self.optimizer_Sigma_x_inv.param_groups[0]["params"] = self.Sigma_x_inv
+            elif self.Sigma_x_inv_mode == "differential":
+                for X, dataset, u, beta, optimizer, replicate in zip(self.Xs, self.datasets, use_spatial,
+                        self.betas, self.optimizer_Sigma_x_invs, self.repli_list):
+                    updated_Sigma_x_inv, Q_value = estimate_Sigma_x_inv([X], dataset.uns["Sigma_x_inv"][f"{replicate}"],
+                            [u], self.lambda_Sigma_x_inv, [beta], optimizer, self.context, [dataset])
+                    with torch.no_grad():
+                        # Note: in-place update is necessary here in order for optimizer to track same object
+                        dataset.uns["Sigma_x_inv"][f"{replicate}"][:] = updated_Sigma_x_inv
+
+                    print(f"Q_value:{Q_value}")
+       
+                self.Sigma_x_inv_bar.zero_()
+                for dataset, replicate in zip(self.datasets, self.repli_list):
+                    self.Sigma_x_inv_bar.add_(dataset.uns["Sigma_x_inv"][f"{replicate}"])
+                
+                self.Sigma_x_inv_bar.div_(len(self.datasets))
+
+                for dataset, replicate in zip(self.datasets, self.repli_list):
+                    dataset.uns["Sigma_x_inv_bar"][f"{replicate}"] = self.Sigma_x_inv_bar
 
         self.estimate_M()
         self.estimate_sigma_yx()

@@ -26,7 +26,7 @@ def project_M(M, M_constraint):
 @torch.no_grad()
 def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
         M_bar=None, lambda_M=0,
-        n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', verbose=True):
+        n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', verbose=False):
     """Optimize metagene parameters.
 
     M is shared across all replicates.
@@ -99,14 +99,15 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
 
         return loss.item(), grad
     
-    def estimate_M_nag(M):
+    def estimate_M_nag(M, verbose=False):
         """Estimate M using Nesterov accelerated gradient descent.
 
         Args:
             M (torch.Tensor) : current estimate of meteagene parameters
         """
-        loss, grad = compute_loss_and_gradient(M, verbose=True)
-        print(f"M NAG Initial Loss: {loss}")
+        loss, grad = compute_loss_and_gradient(M, verbose=verbose)
+        if verbose:
+            print(f"M NAG Initial Loss: {loss}")
 
         step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
         loss = np.inf
@@ -137,8 +138,8 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
                 break
         
         loss, grad = compute_loss_and_gradient(M, verbose=True)
-        print(f"M NAG Final Loss: {loss}")
-
+        if verbose:
+            print(f"M NAG Final Loss: {loss}")
 
         return M
     
@@ -198,7 +199,7 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
                 break
 
     elif backend_algorithm == 'gd Nesterov':
-        M = estimate_M_nag(M)
+        M = estimate_M_nag(M, verbose=verbose)
 
     else:
         raise NotImplementedError
@@ -247,8 +248,12 @@ def estimate_M(Xs, M, sigma_yxs, betas, datasets, M_constraint, context,
     # return loss
 
 
-def estimate_Sigma_x_inv(Xs, Sigma_x_inv, adjacency_lists, spatial_flags, lambda_Sigma_x_inv, betas, optimizer, context, datasets, n_epochs=1000):
+def estimate_Sigma_x_inv(Xs, Sigma_x_inv, spatial_flags, lambda_Sigma_x_inv, betas, optimizer, context, datasets, Sigma_x_inv_bar=None, n_epochs=1000):
     """Optimize Sigma_x_inv parameters.
+
+   
+    Differential mode:
+    grad = ( M XT X - YT X ) / ( σ_yx^2 ) + λ_Sigma_x_inv ( Sigma_x_inv - Sigma_x_inv_bar )
 
     Args:
         Xs: list of latent expression embeddings for each FOV.
@@ -294,6 +299,9 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, adjacency_lists, spatial_flags, lambda
             # Compute loss 
             linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1)
             regularization = lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() * weighted_total_cells / 2
+            if Sigma_x_inv_bar is not None:
+                regularization += lambda_Sigma_x_inv * 100 * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
+            
             log_partition_function = 0
             for Z, nu, beta in zip(Zs, nus, betas):
                 if nu is None:
@@ -303,6 +311,7 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, adjacency_lists, spatial_flags, lambda
                 eta = nu @ Sigma_x_inv
                 logZ = integrate_of_exponential_over_simplex(eta)
                 log_partition_function += beta * logZ.sum()
+
             loss = (linear_term + regularization + log_partition_function) / weighted_total_cells
             # if epoch == 0: print(loss.item())
 
