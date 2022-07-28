@@ -13,7 +13,7 @@ from sklearn.metrics import silhouette_score, adjusted_rand_score
 
 @pytest.fixture(scope="module")
 def spicemix_with_neighbors():
-    path2dataset = Path('../tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    path2dataset = Path('../../tests/test_data/synthetic_500_100_20_15_0_0_i4')
     obj = SpiceMixPlus(
         K=10, lambda_Sigma_x_inv=1e-5,
         metagene_mode="shared",
@@ -40,22 +40,22 @@ def spicemix_with_neighbors():
         
 def test_Sigma_x_inv(spicemix_with_neighbors):
     Sigma_x_inv = spicemix_with_neighbors.Sigma_x_inv.detach().cpu().numpy()
-    test_Sigma_x_inv = np.load("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv.npy")
+    test_Sigma_x_inv = np.load("../../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
     
 def test_M(spicemix_with_neighbors):
     M = spicemix_with_neighbors.M.detach().cpu().numpy()
-    test_M = np.load("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M.npy")
+    test_M = np.load("../../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M.npy")
     assert np.allclose(test_M, M)
     
 def test_X_0(spicemix_with_neighbors):
     X_0 = spicemix_with_neighbors.Xs[0].detach().cpu().numpy()
-    test_X_0 = np.load("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0.npy")
+    test_X_0 = np.load("../../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0.npy")
     assert np.allclose(test_X_0, X_0)
     
 def test_louvain_clustering(spicemix_with_neighbors):
     df_meta = []
-    path2dataset = Path('../tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    path2dataset = Path('../../tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0]
     for r in repli_list:
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')

@@ -13,57 +13,52 @@ from sklearn.metrics import silhouette_score, adjusted_rand_score
 
 @pytest.fixture(scope="module")
 def spicemix_with_neighbors():
-    path2dataset = Path('../tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    path2dataset = Path('../../tests/test_data/synthetic_500_100_20_15_0_0_i4')
     obj = SpiceMixPlus(
         K=10, lambda_Sigma_x_inv=1e-5,
         repli_list=[0, 1],
         metagene_mode="shared",
         context=dict(device='cuda:0', dtype=torch.float32),
-        context_Y=dict(dtype=torch.float32, device='cuda:0'),
     )   
-    obj.load_dataset(path2dataset)
+    obj.load_dataset(path2dataset, "all_data.h5")
     obj.initialize(
     #     method='kmeans',
         method='svd',
     )   
 
-    obj.initialize_Sigma_x_inv()
-    # torch.manual_seed(0)
-    # import numpy as np
-    # np.random.seed(0)
     for iteration in range(1, 5):
-        obj.estimate_parameters(iiter=iteration, use_spatial=[True]*obj.num_repli)
-        obj.estimate_weights(iiter=iteration, use_spatial=[True]*obj.num_repli)
+        obj.estimate_parameters()
+        obj.estimate_weights()
                 
     return obj
 
         
 def test_Sigma_x_inv(spicemix_with_neighbors):
-    Sigma_x_inv = spicemix_with_neighbors.Sigma_x_inv.detach().cpu().numpy()
-    np.save("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy", Sigma_x_inv)
-    test_Sigma_x_inv = np.load("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy")
+    Sigma_x_inv = spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.spatial_affinity.get_metagene_affinities().detach().cpu().numpy()
+    np.save("../../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy", Sigma_x_inv)
+    test_Sigma_x_inv = np.load("../../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
     
 def test_M(spicemix_with_neighbors):
-    M_bar = spicemix_with_neighbors.M_bar.detach().cpu().numpy()
-    np.save("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy", M_bar)
-    test_M = np.load("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy")
+    M_bar = spicemix_with_neighbors.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
+    np.save("../../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy", M_bar)
+    test_M = np.load("../../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy")
     assert np.allclose(test_M, M_bar)
     
 def test_X_0(spicemix_with_neighbors):
-    X_0 = spicemix_with_neighbors.Xs[0].detach().cpu().numpy()
-    np.save("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_differential.npy", X_0)
-    test_X_0 = np.load("../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_differential.npy")
+    X_0 = spicemix_with_neighbors.embedding_optimizer.embedding_state["0"].detach().cpu().numpy()
+    np.save("../../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_differential.npy", X_0)
+    test_X_0 = np.load("../../tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_differential.npy")
     assert np.allclose(test_X_0, X_0)
     
 def test_louvain_clustering(spicemix_with_neighbors):
     df_meta = []
-    path2dataset = Path('../tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    path2dataset = Path('../../tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
-    expected_aris = [0.07260196099078756, 0.08985204007222045 ]
-    expected_silhouettes = [-0.13099664449691772, -0.13331064581871033]
+    expected_aris = [0.5586566247601018, 0.5663790290981747]
+    expected_silhouettes = [0.11524192243814468, 0.1319497972726822]
     
-    for index, (r, X) in enumerate(zip(repli_list, spicemix_with_neighbors.Xs)):
+    for index, (r, X) in enumerate(spicemix_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')
         df = pd.read_csv(path2dataset / 'files' / f'celltypes_{r}.txt', header=None)
         df.columns = ['cell type']
