@@ -1,6 +1,6 @@
 import sys, logging, time, gc, os, itertools
 from multiprocessing import Pool
-from util import print_datetime
+from spicemix.util import print_datetime
 import torch
 
 import numpy as np

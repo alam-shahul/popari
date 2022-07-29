@@ -3,10 +3,10 @@ from matplotlib import pyplot as plt
 
 import numpy as np
 import anndata as ad
-from components import SpiceMixDataset
+from spicemix.components import SpiceMixDataset
 import torch
 
-from util import print_datetime, parse_suffix
+from spicemix.util import print_datetime, parse_suffix
 from pathlib import Path
 
 def load_expression(filename):

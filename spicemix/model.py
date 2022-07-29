@@ -1,8 +1,6 @@
-import sys, time, itertools, resource, logging, h5py, os, pickle
+import sys, time, itertools, logging, os, pickle
 from pathlib import Path
-import multiprocessing
-from multiprocessing import Pool
-from util import print_datetime, openH5File, encode4h5, parse_suffix
+from spicemix.util import print_datetime, openH5File, encode4h5, parse_suffix
 
 import numpy as np
 import pandas as pd
@@ -12,14 +10,12 @@ from sklearn.decomposition import TruncatedSVD, PCA
 import torch
 import anndata as ad
 
-from load_data import load_expression, load_edges, load_genelist, load_anndata, save_anndata, save_predictors
+from spicemix.load_data import load_expression, load_edges, load_genelist, load_anndata, save_anndata, save_predictors
 
-from initialization import initialize_kmeans, initialize_Sigma_x_inv
-from estimate_weights import estimate_weight_wonbr, estimate_weight_wnbr
-from estimate_parameters import estimate_M, estimate_Sigma_x_inv
-from sample_for_integral import integrate_of_exponential_over_simplex
+from spicemix.initialization import initialize_kmeans, initialize_Sigma_x_inv
+from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
 
-from components import SpiceMixDataset, ParameterOptimizer, EmbeddingOptimizer
+from spicemix.components import SpiceMixDataset, ParameterOptimizer, EmbeddingOptimizer
 
 class SpiceMixPlus:
     """SpiceMixPlus optimization model.

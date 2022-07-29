@@ -1,8 +1,8 @@
-import os, time, pickle, sys, datetime, h5py, logging
-from collections import Iterable
+import os, time, pickle, sys, datetime, logging
 from tqdm.auto import tqdm, trange
 
-import numpy as np, pandas as pd
+import numpy as np
+import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import silhouette_score, adjusted_rand_score, accuracy_score, f1_score
@@ -17,7 +17,6 @@ import matplotlib
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
 import seaborn as sns
-
 
 def calc_modularity(A, label, resolution=1):
     A = A.tocoo()

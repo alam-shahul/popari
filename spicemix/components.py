@@ -8,8 +8,8 @@ import squidpy as sq
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from sample_for_integral import integrate_of_exponential_over_simplex
-from util import NesterovGD, IndependentSet, project2simplex, project_M, get_datetime
+from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
+from spicemix.util import NesterovGD, IndependentSet, project2simplex, project_M, get_datetime
 
 import torch
 import torch.nn.functional as F
