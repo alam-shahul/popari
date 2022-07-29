@@ -1,6 +1,5 @@
 import sys, time, itertools, logging, os, pickle
 from pathlib import Path
-from spicemix.util import print_datetime, openH5File, encode4h5, parse_suffix
 
 import numpy as np
 import pandas as pd
@@ -10,6 +9,7 @@ from sklearn.decomposition import TruncatedSVD, PCA
 import torch
 import anndata as ad
 
+from spicemix.util import print_datetime
 from spicemix.load_data import load_expression, load_edges, load_genelist, load_anndata, save_anndata, save_predictors
 
 from spicemix.initialization import initialize_kmeans, initialize_Sigma_x_inv
@@ -59,7 +59,6 @@ class SpiceMixPlus:
 
         self.prior_x_modes = prior_x_modes
         self.M_constraint = 'simplex'
-        # self.M_constraint = 'unit sphere'
         self.X_constraint = 'none'
         self.dropout_mode = 'raw'
         self.sigma_yx_inv_mode = 'separate'
@@ -97,7 +96,7 @@ class SpiceMixPlus:
             self.Ys.append(Y)
 
     def load_dataset(self, path2dataset, anndata_filepath=None):
-        """Load dataset into SpiceMix object.
+        """Load dataset into SpiceMixPlus from saved .h5ad file.
 
         """
 

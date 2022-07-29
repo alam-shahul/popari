@@ -477,7 +477,7 @@ class ParameterOptimizer():
         for dataset in self.datasets:
             self.embedding_optimizer.embedding_state[dataset.name].mul_(scale_factor)
 
-    def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, Sigma_x_inv_bar=None, n_epochs=1000):
+    def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, Sigma_x_inv_bar=None, constraint="clamp", n_epochs=1000):
         """Optimize Sigma_x_inv parameters.
     
        
@@ -546,7 +546,6 @@ class ParameterOptimizer():
                 log_partition_function += beta * logZ.sum()
     
             loss = (linear_term + regularization + log_partition_function) / weighted_total_cells
-            # if epoch == 0: print(loss.item())
     
             if loss < loss_best:
                 Sigma_x_inv_best = Sigma_x_inv.clone().detach()
@@ -585,8 +584,12 @@ class ParameterOptimizer():
                 break
     
         Sigma_x_inv = Sigma_x_inv_best
-    
         Sigma_x_inv.requires_grad_(False)
+        
+        if constraint == "clamp":
+            Sigma_x_inv = torch.clamp(Sigma_x_inv, min=-self.spatial_affinity_state.scaling, max=self.spatial_affinity_state.scaling)
+        elif constraint == "rescale":
+            Sigma_x_inv *= self.spatial_affinity_state.scaling / Sigma_x_inv.max()
         
         return Sigma_x_inv, loss * weighted_total_cells
 
