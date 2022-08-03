@@ -1,3 +1,4 @@
+from typing import Sequence
 import logging, time, gc
 from tqdm.auto import tqdm, trange
 
@@ -72,11 +73,11 @@ class EmbeddingOptimizer():
 
     """
 
-    def __init__(self, K, Ys, datasets, context={}):
+    def __init__(self, K, Ys, datasets, context=None):
         self.datasets = datasets
         self.K = K
         self.Ys = Ys
-        self.context = context
+        self.context = context if context else {}
         self.embedding_state = EmbeddingState(K, self.datasets, context=self.context)
 
     def initialize(self, parameter_optimizer):
@@ -420,10 +421,16 @@ class EmbeddingOptimizer():
         return loss, X_final
 
 class EmbeddingState(dict):
-    def __init__(self, K, datasets, context={}):
+    """Collections of cell embeddings for all ST replicates.
+
+    Attributes:
+        K: embedding dimension:
+
+    """
+    def __init__(self, K: int, datasets: Sequence[SpiceMixDataset], context=None):
         self.datasets = datasets
         self.K = K
-        self.context = context
+        self.context = context if context else {}
         super().__init__()
 
         for dataset in self.datasets:
@@ -431,12 +438,29 @@ class EmbeddingState(dict):
             initial_embedding = torch.zeros((num_cells, K), **self.context)
             self.__setitem__(dataset.name, initial_embedding)
 
+    def normalize(self):
+        """Normalize embeddings per each cell.
+        
+        This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.
+
+        """
+        # TODO: implement
+        pass
+
 class ParameterOptimizer():
     """Optimizer and state for SpiceMix parameters.
 
     """
 
-    def __init__(self, K, Ys, datasets, betas, prior_x_modes, lambda_Sigma_x_inv=1e-2, spatial_affinity_mode="shared lookup", metagene_mode="shared", M_constraint="simplex", sigma_yx_inv_mode="separate", context={}):
+    def __init__(self, K, Ys, datasets, betas, prior_x_modes,
+            spatial_affinity_regularization_power=2,
+            lambda_Sigma_x_inv=1e-2,
+            spatial_affinity_mode="shared lookup",
+            metagene_mode="shared",
+            M_constraint="simplex",
+            sigma_yx_inv_mode="separate",
+            context=None
+    ):
         self.datasets = datasets
         self.spatial_affinity_mode = spatial_affinity_mode
         self.K = K
@@ -447,7 +471,8 @@ class ParameterOptimizer():
         self.M_constraint = M_constraint
         self.prior_x_modes = prior_x_modes
         self.betas = betas
-        self.context = context
+        self.context = context if context else {}
+        self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
 
     def initialize(self, embedding_optimizer):
         self.embedding_optimizer = embedding_optimizer
@@ -531,7 +556,7 @@ class ParameterOptimizer():
     
             # Compute loss 
             linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1)
-            regularization = self.lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() * weighted_total_cells / 2
+            regularization = self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
             if Sigma_x_inv_bar is not None:
                 regularization += self.lambda_Sigma_x_inv * 100 * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
             
@@ -560,6 +585,9 @@ class ParameterOptimizer():
             loss.backward()
             Sigma_x_inv.grad = (Sigma_x_inv.grad + Sigma_x_inv.grad.T) / 2
             optimizer.step()
+            with torch.no_grad():
+                if constraint == "clamp":
+                    Sigma_x_inv.clamp_(min=-self.spatial_affinity_state.scaling, max=self.spatial_affinity_state.scaling)
             # with torch.no_grad():
             #   Sigma_x_inv -= Sigma_x_inv.mean()
     
@@ -585,11 +613,8 @@ class ParameterOptimizer():
     
         Sigma_x_inv = Sigma_x_inv_best
         Sigma_x_inv.requires_grad_(False)
-        
-        if constraint == "clamp":
-            Sigma_x_inv = torch.clamp(Sigma_x_inv, min=-self.spatial_affinity_state.scaling, max=self.spatial_affinity_state.scaling)
-        elif constraint == "rescale":
-            Sigma_x_inv *= self.spatial_affinity_state.scaling / Sigma_x_inv.max()
+       
+        print(Sigma_x_inv)
         
         return Sigma_x_inv, loss * weighted_total_cells
 
@@ -851,9 +876,9 @@ class MetageneState(dict):
         context: Parameters to define the context for PyTorch tensor instantiation.
         metagenes: A PyTorch tensor containing all metagene parameters.
     """
-    def __init__(self, K, datasets, mode="shared", context={}):
+    def __init__(self, K, datasets, mode="shared", context=None):
         self.datasets = datasets
-        self.context = context
+        self.context = context if context else {}
         if mode == "shared":
             _, num_genes = self.datasets[0].shape
             self.metagenes = torch.zeros((num_genes, K), **self.context)
@@ -874,12 +899,12 @@ class MetageneState(dict):
         self.M_bar.div_(len(self.datasets))
 
 class SpatialAffinityState(dict):
-    def __init__(self, K, metagene_state, datasets, betas, scaling=10, mode="shared lookup", context={}):
+    def __init__(self, K, metagene_state, datasets, betas, scaling=10, mode="shared lookup", context=None):
         self.datasets = datasets
         self.metagene_state = metagene_state
         self.K = K
         self.mode = "shared lookup"
-        self.context = context
+        self.context = context if context else {}
         self.betas = betas
         self.scaling = scaling
         self.optimizer = None
@@ -961,25 +986,25 @@ class SpatialAffinity():
     Parameters:
         K (int): number of latent spatial factors
     """
-    def __init__(self, K, context={}):
+    def __init__(self, K, context=None):
         raise NotImplementedError()
 
     def get_metagene_affinities(self, metagenes):
         raise NotImplementedError()
 
 class SpatialAffinityLookup(SpatialAffinity):
-    def __init__(self, K, num_replicates=1, scaling=10, context={}):
+    def __init__(self, K, num_replicates=1, scaling=10, context=None):
         self.K = K
-        self.context = context
+        self.context = context if context else {}
         self.spatial_affinity_lookup = torch.zeros((num_replicates, K, K), **self.context)
 
     def get_metagene_affinities(self, metagenes=None):
         return self.spatial_affinity_lookup
 
 class SpatialAffinityAttention(SpatialAffinity):
-    def __init__(self, K, num_replicates=1, scaling=10, context={}):
+    def __init__(self, K, num_replicates=1, scaling=10, context=None):
         self.K = K
-        self.context = context
+        self.context = context if context else {}
         self.spatial_affinity_attention = MultiheadAttention(K * num_replicates, num_replicates, **self.context)
 
     def get_metagene_affinities(self, metagenes):

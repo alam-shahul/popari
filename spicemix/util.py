@@ -18,15 +18,15 @@ from matplotlib import pyplot as plt
 import matplotlib.patches as patches
 import seaborn as sns
 
-def calc_modularity(A, label, resolution=1):
-    A = A.tocoo()
-    n = A.shape[0]
-    Asum = A.data.sum()
-    score = A.data[label[A.row] == label[A.col]].sum() / Asum
+def calc_modularity(adjacency_matrix, label, resolution=1):
+    adjacency_matrix = adjacency_matrix.tocoo()
+    n = adjacency_matrix.shape[0]
+    adjacency_matrix_sum = adjacency_matrix.data.sum()
+    score = adjacency_matrix.data[label[adjacency_matrix.row] == label[adjacency_matrix.col]].sum() / adjacency_matrix_sum
 
     idx = np.argsort(label)
     label = label[idx]
-    k = np.array(A.sum(0)).ravel() / Asum
+    k = np.array(adjacency_matrix.sum(0)).ravel() / adjacency_matrix_sum
     k = k[idx]
     idx = np.concatenate([[0], np.nonzero(label[:-1] != label[1:])[0] + 1, [len(label)]])
     score -= sum(k[i:j].sum() ** 2 for i, j in zip(idx[:-1], idx[1:])) * resolution

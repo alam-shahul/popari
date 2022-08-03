@@ -1,19 +1,35 @@
-import sys, logging, time, gc, os, itertools
-from multiprocessing import Pool
+from typing import Sequence, Tuple
+
 from spicemix.util import print_datetime
 import torch
 
 import numpy as np
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import OneHotEncoder
 from sklearn.decomposition import TruncatedSVD, PCA
 
-def initialize_kmeans(K, Ys, kwargs_kmeans, context):
+from spicemix.components import SpiceMixDataset
+
+def initialize_kmeans(datasets: Sequence[SpiceMixDataset], K: int, context: dict, kwargs_kmeans:dict) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+    """Initialize metagenes and hidden states using k-means clustering.
+
+    Args:
+        datasets: input ST replicates to use for initialization
+        K: dimension of latent states for cell embeddings
+        context: context to use for creating PyTorch tensors
+        kwargs_kmeans: parameters to pass to KMeans classifier
+
+    Returns:
+        A tuple (M, Xs), where M is the initial estimate of the metagene
+        values and Xs is the list of initial estimates of the hidden states
+        of each replicate.
+
+
+    """
     assert 'random_state' in kwargs_kmeans
-    Ns, Gs = zip(*[Y.shape for Y in Ys])
+    Ns, Gs = zip(*[dataset.X.shape for dataset in datasets])
     GG = max(Gs)
     repli_valid = np.array(Gs) == GG
-    Ys = [Y.cpu().numpy() for Y in Ys]
+    Ys = [dataset.X for dataset in datasets]
     Y_cat = np.concatenate(list(itertools.compress(Ys, repli_valid)), axis=0)
     pca = PCA(n_components=20)
     # pca = None
@@ -34,31 +50,29 @@ def initialize_kmeans(K, Ys, kwargs_kmeans, context):
         Xs.append(X)
     M = torch.tensor(M, **context)
     Xs = [torch.tensor(X, **context) for X in Xs]
+
     return M, Xs
-
-
-def initialize_svd(K, Ys, context, M_nonneg=True, X_nonneg=True, random_state=0):
+    
+def initialize_svd(datasets: Sequence[SpiceMixDataset], K: int, context: dict, M_nonneg: bool = True, X_nonneg: bool = True) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states using SVD.
 
     Args:
-        K (int): number of metagenes
-        Ys (list of numpy.ndarray): list of gene expression data for each FOV.
-            Note that currently all Ys must have the same number of genes;
-            otherwise they are simply absent from the analysis.
+        datasets: input ST replicates to use for initialization
+        K: dimension of latent states for cell embeddings
+        context: context to use for creating PyTorch tensors
+        M_nonneg: if specified, initial M estimate will contain only non-negative values
+        X_nonneg: if specified, initial X estimate will contain only non-negative values
 
     Returns:
-        A tuple of (M, Xs), where M is the initial estimate of the metagene
+        A tuple (M, Xs), where M is the initial estimate of the metagene
         values and Xs is the list of initial estimates of the hidden states
-        of the gene expression data.
+        of each replicate.
     """
 
-    Ns, Gs = zip(*[Y.shape for Y in Ys])
-    max_genes = max(Gs)
-    repli_valid = (np.array(Gs) == max_genes)
-    Ys = [Y.cpu().numpy() for Y in Ys]
-    Y_cat = np.concatenate(list(itertools.compress(Ys, repli_valid)), axis=0)
+    # TODO: add check that number of genes is the same for all datasets
+    Y_cat = np.concatenate([dataset.X for dataset in datasets], axis=0)
 
-    svd = TruncatedSVD(K, random_state=0)
+    svd = TruncatedSVD(K)
     X_cat = svd.fit_transform(Y_cat)
     M = svd.components_.T
     norm_p = np.ones([1, K])
@@ -85,19 +99,21 @@ def initialize_svd(K, Ys, context, M_nonneg=True, X_nonneg=True, random_state=0)
         M = np.clip(M, a_min=1e-10, a_max=None)
         
     Xs = []
-    for is_valid, N, Y in zip(repli_valid, Ns, Ys):
-        if is_valid:
-            X = X_cat_iter[:N]
-            X_cat_iter = X_cat_iter[N:]
-            if X_nonneg:
-                # fill negative elements by zero
-                # X = np.clip(X, a_min=1e-10, a_max=None)
-                # fill negative elements by the average of nonnegative elements
-                for x in X.T:
-                    idx = x < 1e-10
-                    # Bugfix below: if statement necessary, otherwise nan elements may be introduced...
-                    if len(x[~idx]) > 0:
-                        x[idx] = x[~idx].mean()
+    for dataset in datasets:
+        Y = dataset.X
+        N = len(dataset)
+
+        X = X_cat_iter[:N]
+        X_cat_iter = X_cat_iter[N:]
+        if X_nonneg:
+            # fill negative elements by zero
+            # X = np.clip(X, a_min=1e-10, a_max=None)
+            # fill negative elements by the average of nonnegative elements
+            for x in X.T:
+                idx = x < 1e-10
+                # Bugfix below: if statement necessary, otherwise nan elements may be introduced...
+                if len(x[~idx]) > 0:
+                    x[idx] = x[~idx].mean()
         else:
             X = np.full([N, K], 1/K)
         Xs.append(X)
@@ -106,41 +122,3 @@ def initialize_svd(K, Ys, context, M_nonneg=True, X_nonneg=True, random_state=0)
     Xs = [torch.tensor(X, **context) for X in Xs]
 
     return M, Xs
-
-def initialize_Sigma_x_inv(K, betas, context, datasets, scaling=10):
-    """Initialize Sigma_x_inv using the empirical correlation between hidden state metagenes.
-
-    Args:
-        K (int): number of metagenes
-        datasets (list of SpiceMixDataset): list of datasets for each FOV
-        Es (list of lists): list of adjacency lists for each FOV
-        betas (list of integers): list of weights, indicating relevance of each FOV
-        scaling (int): scale of Sigma_x_inv values
-
-    Returns:
-        Initial estimates of Sigma_x_invs
-    """
-
-    num_replicates = len(datasets)
-    Sigma_x_invs = torch.zeros([num_replicates, K, K], **context)
-    for replicate, (beta, dataset) in enumerate(zip(betas, datasets)):
-        adjacency_list = dataset.obs["adjacency_list"]
-        X = dataset.obsm["X"]
-        Z = X / torch.linalg.norm(X, dim=1, keepdim=True, ord=1)
-        edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
-
-        x = Z[edges[:, 0]]
-        y = Z[edges[:, 1]]
-        x = x - x.mean(dim=0, keepdim=True)
-        y = y - y.mean(dim=0, keepdim=True)
-        y_std = y.std(dim=0, keepdim=True)
-        x_std = x.std(dim=0, keepdim=True)
-        corr = (y / y_std).T @ (x / x_std) / len(x)
-        Sigma_x_invs[replicate] = -beta * corr
-
-    # Symmetrizing and zero-centering Sigma_x_inv
-    Sigma_x_invs = (Sigma_x_invs + torch.transpose(Sigma_x_invs, 1, 2)) / 2
-    Sigma_x_invs -= Sigma_x_invs.mean(dim=(1, 2), keepdims=True)
-    Sigma_x_invs *= scaling
-    
-    return Sigma_x_invs

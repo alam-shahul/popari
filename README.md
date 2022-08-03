@@ -52,6 +52,24 @@ for iteration in range(200):
 ...
 ```
 
+## Tests
+
+To run the provided tests and ensure that SpiceMix can run on your platform, follow the instructions below:
+
+- Download this repo.
+```
+git clone https://github.com/alam-shahul/SpiceMixPlus.git
+```
+- Install `pytest` in your environment.
+```
+pip install pytest
+```
+- Navigate to the root directory of this repo.
+- Run the following command. With GPU resources, this test should execute without errors in ~2.5 minutes:
+```
+python -m pytest -s tests/test_spicemix_shared.py
+```
+
 ## Cite
 
 Cite our paper by

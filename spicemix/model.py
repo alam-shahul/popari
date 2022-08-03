@@ -1,3 +1,5 @@
+from typing import Sequence, Union
+
 import sys, time, itertools, logging, os, pickle
 from pathlib import Path
 
@@ -12,7 +14,7 @@ import anndata as ad
 from spicemix.util import print_datetime
 from spicemix.load_data import load_expression, load_edges, load_genelist, load_anndata, save_anndata, save_predictors
 
-from spicemix.initialization import initialize_kmeans, initialize_Sigma_x_inv
+from spicemix.initialization import initialize_kmeans, initialize_svd
 from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
 
 from spicemix.components import SpiceMixDataset, ParameterOptimizer, EmbeddingOptimizer
@@ -24,24 +26,24 @@ class SpiceMixPlus:
     fields-of-view (FOVs) and multimodal data.
 
     Attributes:
-        device: device to use for PyTorch operations
-        num_processes: number of parallel processes to use for optimizing weights (should be <= #FOVs)
-        replicate_names: names of replicates/FOVs in input dataset
-        TODO: finish docstring
+        K: number of metagenes to learn
+        datasets: 
     """
     def __init__(self,
-            K, lambda_Sigma_x_inv, repli_list, betas=None, prior_x_modes=None,
-            path2result=None, context=None, metagene_mode="shared",
-            spatial_affinity_mode="shared lookup",
-            lambda_M=0, random_state=0
+        K: int,
+        lambda_Sigma_x_inv: float,
+        M_constraint: str = "simplex",
+        context: Union[None, dict] = None,
+        metagene_mode: str = "shared",
+        spatial_affinity_mode: str ="shared lookup",
+        lambda_M: float = 0,
+        random_state: int = 0
     ):
 
         if not context:
             context = dict(device='cpu', dtype=torch.float32)
 
         self.context = context
-        self.repli_list = repli_list
-        self.num_repli = len(self.repli_list)
 
         self.random_state = random_state
         torch.manual_seed(self.random_state)
@@ -49,15 +51,6 @@ class SpiceMixPlus:
 
         self.K = K
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
-        if betas is None:
-            self.betas = np.full(self.num_repli, 1/self.num_repli)
-        else:
-            self.betas = np.array(betas, copy=False) / sum(betas)
-
-        if prior_x_modes is None:
-            prior_x_modes = ['exponential shared fixed'] * self.num_repli
-
-        self.prior_x_modes = prior_x_modes
         self.M_constraint = 'simplex'
         self.X_constraint = 'none'
         self.dropout_mode = 'raw'
@@ -65,61 +58,69 @@ class SpiceMixPlus:
         self.pairwise_potential_mode = 'normalized'
         self.spatial_affinity_mode = spatial_affinity_mode
 
-        if path2result is not None:
-            self.path2result = path2result
-            self.result_filename = self.path2result
-            logging.info(f'result file = {self.result_filename}')
-        else:
-            self.result_filename = None
-        # self.save_hyperparameters()
-
-        self.Ys = None
-        self.Sigma_x_inv = self.Xs = self.sigma_yxs = None
-       
         self.metagene_mode = metagene_mode 
-        self.M = None
-        self.M_bar = None
         self.lambda_M = lambda_M
-        self.prior_xs = None
 
-    def load_anndata_datasets(self, datasets, replicate_names):
+    def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
         """Load SpiceMixPlus data directly from AnnData objects.
 
         Args:
-            datasets (list of AnnData): a list of AnnData objects (one for each FOV)
-            replicate_names (list of str): a list of names for each dataset
+            datasets: spatial transcriptomics datasets in AnnData format (one for each FOV)
+            replicate_names: names for all datasets/replicates
         """
         self.datasets = [SpiceMixDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
         self.Ys = []
         for dataset in self.datasets:
             Y = torch.tensor(dataset.X, **self.context)
             self.Ys.append(Y)
+        
+        self.num_replicates = len(self.datasets)
 
-    def load_dataset(self, path2dataset, anndata_filepath=None):
+    def load_dataset(self, dataset_path: Union[str, Path], replicate_names: Sequence[str], anndata_filepath: str = None):
         """Load dataset into SpiceMixPlus from saved .h5ad file.
 
+        Args:
+            path
         """
 
-        path2dataset = Path(path2dataset)
+        dataset_path = Path(dataset_path)
         
-        datasets = load_anndata(path2dataset / anndata_filepath, self.repli_list, self.context)
-        self.load_anndata_datasets(datasets, self.repli_list)
+        datasets = load_anndata(dataset_path / anndata_filepath, replicate_names,  self.context)
+        self.load_anndata_datasets(datasets, replicate_names)
 
-    def initialize(self, method='kmeans'):
+    def initialize(self, betas: Union[None, Sequence[float]] = None, prior_x_modes: Union[None, Sequence[str]] = None, method: str = 'svd'):
         """Initialize metagenes and hidden states.
 
+        Args:
+            betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
+            prior_x_modes: family of prior distribution for embeddings of each dataset
+            method: algorithm to use for initializing the embeddings and metagenes for this SpiceMix run. Default:'svd'
         """
+       
+        if betas is None:
+            self.betas = np.full(self.num_replicates, 1/self.num_replicates)
+        else:
+            self.betas = np.array(betas, copy=False) / sum(betas)
 
-        self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, self.prior_x_modes, lambda_Sigma_x_inv=self.lambda_Sigma_x_inv, context=self.context)
+        if prior_x_modes is None:
+            prior_x_modes = ['exponential shared fixed'] * self.num_replicates
+
+        self.prior_x_modes = prior_x_modes
+
+        self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes,
+                lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
+                M_constraint=self.M_constraint,
+                context=self.context
+            )
         self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets, context=self.context)
         
         self.parameter_optimizer.initialize(self.embedding_optimizer)
         self.embedding_optimizer.initialize(self.parameter_optimizer)
 
         if method == 'kmeans':
-            self.M, self.Xs = initialize_kmeans(self.K, self.Ys, kwargs_kmeans=dict(random_state=self.random_state), context=self.context)
+            self.M, self.Xs = initialize_kmeans(self.datasets, self.K, self.context, kwargs_kmeans=dict(random_state=self.random_state))
         elif method == 'svd':
-            self.M, self.Xs = self.initialize_svd(M_nonneg=(self.M_constraint == 'simplex'), X_nonneg=True,)
+            self.M, self.Xs = initialize_svd(self.datasets, self.K, self.context, M_nonneg=(self.M_constraint == 'simplex'), X_nonneg=True)
         else:
             raise NotImplementedError
         
@@ -131,7 +132,7 @@ class SpiceMixPlus:
 
         self.Sigma_x_inv_bar = None
 
-        for dataset_index, (dataset, replicate) in enumerate(zip(self.datasets, self.repli_list)):
+        for dataset_index, dataset  in enumerate(self.datasets):
             if self.metagene_mode == "differential":
                 dataset.uns["M_bar"] = {dataset.name: self.parameter_optimizer.metagene_state.M_bar}
 
@@ -153,6 +154,7 @@ class SpiceMixPlus:
         self.synchronize_datasets()
     
     def synchronize_datasets(self):
+        """Synchronize datasets with learned SpiceMix parameters and embeddings."""
         for dataset_index, dataset in enumerate(self.datasets):
             dataset.uns["M"][dataset.name]= self.parameter_optimizer.metagene_state[dataset.name]
             dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.name]
@@ -166,98 +168,25 @@ class SpiceMixPlus:
             if self.metagene_mode == "differential":
                 dataset.uns["M_bar"][dataset.name] = self.parameter_optimizer.metagene_state.M_bar
 
-    def initialize_svd(self, M_nonneg=True, X_nonneg=True):
-        """Initialize metagenes and hidden states using SVD.
-    
-        Args:
-            K (int): number of metagenes
-            Ys (list of numpy.ndarray): list of gene expression data for each FOV.
-                Note that currently all Ys must have the same number of genes;
-                otherwise they are simply absent from the analysis.
-    
-        Returns:
-            A tuple of (M, Xs), where M is the initial estimate of the metagene
-            values and Xs is the list of initial estimates of the hidden states
-            of the gene expression data.
-        """
-  
-        # TODO: add check that number of genes is the same for all datasets
-        Y_cat = np.concatenate([dataset.X for dataset in self.datasets], axis=0)
-    
-        svd = TruncatedSVD(self.K)
-        X_cat = svd.fit_transform(Y_cat)
-        M = svd.components_.T
-        norm_p = np.ones([1, self.K])
-        norm_n = np.ones([1, self.K])
-    
-        if M_nonneg:
-            M_positive = np.clip(M, a_min=0, a_max=None)
-            M_negative = np.clip(M, a_min=None, a_max=0)
-            norm_p *= np.linalg.norm(M_positive, axis=0, ord=1, keepdims=True)
-            norm_n *= np.linalg.norm(M_negative, axis=0, ord=1, keepdims=True)
-    
-        if X_nonneg:
-            X_cat_positive = np.clip(X_cat, a_min=0, a_max=None)
-            X_cat_negative = np.clip(X_cat, a_min=None, a_max=0)
-            norm_p *= np.linalg.norm(X_cat_positive, axis=0, ord=1, keepdims=True)
-            norm_n *= np.linalg.norm(X_cat_negative, axis=0, ord=1, keepdims=True)
-    
-        # Since M must be non-negative, choose the_value that yields greater L1-norm
-        sign = np.where(norm_p >= norm_n, 1., -1.)
-        M *= sign
-        X_cat *= sign
-        X_cat_iter = X_cat
-        if M_nonneg:
-            M = np.clip(M, a_min=1e-10, a_max=None)
-            
-        Xs = []
-        for dataset in self.datasets:
-            Y = dataset.X
-            N = len(dataset)
-
-            X = X_cat_iter[:N]
-            X_cat_iter = X_cat_iter[N:]
-            if X_nonneg:
-                # fill negative elements by zero
-                # X = np.clip(X, a_min=1e-10, a_max=None)
-                # fill negative elements by the average of nonnegative elements
-                for x in X.T:
-                    idx = x < 1e-10
-                    # Bugfix below: if statement necessary, otherwise nan elements may be introduced...
-                    if len(x[~idx]) > 0:
-                        x[idx] = x[~idx].mean()
-            else:
-                X = np.full([N, self.K], 1/self.K)
-            Xs.append(X)
-    
-        M = torch.tensor(M, **self.context)
-        Xs = [torch.tensor(X, **self.context) for X in Xs]
-    
-        return M, Xs
 
     def estimate_weights(self):
-        """Update embeddings (latent states) for each replicate.
-
-        """
+        """Update embeddings (latent states) for each replicate."""
 
         logging.info(f'{print_datetime()}Updating latent states')
         self.embedding_optimizer.update_embeddings()
         self.synchronize_datasets()
 
-    def estimate_parameters(self, update_spatial_affinities=True):
+    def estimate_parameters(self, update_spatial_affinities: bool = True):
         """Update parameters for each replicate.
 
         Args:
-            update_spatial_affinities (bool): If specified, spatial affinities will be update during this iteration.
+            update_spatial_affinities: If specified, spatial affinities will be updated during this iteration.
                 Default: True.
-
         """
         logging.info(f'{print_datetime()}Updating model parameters')
 
         if update_spatial_affinities:
             self.parameter_optimizer.update_spatial_affinity()
-            # TODO: somehow this makes the ARI really good. Why?
-            # Solved: because the Sigma_x_inv does not get too large
 
             # elif self.Sigma_x_inv_mode == "differential":
             #     for X, dataset, u, beta, optimizer, replicate in zip(self.Xs, self.datasets, use_spatial,
@@ -287,4 +216,5 @@ class SpiceMixPlus:
         if not filename:
             filename = f"trained_iteration_{iteration}.h5"
 
-        save_anndata(path2dataset / filename, self.datasets, self.repli_list)
+        replicate_names = [dataset.name for dataset in self.datasets]
+        save_anndata(path2dataset / filename, self.datasets, replicate_names)
