@@ -56,10 +56,10 @@ def clustering_louvain(X, *, kwargs_neighbors, kwargs_clustering, num_rs=100, me
 
 
 def clustering_louvain_nclust(
-        X, n_clust_target, *, kwargs_neighbors, kwargs_clustering,
-        resolution_boundaries=None,
-        resolution_init=1, resolution_update=2,
-        num_rs=100, method='louvain',
+    X, n_clust_target, *, kwargs_neighbors, kwargs_clustering,
+    resolution_boundaries=None,
+    resolution_init=1, resolution_update=2,
+    num_rs=100, method='louvain',
 ):
     """Some sort of wrapper around Louvain clustering.
 
@@ -228,11 +228,20 @@ def evaluate_prediction(df_meta, *, key_pred='label SpiceMixPlus', key_truth='ce
 class NesterovGD:
     """Optimizer that implements Nesterov's Accelerated Gradient Descent.
 
-    See below for hints on implementation details:
+    See below for implementation details:
     # https://blogs.princeton.edu/imabandit/2013/04/01/acceleratedgradientdescent/
 
+    Attributes:
+        parameters: object to optimize with Nesterov
+        step_size: size of gradient update
     """
-    def __init__(self, parameters, step_size):
+    def __init__(self, parameters: torch.Tensor, step_size: float):
+        """Initialize Nesterov optimization.
+
+        Args:
+            parameters: object to optimize with Nesterov
+            step_size: size of gradient update
+        """
         self.parameters = parameters
         self.step_size = step_size
         # self.y = x.clone()
@@ -241,9 +250,20 @@ class NesterovGD:
         self.k = 0
 
     def set_parameters(self, parameters):
+        """Reset parameters.
+
+        Args:
+            parameters: object to optimize with Nesterov
+        """
         self.parameters = parameters
 
-    def step(self, grad):
+    def step(self, grad: torch.Tensor):
+        """Update parameters according to state and step size.
+
+        Args:
+            grad: naive gradient for updating parameters
+        """
+
         # method 1
         # lam_new = (1 + np.sqrt(1 + 4 * self.lam ** 2)) / 2
         # gamma = (1 - self.lam) / lam_new
@@ -346,17 +366,22 @@ def project_M(M, M_constraint):
         raise NotImplementedError
     return result
 
-def project2simplex(y, dim=0, zero_threshold=1e-10):
-    """
-    # https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex
-    find a scalar mu such that || (y-mu)_+ ||_1 = 1
+def project2simplex(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Tensor:
+    """Projects a matrix such that the columns (or rows) lie on the unit simplex.
+
+    See https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex
+    for a reference.
+
+    The goal is to find a scalar mu such that || (y-mu)_+ ||_1 = 1
 
     Currently uses Newton's method to optimize || y - mu ||^2
 
     TODO: try implementing it this way instead: https://arxiv.org/pdf/1101.6081.pdf
 
     Args:
-        y: vector to be projected to unit simplex
+        y: list of vectors to be projected to unit simplex
+        dim: dimension along which to project
+        zero_threshold: threshold to treat as zero for numerical stability purposes
     """
     
     num_components = y.shape[dim]
@@ -376,13 +401,9 @@ def project2simplex(y, dim=0, zero_threshold=1e-10):
     assert (derivative == previous_derivative).all()
     
     assert not torch.isnan(y).any(), y
-    #print(mu)
-    if torch.isnan(mu).any():
-        np.save("../problematic_y.npy", y.detach().cpu().numpy())
 
     y = (y - mu).clip(min=zero_threshold)
     assert not torch.isnan(y).any(), (mu, derivative)
-    # print(y.sum(dim=dim).sub_(1))
 
     assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-3, y.sum(dim=dim).sub_(1).abs_().max()
     
@@ -394,6 +415,10 @@ class IndependentSet:
     For each iteration, no pair of yielded nodes can be neighbors of each other according to the
     adjacency matrix.
 
+    Attributes:
+        N: number of nodes in graph
+        adjacency_list: graph neighbor information stored in adjacency list format
+        batch_size: number of nodes to draw independently every iteration
     """
 
     def __init__(self, adjacency_list, batch_size=50):
@@ -403,12 +428,19 @@ class IndependentSet:
         self.indices_remaining = None
 
     def __iter__(self):
+        """Return iterator over nodes in graph.
+
+        Resets indices_remaining before returning the iterator.
+        """
         self.indices_remaining = set(range(self.N))
         return self
 
     def __next__(self):
-        # make sure selected nodes are not adjacent to each other
-        # i.e., find an independent set of `indices_candidates` in a greedy manner
+        """Returns the indices of batch_size nodes such that none of them are neighbors of each other.
+
+        Makes sure selected nodes are not adjacent to each other, i.e., finds an independent set of
+        `valid indices` in a greedy manner
+        """
         if len(self.indices_remaining) == 0:
             raise StopIteration
 

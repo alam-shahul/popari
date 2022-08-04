@@ -18,13 +18,15 @@ def spicemix_with_neighbors():
     obj = SpiceMixPlus(
         K=10, lambda_Sigma_x_inv=1e-5,
         metagene_mode="shared",
-        context=dict(device='cuda:0', dtype=torch.float32),
+        torch_context=dict(device='cuda:0', dtype=torch.float32),
+        dataset_path=path2dataset / "all_data.h5",
+        replicate_names=replicate_names
     )   
-    obj.load_dataset(path2dataset, replicate_names, "all_data.h5")
-    obj.initialize(
-    #     method='kmeans',
-        method='svd',
-    )   
+    # obj.load_dataset(path2dataset / "all_data.h5", replicate_names)
+    # obj.initialize(
+    # #     method='kmeans',
+    #     method='svd',
+    # )   
 
     for iteration in range(1, 5):
         obj.estimate_parameters()

@@ -19,18 +19,7 @@ import anndata as ad
 import torch
 from spicemix.model import SpiceMixPlus
 
-K = 20 # Number of metagenes
-lambda_Sigma_x_inv = 1e-4 # Spatial affinity regularization hyperparameter
-torch_context = dict(device='cuda:0', dtype=torch.float32) # Context for PyTorch tensor instantiation
-
-# Instantiate
-spicemixplus_demo = SpiceMixPlus(
-    K=K,
-    lambda_Sigma_x_inv=lambda_Sigma_x_inv,
-    context=torch_context
-)
-
-# Initialize
+# Load datasets
 datasets = []
 replicate_names = []
 for replicate in range(5):
@@ -38,10 +27,19 @@ for replicate in range(5):
     name = f"{replicate}"
     datasets.append(dataset)
     replicate_names.append(name)
-    
-spicemixplus_demo.load_anndata_datasets(datasets, replicate_names)
-spicemixplus_demo.initialize(method="svd")
 
+# Define hyperparameters
+K = 20 # Number of metagenes
+lambda_Sigma_x_inv = 1e-4 # Spatial affinity regularization hyperparameter
+torch_context = dict(device='cuda:0', dtype=torch.float32) # Context for PyTorch tensor instantiation
+
+# Initialize
+spicemixplus_demo = SpiceMixPlus(
+    K=K,
+    lambda_Sigma_x_inv=lambda_Sigma_x_inv,
+    torch_context=torch_context
+)
+    
 # Train
 for iteration in range(200):
     spicemixplus_demo.estimate_parameters()
@@ -57,22 +55,22 @@ for iteration in range(200):
 To run the provided tests and ensure that SpiceMix can run on your platform, follow the instructions below:
 
 - Download this repo.
-```
+```console
 git clone https://github.com/alam-shahul/SpiceMixPlus.git
 ```
 - Install `pytest` in your environment.
-```
+```console
 pip install pytest
 ```
 - Navigate to the root directory of this repo.
 - Run the following command. With GPU resources, this test should execute without errors in ~2.5 minutes:
-```
+```console
 python -m pytest -s tests/test_spicemix_shared.py
 ```
 
 ## Cite
 
-Cite our paper by
+Cite our paper:
 
 ```
 @article{chidester2020spicemix,

@@ -1,18 +1,16 @@
-from typing import Sequence, Union
+from typing import Sequence, Union, Optional
 
 import sys, time, itertools, logging, os, pickle
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.special import factorial
-from sklearn.decomposition import TruncatedSVD, PCA
 
 import torch
 import anndata as ad
 
 from spicemix.util import print_datetime
-from spicemix.load_data import load_expression, load_edges, load_genelist, load_anndata, save_anndata, save_predictors
+from spicemix.io import load_anndata, save_anndata
 
 from spicemix.initialization import initialize_kmeans, initialize_svd
 from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
@@ -27,23 +25,56 @@ class SpiceMixPlus:
 
     Attributes:
         K: number of metagenes to learn
-        datasets: 
+        datasets: list of input AnnData spatial datasets for SpiceMix.
+        embedding_optimizer: object wrapping learned embeddings (i.e. X) and related state
+        parameter_optimizer: object wrapping learned parameters (i.e. M, sigma_yxs, spatial affinities)
+            and related state
     """
     def __init__(self,
         K: int,
-        lambda_Sigma_x_inv: float,
+        replicate_names: Sequence[str],
+        datasets: Optional[Union[str, Path, Sequence[ad.AnnData]]] = None,
+        dataset_path: Optional[Union[str, Path ]] = None,
+        lambda_Sigma_x_inv: float = 1e-4,
+        initialization_method: str = "svd",
+        betas: Optional[Sequence[float]] = None,
+        prior_x_modes: Optional[Sequence[float]] = None,
         M_constraint: str = "simplex",
-        context: Union[None, dict] = None,
+        sigma_yx_inv_mode: str = "separate",
+        torch_context: Optional[dict] = None,
         metagene_mode: str = "shared",
         spatial_affinity_mode: str ="shared lookup",
         lambda_M: float = 0,
         random_state: int = 0
     ):
+        """Initialize SpiceMixPlus object using ST data.
 
-        if not context:
-            context = dict(device='cpu', dtype=torch.float32)
+        Args:
+            K: number of metagenes to learn
+            datasets: list of input AnnData spatial datasets for SpiceMix.
+            dataset_path: path to AnnData merged dataset on disk. Ignored if `datasets` is specified.
+            replicate_names: names of spatial datasets
+            lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: 1e-4
+            initialization_method: algorithm to use for initializing metagenes and embeddings. Default: `svd`
+            betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
+            prior_x_modes: family of prior distribution for embeddings of each dataset
+            M_constraint: constraint on columns of M. Default: `simplex`
+            sigma_yx_inv_mode: form of sigma_yx_inv parameter. Default: `separate`
+            torch_context: keyword args to use during initialization of PyTorch tensors.
+            metagene_mode: modality of metagene parameters. Default: `shared`
+            spatial_affinity_mode: modality of spatial affinity parameters. Default: `shared lookup`
+            lambda_M: hyperparameter to constrain metagene deviation in differential case. Ignored if
+                `metagene_mode` is `shared`. Default: `0`
+            random_state: seed for reproducibility of randomized computations. Default: `0`
+        """
 
-        self.context = context
+        if not any([datasets, dataset_path]):
+            raise ValueError("At least one of `datasets`, `dataset_path` must be specified in the SpiceMixPlus constructor.")
+
+        if not torch_context:
+            torch_context = dict(device='cpu', dtype=torch.float32)
+
+        self.context = torch_context
 
         self.random_state = random_state
         torch.manual_seed(self.random_state)
@@ -51,15 +82,19 @@ class SpiceMixPlus:
 
         self.K = K
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
-        self.M_constraint = 'simplex'
-        self.X_constraint = 'none'
-        self.dropout_mode = 'raw'
-        self.sigma_yx_inv_mode = 'separate'
-        self.pairwise_potential_mode = 'normalized'
+        self.M_constraint = M_constraint
+        self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.spatial_affinity_mode = spatial_affinity_mode
 
         self.metagene_mode = metagene_mode 
         self.lambda_M = lambda_M
+
+        if datasets:
+            self.load_anndata_datasets(datasets, replicate_names)
+        elif dataset_path:
+            self.load_dataset(dataset_path, replicate_names)
+
+        self._initialize(betas, prior_x_modes, method=initialization_method)
 
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
         """Load SpiceMixPlus data directly from AnnData objects.
@@ -76,25 +111,26 @@ class SpiceMixPlus:
         
         self.num_replicates = len(self.datasets)
 
-    def load_dataset(self, dataset_path: Union[str, Path], replicate_names: Sequence[str], anndata_filepath: str = None):
+    def load_dataset(self, dataset_path: Union[str, Path], replicate_names: Sequence[str]):
         """Load dataset into SpiceMixPlus from saved .h5ad file.
 
         Args:
-            path
+            dataset_path: path to input ST datasets, stored in .h5ad format
+            replicate_names: names for all datasets/replicates. Note that these must match the names in the .h5ad file.
         """
 
         dataset_path = Path(dataset_path)
         
-        datasets = load_anndata(dataset_path / anndata_filepath, replicate_names,  self.context)
+        datasets = load_anndata(dataset_path, replicate_names,  self.context)
         self.load_anndata_datasets(datasets, replicate_names)
 
-    def initialize(self, betas: Union[None, Sequence[float]] = None, prior_x_modes: Union[None, Sequence[str]] = None, method: str = 'svd'):
+    def _initialize(self, betas: Optional[Sequence[float]] = None, prior_x_modes: Optional[Sequence[str]] = None, method: str = 'svd'):
         """Initialize metagenes and hidden states.
 
         Args:
             betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
             prior_x_modes: family of prior distribution for embeddings of each dataset
-            method: algorithm to use for initializing the embeddings and metagenes for this SpiceMix run. Default:'svd'
+            method: algorithm to use for initializing metagenes and embeddings. Default: SVD
         """
        
         if betas is None:
@@ -114,8 +150,8 @@ class SpiceMixPlus:
             )
         self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets, context=self.context)
         
-        self.parameter_optimizer.initialize(self.embedding_optimizer)
-        self.embedding_optimizer.initialize(self.parameter_optimizer)
+        self.parameter_optimizer.link(self.embedding_optimizer)
+        self.embedding_optimizer.link(self.parameter_optimizer)
 
         if method == 'kmeans':
             self.M, self.Xs = initialize_kmeans(self.datasets, self.K, self.context, kwargs_kmeans=dict(random_state=self.random_state))
@@ -171,7 +207,6 @@ class SpiceMixPlus:
 
     def estimate_weights(self):
         """Update embeddings (latent states) for each replicate."""
-
         logging.info(f'{print_datetime()}Updating latent states')
         self.embedding_optimizer.update_embeddings()
         self.synchronize_datasets()
@@ -212,9 +247,12 @@ class SpiceMixPlus:
         self.parameter_optimizer.update_sigma_yx()
         self.synchronize_datasets()
 
-    def save_results(self, path2dataset, iteration, PredictorConstructor=None, predictor_hyperparams=None, filename=None):
-        if not filename:
-            filename = f"trained_iteration_{iteration}.h5"
+    def save_results(self, path2dataset, PredictorConstructor=None, predictor_hyperparams=None):
+        """Save datasets and learned SpiceMixPlus parameters to .h5ad file.
 
+        Args:
+            dataset_path: path to input ST datasets, to be stored in .h5ad format
+
+        """
         replicate_names = [dataset.name for dataset in self.datasets]
-        save_anndata(path2dataset / filename, self.datasets, replicate_names)
+        save_anndata(path2dataset, self.datasets, replicate_names)

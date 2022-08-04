@@ -80,7 +80,7 @@ class EmbeddingOptimizer():
         self.context = context if context else {}
         self.embedding_state = EmbeddingState(K, self.datasets, context=self.context)
 
-    def initialize(self, parameter_optimizer):
+    def link(self, parameter_optimizer):
         self.parameter_optimizer = parameter_optimizer
 
     def update_embeddings(self):
@@ -474,14 +474,12 @@ class ParameterOptimizer():
         self.context = context if context else {}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
 
-    def initialize(self, embedding_optimizer):
+    def link(self, embedding_optimizer):
         self.embedding_optimizer = embedding_optimizer
         self.metagene_state = MetageneState(self.K, self.datasets, mode=self.metagene_mode, context=self.context)
         self.spatial_affinity_state = SpatialAffinityState(self.K, self.metagene_state, self.datasets, self.betas, mode=self.spatial_affinity_mode, context=self.context)
-        self.spatial_affinity_optimizers = None # TODO: figure out how to initialize
         
         if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
-            # TODO: try setting to zero
             self.prior_xs = [(torch.ones(self.K, **self.context),) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.zeros(self.K, **self.context),) for _ in range(len(self.datasets))]
