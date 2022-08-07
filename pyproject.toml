@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "spicemix"
-version = "0.0.4"
+version = "0.0.7"
 authors = [
   { name="Shahul Alam", email="alam.shahul@gmail.com.com" },
 ]

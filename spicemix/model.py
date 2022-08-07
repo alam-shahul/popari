@@ -121,7 +121,7 @@ class SpiceMixPlus:
 
         dataset_path = Path(dataset_path)
         
-        datasets = load_anndata(dataset_path, replicate_names,  self.context)
+        datasets = load_anndata(dataset_path, replicate_names, self.context)
         self.load_anndata_datasets(datasets, replicate_names)
 
     def _initialize(self, betas: Optional[Sequence[float]] = None, prior_x_modes: Optional[Sequence[str]] = None, method: str = 'svd'):
@@ -139,7 +139,7 @@ class SpiceMixPlus:
             self.betas = np.array(betas, copy=False) / sum(betas)
 
         if prior_x_modes is None:
-            prior_x_modes = ['exponential shared fixed'] * self.num_replicates
+            prior_x_modes = [None] * self.num_replicates
 
         self.prior_x_modes = prior_x_modes
 
@@ -168,12 +168,19 @@ class SpiceMixPlus:
 
         self.Sigma_x_inv_bar = None
 
+        self.parameter_optimizer.update_sigma_yx()
+
+        initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
+        self.parameter_optimizer.spatial_affinity_state.initialize(initial_embeddings)
+        
         for dataset_index, dataset  in enumerate(self.datasets):
             if self.metagene_mode == "differential":
                 dataset.uns["M_bar"] = {dataset.name: self.parameter_optimizer.metagene_state.M_bar}
 
             dataset.uns["M"] = {dataset.name: self.parameter_optimizer.metagene_state}
             dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.name]
+                
+            dataset.uns["Sigma_x_inv"] = {dataset.name : self.parameter_optimizer.spatial_affinity_state[dataset.name]}
 
             dataset.uns["spicemixplus_hyperparameters"] = {
                 "metagene_mode": self.metagene_mode,
@@ -182,10 +189,6 @@ class SpiceMixPlus:
                 "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
             }
 
-        self.parameter_optimizer.update_sigma_yx()
-
-        initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
-        self.parameter_optimizer.spatial_affinity_state.initialize(initial_embeddings)
 
         self.synchronize_datasets()
     

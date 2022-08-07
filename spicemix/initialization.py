@@ -23,7 +23,6 @@ def initialize_kmeans(datasets: Sequence[SpiceMixDataset], K: int, context: dict
         values and Xs is the list of initial estimates of the hidden states
         of each replicate.
 
-
     """
     assert 'random_state' in kwargs_kmeans
     Ns, Gs = zip(*[dataset.X.shape for dataset in datasets])

@@ -189,7 +189,7 @@ def save_anndata(filepath: Union[str, Path], datasets, replicate_names):
         (first four are optional)
         5. dataset.uns["Sigma_x_inv"] = {f"{replicate}": numpy.ndarray}
         (the above can be set to None)
-        6. dataset.obsp["adjacency_matrix"] = numpy.ndarray
+        6. dataset.obsp["adjacency_matrix"] = scipy.sparse.coo_matrix
         7. dataset.obs["adjacency_list"] = list of lists/numpy.ndarrays
         8. dataset.obsm["spatial"] = numpy.ndarray
         9. dataset.obs["replicate"] = list
