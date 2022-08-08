@@ -44,7 +44,7 @@ class SpiceMixPlus:
         torch_context: Optional[dict] = None,
         metagene_mode: str = "shared",
         spatial_affinity_mode: str ="shared lookup",
-        lambda_M: float = 0,
+        lambda_M: float = 0.5,
         random_state: int = 0
     ):
         """Initialize SpiceMixPlus object using ST data.
@@ -145,6 +145,7 @@ class SpiceMixPlus:
 
         self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
+                lambda_M=self.lambda_M,
                 metagene_mode=self.metagene_mode,
                 M_constraint=self.M_constraint,
                 context=self.context

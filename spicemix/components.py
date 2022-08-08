@@ -9,6 +9,9 @@ import squidpy as sq
 import numpy as np
 from scipy.sparse import csr_matrix
 
+import seaborn as sns
+
+
 from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
 from spicemix.util import NesterovGD, IndependentSet, project2simplex, project_M, get_datetime
 
@@ -67,6 +70,14 @@ class SpiceMixDataset(ad.AnnData):
         mask = dense_distances < cutoff
 
         return csr_matrix(sparse_adjacency_matrix * mask)
+
+    def plot_metagene_embedding(metagene_index, **scatterplot_kwargs):
+        points = self.obsm["spatial"]
+        x, y = points.T
+        metagene = self.obsm["X"][:, metagene_index]
+    
+        biased_batch_effect = pd.DataFrame({"x":x, "y":y, f"Metagene {metagene_index}": metagene})
+        sns.scatterplot(data=biased_batch_effect, x="x", y="y", hue="spatial_metagene", **scatterplot_kwargs)
  
 class EmbeddingOptimizer():
     """Optimizer and state for SpiceMix embeddings.
@@ -459,6 +470,7 @@ class ParameterOptimizer():
             lambda_Sigma_x_inv=1e-2,
             spatial_affinity_mode="shared lookup",
             metagene_mode="shared",
+            lambda_M=0.5,
             M_constraint="simplex",
             sigma_yx_inv_mode="separate",
             context=None
@@ -469,6 +481,7 @@ class ParameterOptimizer():
         self.Ys = Ys
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
+        self.lambda_M = lambda_M
         self.metagene_mode = metagene_mode
         self.M_constraint = M_constraint
         self.prior_x_modes = prior_x_modes
@@ -662,8 +675,7 @@ class ParameterOptimizer():
             self.metagene_state.reaverage()
 
     def estimate_M(self, M, replicate_mask,
-            M_bar=None, lambda_M=0,
-            n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', verbose=False):
+            M_bar=None, n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', verbose=False):
         """Optimize metagene parameters.
     
         M is shared across all replicates.
@@ -707,9 +719,9 @@ class ParameterOptimizer():
             # MX_c^TY_c
             linear_term.addmm_(torch.tensor(dataset.X, **self.context).T.to(X.device), X, alpha=scaled_beta)
     
-        if lambda_M > 0 and M_bar is not None:
-            quadratic_factor.diagonal().add_(lambda_M)
-            linear_term += lambda_M * M_bar
+        if self.lambda_M > 0 and M_bar is not None:
+            quadratic_factor.diagonal().add_(self.lambda_M)
+            linear_term += self.lambda_M * M_bar
     
         loss_prev, loss = np.inf, np.nan
         progress_bar = trange(n_epochs, leave=True, disable=not verbose, desc='Updating M', miniters=1000)
