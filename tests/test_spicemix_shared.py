@@ -22,11 +22,6 @@ def spicemix_with_neighbors():
         dataset_path=path2dataset / "all_data.h5",
         replicate_names=replicate_names
     )   
-    # obj.load_dataset(path2dataset / "all_data.h5", replicate_names)
-    # obj.initialize(
-    # #     method='kmeans',
-    #     method='svd',
-    # )   
 
     for iteration in range(1, 5):
         obj.estimate_parameters()

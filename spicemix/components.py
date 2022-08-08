@@ -78,6 +78,7 @@ class EmbeddingOptimizer():
         self.K = K
         self.Ys = Ys
         self.context = context if context else {}
+        
         self.embedding_state = EmbeddingState(K, self.datasets, context=self.context)
 
     def link(self, parameter_optimizer):
@@ -99,10 +100,10 @@ class EmbeddingOptimizer():
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
             if not is_spatial_replicate:
-                loss, self.embedding_state[dataset.name] = self.estimate_weight_wonbr(
+                loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wonbr(
                     Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, context=self.context)
             else:
-                loss, self.embedding_state[dataset.name] = self.estimate_weight_wnbr(
+                loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr(
                     Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, context=self.context)
 
             loss_list.append(loss)
@@ -432,11 +433,12 @@ class EmbeddingState(dict):
         self.K = K
         self.context = context if context else {}
         super().__init__()
+            
+        num_cells, _ = self.datasets[0].shape
+        self.embeddings = torch.zeros((len(self.datasets), num_cells, K), **self.context)
 
-        for dataset in self.datasets:
-            num_cells, _ = dataset.shape
-            initial_embedding = torch.zeros((num_cells, K), **self.context)
-            self.__setitem__(dataset.name, initial_embedding)
+        for dataset, replicate_embeddings in zip(self.datasets, self.embeddings):
+            self.__setitem__(dataset.name, replicate_embeddings)
 
     def normalize(self):
         """Normalize embeddings per each cell.
@@ -473,9 +475,7 @@ class ParameterOptimizer():
         self.betas = betas
         self.context = context if context else {}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
-
-    def link(self, embedding_optimizer):
-        self.embedding_optimizer = embedding_optimizer
+        
         self.metagene_state = MetageneState(self.K, self.datasets, mode=self.metagene_mode, context=self.context)
         self.spatial_affinity_state = SpatialAffinityState(self.K, self.metagene_state, self.datasets, self.betas, mode=self.spatial_affinity_mode, context=self.context)
         
@@ -487,25 +487,29 @@ class ParameterOptimizer():
             raise NotImplementedError
 
         self.sigma_yxs = np.zeros(len(self.datasets))
+
+    def link(self, embedding_optimizer):
+        """Link to embedding_optimizer.
+        
+        """
+        self.embedding_optimizer = embedding_optimizer
        
     def scale_metagenes(self):
+        norm_axis = int(self.metagene_mode == "differential")
         if self.M_constraint == 'simplex':
-            scale_factor = torch.linalg.norm(self.metagene_state.metagenes, axis=0, ord=1, keepdim=True)
+            scale_factor = torch.linalg.norm(self.metagene_state.metagenes, axis=norm_axis, ord=1, keepdim=True)
         elif self.M_constraint == 'unit_sphere':
-            scale_factor = torch.linalg.norm(self.metagene_state.metagenes, axis=0, ord=2, keepdim=True)
-        else:
-            raise NotImplementedError
+            scale_factor = torch.linalg.norm(self.metagene_state.metagenes, axis=norm_axis, ord=2, keepdim=True)
         
         self.metagene_state.metagenes.div_(scale_factor)
-        for dataset in self.datasets:
-            self.embedding_optimizer.embedding_state[dataset.name].mul_(scale_factor)
+        self.embedding_optimizer.embedding_state.embeddings.mul_(scale_factor)
 
     def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, Sigma_x_inv_bar=None, constraint="clamp", n_epochs=1000):
         """Optimize Sigma_x_inv parameters.
     
        
         Differential mode:
-        grad = ( M XT X - YT X ) / ( σ_yx^2 ) + λ_Sigma_x_inv ( Sigma_x_inv - Sigma_x_inv_bar )
+        grad =  ... + λ_Sigma_x_inv ( Sigma_x_inv - Sigma_x_inv_bar )
     
         Args:
             Xs: list of latent expression embeddings for each FOV.
@@ -633,7 +637,6 @@ class ParameterOptimizer():
             #         dataset.uns["Sigma_x_inv"][f"{replicate}"][:] = updated_Sigma_x_inv
         elif self.spatial_affinity_mode == "differential lookup":
             for index, dataset in enumerate(self.datasets):
-                M = self.metagene_state[dataset.name]
                 replicate_mask =  np.full(len(self.datasets), False)
                 replicate_mask[index] = True
                 Sigma_x_inv = self.spatial_affinity_state[dataset.name]
@@ -641,7 +644,7 @@ class ParameterOptimizer():
                 with torch.no_grad():
                     self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
 
-    def update_metagenes(self, Xs):
+    def update_metagenes(self):
         if self.metagene_mode == "shared":
             first_dataset = self.datasets[0]
             replicate_mask =  np.full(len(self.datasets), True)
@@ -655,7 +658,8 @@ class ParameterOptimizer():
                 M = self.metagene_state[dataset.name]
                 replicate_mask =  np.full(len(self.datasets), False)
                 replicate_mask[index] = True
-                self.metagene_state[dataset.name]= self.estimate_M(M, replicate_mask)
+                self.metagene_state[dataset.name]= self.estimate_M(M, replicate_mask, M_bar=self.metagene_state.M_bar)
+            self.metagene_state.reaverage()
 
     def estimate_M(self, M, replicate_mask,
             M_bar=None, lambda_M=0,
@@ -673,9 +677,7 @@ class ParameterOptimizer():
         grad = ( M XT X - YT X ) / ( σ_yx^2 ) + λ_M ( M - M_bar )
     
         Args:
-            Ys: list of gene expression data
-            Xs: list of estimated hidden states
-            M (torch.Tensor): current estimate of metagene parameters
+            M: current estimate of metagene parameters
             betas: weight of each FOV in optimization scheme
             context: context ith which to create PyTorch tensor
             n_epochs: number of epochs 
@@ -884,6 +886,7 @@ class MetageneState(dict):
                 self.__setitem__(dataset.name, self.metagenes)
         
         elif mode == "differential":
+            _, num_genes = self.datasets[0].shape
             self.metagenes = torch.zeros((len(self.datasets), num_genes, K), **self.context)
             self.M_bar = torch.mean(self.metagenes, axis=0)
             for dataset, replicate_metagenes in zip(self.datasets, self.metagenes):
@@ -891,7 +894,7 @@ class MetageneState(dict):
         
     def reaverage(self):
         # Set M_bar to average of self.Ms (memory efficient)
-        self.M_bar = torch.zeros.zero_()
+        self.M_bar.zero_()
         for dataset in self.datasets:
             self.M_bar.add_(self.__getitem__(dataset.name))
         self.M_bar.div_(len(self.datasets))

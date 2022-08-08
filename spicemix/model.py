@@ -145,6 +145,7 @@ class SpiceMixPlus:
 
         self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
+                metagene_mode=self.metagene_mode,
                 M_constraint=self.M_constraint,
                 context=self.context
             )
@@ -195,7 +196,7 @@ class SpiceMixPlus:
     def synchronize_datasets(self):
         """Synchronize datasets with learned SpiceMix parameters and embeddings."""
         for dataset_index, dataset in enumerate(self.datasets):
-            dataset.uns["M"][dataset.name]= self.parameter_optimizer.metagene_state[dataset.name]
+            dataset.uns["M"][dataset.name] = self.parameter_optimizer.metagene_state[dataset.name]
             dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.name]
             dataset.uns["sigma_yx"] = self.parameter_optimizer.sigma_yxs[dataset_index]
             with torch.no_grad():
@@ -246,7 +247,7 @@ class SpiceMixPlus:
             #     for dataset, replicate in zip(self.datasets, self.repli_list):
             #         dataset.uns["Sigma_x_inv_bar"][f"{replicate}"] = self.Sigma_x_inv_bar
 
-        self.parameter_optimizer.update_metagenes(self.Xs)
+        self.parameter_optimizer.update_metagenes()
         self.parameter_optimizer.update_sigma_yx()
         self.synchronize_datasets()
 
