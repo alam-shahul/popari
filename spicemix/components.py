@@ -489,7 +489,7 @@ class ParameterOptimizer():
         self.context = context if context else {}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
         
-        self.metagene_state = MetageneState(self.K, self.datasets, mode=self.metagene_mode, context=self.context)
+        self.metagene_state = MetageneState(self.K, self.datasets, mode=self.metagene_mode, M_constraint=self.M_constraint, context=self.context)
         self.spatial_affinity_state = SpatialAffinityState(self.K, self.metagene_state, self.datasets, self.betas, mode=self.spatial_affinity_mode, context=self.context)
         
         if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
@@ -571,9 +571,10 @@ class ParameterOptimizer():
     
             # Compute loss 
             linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1)
-            regularization = self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
             if Sigma_x_inv_bar is not None:
-                regularization += self.lambda_Sigma_x_inv * 100 * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
+                regularization = self.lambda_Sigma_x_inv * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
+            else:
+                regularization = self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
             
             log_partition_function = 0
             for Z, nu, beta in zip(Zs, nus, self.betas):
@@ -629,8 +630,6 @@ class ParameterOptimizer():
         Sigma_x_inv = Sigma_x_inv_best
         Sigma_x_inv.requires_grad_(False)
        
-        print(Sigma_x_inv)
-        
         return Sigma_x_inv, loss * weighted_total_cells
 
     def update_spatial_affinity(self):
@@ -705,42 +704,54 @@ class ParameterOptimizer():
         
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
+        Ys = [Y for (use_replicate, Y) in zip(replicate_mask, self.Ys) if use_replicate]
         sigma_yxs = np.array([dataset.uns["sigma_yx"] for dataset in datasets])
         scaled_betas = self.betas[replicate_mask] / (sigma_yxs**2)
         
         # ||Y||_2^2
-        constant_magnitude = np.array([torch.linalg.norm(Y).item()**2 for Y in self.Ys]).sum()
+        constant_magnitude = np.array([torch.linalg.norm(Y).item()**2 for Y in Ys]).sum()
     
         constant = (np.array([torch.linalg.norm(self.embedding_optimizer.embedding_state[dataset.name]).item()**2 for dataset in datasets]) * scaled_betas).sum()
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
-        for dataset, X, sigma_yx, scaled_beta in zip(datasets, Xs, sigma_yxs, scaled_betas):
+        for dataset, X, Y, sigma_yx, scaled_beta in zip(datasets, Xs, Ys, sigma_yxs, scaled_betas):
             # X_c^TX_c
             quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
             # MX_c^TY_c
-            linear_term.addmm_(torch.tensor(dataset.X, **self.context).T.to(X.device), X, alpha=scaled_beta)
+            linear_term.addmm_(Y.T, X, alpha=scaled_beta)
     
+        # if self.lambda_M > 0 and M_bar is not None:
+        #     quadratic_factor.diagonal().add_(self.lambda_M)
+        #     linear_term += self.lambda_M * M_bar
+        differential_regularization_quadratic_factor = torch.zeros((K, K), **self.context)
+        differential_regularization_linear_term = 0
+        print(self.lambda_M)
         if self.lambda_M > 0 and M_bar is not None:
-            quadratic_factor.diagonal().add_(self.lambda_M)
-            linear_term += self.lambda_M * M_bar
+            differential_regularization_quadratic_factor += self.lambda_M * torch.eye(K, **self.context)
+            differential_regularization_linear_term += self.lambda_M * M_bar
+        #     quadratic_factor.diagonal().add_(self.lambda_M)
+        #     linear_term += self.lambda_M * M_bar
     
         loss_prev, loss = np.inf, np.nan
         progress_bar = trange(n_epochs, leave=True, disable=not verbose, desc='Updating M', miniters=1000)
     
         def compute_loss_and_gradient(M, verbose=False):
-            quadratic_factor_grad = M @ quadratic_factor
+            quadratic_factor_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
             loss = (quadratic_factor_grad * M).sum()
             if verbose:
                 print(f"M quadratic term: {loss}")
             grad = quadratic_factor_grad
-            linear_term_grad = linear_term
+            linear_term_grad = linear_term + differential_regularization_linear_term
             loss -= 2 * (linear_term_grad * M).sum()
             grad -= linear_term_grad
         
             loss += constant
-            regularization_term = torch.sum(torch.Tensor([(regularizer[0] * X).sum() for regularizer, X in zip(regularization, Xs)]))
-            loss += regularization_term
+
+            differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum() + self.lambda_M * (M_bar * M_bar).sum()
+            # regularization_term = torch.sum(torch.Tensor([(regularizer[0] * X).sum() for regularizer, X in zip(regularization, Xs)]))
+            # loss += regularization_term
             if verbose:
-                print(f"M regularization term: {regularization_term}")
+                # print(f"M regularization term: {regularization_term}")
+                print(f"M differential regularization term: {differential_regularization_term}")
                 print(f"M constant term: {constant}")
                 print(f"M constant magnitude: {constant_magnitude}")
             loss /= 2
@@ -854,7 +865,8 @@ class ParameterOptimizer():
             M = estimate_M_nag(M, verbose=verbose)
         else:
             raise NotImplementedError
-        
+       
+        print(M[0]) 
         return M
 
     def update_sigma_yx(self):
@@ -888,9 +900,10 @@ class MetageneState(dict):
         context: Parameters to define the context for PyTorch tensor instantiation.
         metagenes: A PyTorch tensor containing all metagene parameters.
     """
-    def __init__(self, K, datasets, mode="shared", context=None):
+    def __init__(self, K, datasets, mode="shared", M_constraint="simplex", context=None):
         self.datasets = datasets
         self.context = context if context else {}
+        self.M_constraint = M_constraint
         if mode == "shared":
             _, num_genes = self.datasets[0].shape
             self.metagenes = torch.zeros((num_genes, K), **self.context)
@@ -905,11 +918,12 @@ class MetageneState(dict):
                 self.__setitem__(dataset.name, replicate_metagenes)
         
     def reaverage(self):
-        # Set M_bar to average of self.Ms (memory efficient)
+        # Set M_bar to average of self.Ms (relatively memory efficient)
         self.M_bar.zero_()
         for dataset in self.datasets:
             self.M_bar.add_(self.__getitem__(dataset.name))
         self.M_bar.div_(len(self.datasets))
+        self.M_bar[:] = project_M(self.M_bar, self.M_constraint)
 
 class SpatialAffinityState(dict):
     def __init__(self, K, metagene_state, datasets, betas, scaling=10, mode="shared lookup", context=None):
@@ -979,7 +993,7 @@ class SpatialAffinityState(dict):
             # This optimizer retains its state throughout the optimization
             self.optimizer = torch.optim.Adam(
                 [self.__getitem__(dataset.name)],
-                lr=1e-1,
+                lr=1e-3,
                 betas=(.5, .9),
             )
         elif self.mode == "attention":

@@ -18,3 +18,6 @@ def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, ax
         dataset.plot_metagene_embedding(metagene_index, ax=ax)
 
     return fig
+
+ def leiden(trained_model: SpiceMixPlus):
+    pass

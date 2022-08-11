@@ -15,16 +15,19 @@ pip install spicemix
 ## Usage
 
 ```python
+from pathlib import Path
+
 import anndata as ad
 import torch
+
 from spicemix.model import SpiceMixPlus
 
 # Load datasets
 datasets = []
 replicate_names = []
-for replicate in range(5):
-    dataset = ad.read_h5ad(f"example_st_dataset_{replicate}.h5ad") # Each dataset must have spatial information stored as an adjacency matrix
-    name = f"{replicate}"
+for fov in range(5):
+    dataset = ad.read_h5ad(f"./example_st_dataset_fov_{replicate}.h5ad") # Each dataset must have spatial information stored as an adjacency matrix
+    name = f"{fov}"
     datasets.append(dataset)
     replicate_names.append(name)
 
@@ -41,9 +44,14 @@ spicemixplus_demo = SpiceMixPlus(
 )
     
 # Train
-for iteration in range(200):
+num_iterations = 200
+for iteration in range(num_iterations):
     spicemixplus_demo.estimate_parameters()
     spicemixplus_demo.estimate_weights()
+
+# Save to disk
+result_filepath = Path(f"./demo_{num_iterations}_iterations.h5ad")
+spicemixplus_demo.save_results(result_filepath)
     
 # Plot results
 
