@@ -1,5 +1,5 @@
 from typing import Sequence
-import logging, time, gc
+import logging, time
 from tqdm.auto import tqdm, trange
 
 import anndata as ad
@@ -8,9 +8,9 @@ import squidpy as sq
 
 import numpy as np
 from scipy.sparse import csr_matrix
+from scipy.stats import zscore
 
 import seaborn as sns
-
 
 from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
 from spicemix.util import NesterovGD, IndependentSet, project2simplex, project_M, get_datetime
@@ -445,20 +445,30 @@ class EmbeddingState(dict):
         self.context = context if context else {}
         super().__init__()
             
-        num_cells, _ = self.datasets[0].shape
-        self.embeddings = torch.zeros((len(self.datasets), num_cells, K), **self.context)
+        self.embeddings = []
 
-        for dataset, replicate_embeddings in zip(self.datasets, self.embeddings):
+        for dataset in self.datasets:
+            num_cells, _ = dataset.shape
+            replicate_embeddings = torch.zeros((num_cells, K), **self.context)
             self.__setitem__(dataset.name, replicate_embeddings)
+            self.embeddings.append(replicate_embeddings)
 
-    def normalize(self):
+    def normalize(self, normalized_key="normalized_X"):
         """Normalize embeddings per each cell.
         
         This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.
 
         """
         # TODO: implement
-        pass
+
+        for dataset in self.datasets:
+            if "X" not in dataset.obsm:
+                raise ValueError("Must initialize embeddings before running normalizing them.")
+
+            dataset.obsm["normalized_X"] = zscore(dataset.obsm["X"])
+            sc.pp.neighbors(dataset, use_rep="normalized_X")
+            print(sc.metrics.morans_i(dataset, obsm="learned_X"))
+            print(sc.metrics.morans_i(dataset, obsm="normalized_learned_X"))
 
 class ParameterOptimizer():
     """Optimizer and state for SpiceMix parameters.
@@ -515,7 +525,15 @@ class ParameterOptimizer():
             scale_factor = torch.linalg.norm(self.metagene_state.metagenes, axis=norm_axis, ord=2, keepdim=True)
         
         self.metagene_state.metagenes.div_(scale_factor)
-        self.embedding_optimizer.embedding_state.embeddings.mul_(scale_factor)
+        for dataset_index, replicate_embedding in enumerate(self.embedding_optimizer.embedding_state.embeddings):
+            if norm_axis == 1:
+                print(scale_factor.shape)
+                replicate_scale_factor = scale_factor[dataset_index]
+                replicate_embedding.mul_(replicate_scale_factor)
+            else:
+                replicate_embedding.mul_(scale_factor)
+
+        
 
     def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, Sigma_x_inv_bar=None, constraint="clamp", n_epochs=1000):
         """Optimize Sigma_x_inv parameters.
@@ -671,6 +689,7 @@ class ParameterOptimizer():
                 replicate_mask =  np.full(len(self.datasets), False)
                 replicate_mask[index] = True
                 self.metagene_state[dataset.name]= self.estimate_M(M, replicate_mask, M_bar=self.metagene_state.M_bar)
+
             self.metagene_state.reaverage()
 
     def estimate_M(self, M, replicate_mask,
@@ -726,11 +745,25 @@ class ParameterOptimizer():
         differential_regularization_linear_term = 0
         print(self.lambda_M)
         if self.lambda_M > 0 and M_bar is not None:
-            differential_regularization_quadratic_factor += self.lambda_M * torch.eye(K, **self.context)
-            differential_regularization_linear_term += self.lambda_M * M_bar
+            differential_regularization_quadratic_factor = self.lambda_M * torch.eye(K, **self.context)
+            differential_regularization_linear_term = self.lambda_M * M_bar
         #     quadratic_factor.diagonal().add_(self.lambda_M)
         #     linear_term += self.lambda_M * M_bar
-    
+
+        print(linear_term)
+        print(differential_regularization_quadratic_factor)
+        np.save("quadratic_factor.npy", quadratic_factor.cpu().numpy())
+        np.save("differential_regularization_quadratic_factor.npy", differential_regularization_quadratic_factor.cpu().numpy())
+        print(f"DTYPE: {quadratic_factor.dtype}")
+        print(f"Max eigenvalue before : {torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
+        print(f"Eigenvalue before : {(torch.linalg.eigvals(quadratic_factor).abs())}")
+        print(f"Max eigenvalue after : {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs())}")
+        print(f"Eigenvalue after : {(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs())}")
+        print(f"Difference: {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
+        print(f"All differences: {(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - (torch.linalg.eigvals(quadratic_factor).abs())}")
+        print(f"Linear term: {torch.linalg.norm(linear_term)}")
+        print(f"Regularization linear term: {torch.linalg.norm(differential_regularization_linear_term)}")
+        print(f"Linear regularization term ratio: {torch.linalg.norm(differential_regularization_linear_term) / torch.linalg.norm(linear_term)}")
         loss_prev, loss = np.inf, np.nan
         progress_bar = trange(n_epochs, leave=True, disable=not verbose, desc='Updating M', miniters=1000)
     
@@ -746,12 +779,14 @@ class ParameterOptimizer():
         
             loss += constant
 
-            differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum() + self.lambda_M * (M_bar * M_bar).sum()
+            if self.metagene_mode == "differential":
+                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum() + self.lambda_M * (M_bar * M_bar).sum()
             # regularization_term = torch.sum(torch.Tensor([(regularizer[0] * X).sum() for regularizer, X in zip(regularization, Xs)]))
             # loss += regularization_term
             if verbose:
                 # print(f"M regularization term: {regularization_term}")
-                print(f"M differential regularization term: {differential_regularization_term}")
+                if self.metagene_mode == "differential":
+                    print(f"M differential regularization term: {differential_regularization_term}")
                 print(f"M constant term: {constant}")
                 print(f"M constant magnitude: {constant_magnitude}")
             loss /= 2
