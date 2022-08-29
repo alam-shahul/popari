@@ -397,6 +397,8 @@ def project2simplex(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Ten
         objective_value = torch.clip(difference, min=zero_threshold).sum(dim=dim, keepdim=True) - 1
         newton_update = objective_value / derivative
         mu -= newton_update
+
+        assert not torch.isnan(mu).any()
         previous_derivative = derivative
     assert (derivative == previous_derivative).all()
     

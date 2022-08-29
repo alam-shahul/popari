@@ -33,15 +33,17 @@ class SpiceMixPlus:
     def __init__(self,
         K: int,
         replicate_names: Sequence[str],
-        datasets: Optional[Union[str, Path, Sequence[ad.AnnData]]] = None,
+        datasets: Optional[Sequence[ad.AnnData]] = None,
         dataset_path: Optional[Union[str, Path ]] = None,
         lambda_Sigma_x_inv: float = 1e-4,
+        pretrained: bool = False,
         initialization_method: str = "svd",
         betas: Optional[Sequence[float]] = None,
         prior_x_modes: Optional[Sequence[float]] = None,
         M_constraint: str = "simplex",
         sigma_yx_inv_mode: str = "separate",
         torch_context: Optional[dict] = None,
+        initial_context: Optional[dict] = None,
         metagene_mode: str = "shared",
         spatial_affinity_mode: str ="shared lookup",
         lambda_M: float = 0.5,
@@ -73,8 +75,12 @@ class SpiceMixPlus:
 
         if not torch_context:
             torch_context = dict(device='cpu', dtype=torch.float32)
+        
+        if not initial_context:
+            initial_context = dict(device='cpu', dtype=torch.float32)
 
         self.context = torch_context
+        self.initial_context = initial_context
 
         self.random_state = random_state
         torch.manual_seed(self.random_state)
@@ -94,7 +100,13 @@ class SpiceMixPlus:
         elif dataset_path:
             self.load_dataset(dataset_path, replicate_names)
 
-        self._initialize(betas, prior_x_modes, method=initialization_method)
+        if self.context["device"] != "cpu":
+            preinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
+            print(preinit_memory_usage)
+        self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
+        if self.context["device"] != "cpu":
+            postinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
+            print(postinit_memory_usage)
 
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
         """Load SpiceMixPlus data directly from AnnData objects.
@@ -121,10 +133,10 @@ class SpiceMixPlus:
 
         dataset_path = Path(dataset_path)
         
-        datasets = load_anndata(dataset_path, replicate_names, self.context)
+        datasets = load_anndata(dataset_path, replicate_names, context=self.initial_context)
         self.load_anndata_datasets(datasets, replicate_names)
 
-    def _initialize(self, betas: Optional[Sequence[float]] = None, prior_x_modes: Optional[Sequence[str]] = None, method: str = 'svd'):
+    def _initialize(self, pretrained=False, betas: Optional[Sequence[float]] = None, prior_x_modes: Optional[Sequence[str]] = None, method: str = 'svd'):
         """Initialize metagenes and hidden states.
 
         Args:
@@ -148,48 +160,65 @@ class SpiceMixPlus:
                 lambda_M=self.lambda_M,
                 metagene_mode=self.metagene_mode,
                 M_constraint=self.M_constraint,
+                initial_context=self.initial_context,
                 context=self.context
             )
-        self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets, context=self.context)
+        self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets, initial_context=self.initial_context, context=self.context)
         
         self.parameter_optimizer.link(self.embedding_optimizer)
         self.embedding_optimizer.link(self.parameter_optimizer)
 
-        if method == 'kmeans':
-            self.M, self.Xs = initialize_kmeans(self.datasets, self.K, self.context, kwargs_kmeans=dict(random_state=self.random_state))
-        elif method == 'svd':
-            self.M, self.Xs = initialize_svd(self.datasets, self.K, self.context, M_nonneg=(self.M_constraint == 'simplex'), X_nonneg=True)
-        else:
-            raise NotImplementedError
-        
-        for dataset_index, dataset in enumerate(self.datasets):
-            self.parameter_optimizer.metagene_state[dataset.name][:] = self.M
-            self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
-
-        self.parameter_optimizer.scale_metagenes()
-
-        self.Sigma_x_inv_bar = None
-
-        self.parameter_optimizer.update_sigma_yx()
-
-        initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
-        self.parameter_optimizer.spatial_affinity_state.initialize(initial_embeddings)
-        
-        for dataset_index, dataset  in enumerate(self.datasets):
+        if pretrained:
+            first_dataset = self.datasets[0]
             if self.metagene_mode == "differential":
-                dataset.uns["M_bar"] = {dataset.name: self.parameter_optimizer.metagene_state.M_bar}
+                self.parameter_optimizer.metagene_state.M_bar = torch.from_numpy(first_dataset.uns["M_bar"][first_dataset.name]).to(**self.initial_context)
+            for dataset_index, dataset  in enumerate(self.datasets):
+                self.parameter_optimizer.metagene_state[dataset.name][:] = torch.from_numpy(dataset.uns["M"][dataset.name]).to(**self.initial_context)
+                self.embedding_optimizer.embedding_state[dataset.name][:] = torch.from_numpy(dataset.obsm["X"]).to(**self.initial_context)
+                    
+                self.parameter_optimizer.spatial_affinity_state[dataset.name] = torch.from_numpy(dataset.uns["Sigma_x_inv"][dataset.name]).to(**self.initial_context)
+        
+            self.parameter_optimizer.update_sigma_yx()
+        else:
+            if method == 'kmeans':
+                self.M, self.Xs = initialize_kmeans(self.datasets, self.K, self.initial_context, kwargs_kmeans=dict(random_state=self.random_state))
+            elif method == 'svd':
+                self.M, self.Xs = initialize_svd(self.datasets, self.K, self.initial_context, M_nonneg=(self.M_constraint == 'simplex'), X_nonneg=True)
+            else:
+                raise NotImplementedError
+            
+            for dataset_index, dataset in enumerate(self.datasets):
+                self.parameter_optimizer.metagene_state[dataset.name][:] = self.M
+                self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
 
-            dataset.uns["M"] = {dataset.name: self.parameter_optimizer.metagene_state}
-            dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.name]
+            self.parameter_optimizer.scale_metagenes()
+            self.Sigma_x_inv_bar = None
+
+            self.parameter_optimizer.update_sigma_yx()
+
+            initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
+            self.parameter_optimizer.spatial_affinity_state.initialize(initial_embeddings)
+            
+            for dataset_index, dataset  in enumerate(self.datasets):
+                if self.metagene_mode == "differential":
+                    M_bar = self.parameter_optimizer.metagene_state.M_bar.cpu().detach().numpy()
+                    dataset.uns["M_bar"] = {dataset.name: M_bar}
+
+                metagene_state = self.parameter_optimizer.metagene_state[dataset.name].cpu().detach().numpy()
+                dataset.uns["M"] = {dataset.name: metagene_state}
+
+                X = self.embedding_optimizer.embedding_state[dataset.name].cpu().detach().numpy()
+                dataset.obsm["X"] = X
                 
-            dataset.uns["Sigma_x_inv"] = {dataset.name : self.parameter_optimizer.spatial_affinity_state[dataset.name]}
+                Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
+                dataset.uns["Sigma_x_inv"] = {dataset.name : Sigma_x_inv}
 
-            dataset.uns["spicemixplus_hyperparameters"] = {
-                "metagene_mode": self.metagene_mode,
-                "prior_x": self.parameter_optimizer.prior_xs[dataset_index][0],
-                "K": self.K,
-                "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
-            }
+                dataset.uns["spicemixplus_hyperparameters"] = {
+                    "metagene_mode": self.metagene_mode,
+                    "prior_x": self.parameter_optimizer.prior_xs[dataset_index][0],
+                    "K": self.K,
+                    "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
+                }
 
 
         self.synchronize_datasets()
@@ -197,23 +226,22 @@ class SpiceMixPlus:
     def synchronize_datasets(self):
         """Synchronize datasets with learned SpiceMix parameters and embeddings."""
         for dataset_index, dataset in enumerate(self.datasets):
-            dataset.uns["M"][dataset.name] = self.parameter_optimizer.metagene_state[dataset.name]
-            dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.name]
+            dataset.uns["M"][dataset.name] = self.parameter_optimizer.metagene_state[dataset.name].cpu().detach().numpy()
+            dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.name].cpu().detach().numpy()
             dataset.uns["sigma_yx"] = self.parameter_optimizer.sigma_yxs[dataset_index]
             with torch.no_grad():
-                dataset.uns["Sigma_x_inv"][dataset.name][:] = self.parameter_optimizer.spatial_affinity_state[dataset.name]
+                dataset.uns["Sigma_x_inv"][dataset.name][:] = self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
 
             if self.spatial_affinity_mode == "differential lookup":
-                dataset.uns["spatial_affinity_bar"][dataset.name][:] = self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar
+                dataset.uns["spatial_affinity_bar"][dataset.name][:] = self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar.cpu().detach().numpy()
 
             if self.metagene_mode == "differential":
-                dataset.uns["M_bar"][dataset.name] = self.parameter_optimizer.metagene_state.M_bar
+                dataset.uns["M_bar"][dataset.name] = self.parameter_optimizer.metagene_state.M_bar.cpu().detach().numpy()
 
-
-    def estimate_weights(self):
+    def estimate_weights(self, use_neighbors=True):
         """Update embeddings (latent states) for each replicate."""
         logging.info(f'{print_datetime()}Updating latent states')
-        self.embedding_optimizer.update_embeddings()
+        self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
         self.synchronize_datasets()
 
     def estimate_parameters(self, update_spatial_affinities: bool = True):
@@ -228,31 +256,11 @@ class SpiceMixPlus:
         if update_spatial_affinities:
             self.parameter_optimizer.update_spatial_affinity()
 
-            # elif self.Sigma_x_inv_mode == "differential":
-            #     for X, dataset, u, beta, optimizer, replicate in zip(self.Xs, self.datasets, use_spatial,
-            #             self.betas, self.optimizer_Sigma_x_invs, self.repli_list):
-            #         updated_Sigma_x_inv, Q_value = estimate_Sigma_x_inv([X], dataset.uns["Sigma_x_inv"][f"{replicate}"],
-            #                 [u], self.lambda_Sigma_x_inv, [beta], optimizer, self.context, [dataset])
-            #         with torch.no_grad():
-            #             # Note: in-place update is necessary here in order for optimizer to track same object
-            #             dataset.uns["Sigma_x_inv"][f"{replicate}"][:] = updated_Sigma_x_inv
-
-            #         print(f"Q_value:{Q_value}")
-       
-            #     self.Sigma_x_inv_bar.zero_()
-            #     for dataset, replicate in zip(self.datasets, self.repli_list):
-            #         self.Sigma_x_inv_bar.add_(dataset.uns["Sigma_x_inv"][f"{replicate}"])
-            #     
-            #     self.Sigma_x_inv_bar.div_(len(self.datasets))
-
-            #     for dataset, replicate in zip(self.datasets, self.repli_list):
-            #         dataset.uns["Sigma_x_inv_bar"][f"{replicate}"] = self.Sigma_x_inv_bar
-
         self.parameter_optimizer.update_metagenes()
         self.parameter_optimizer.update_sigma_yx()
         self.synchronize_datasets()
 
-    def save_results(self, path2dataset, PredictorConstructor=None, predictor_hyperparams=None):
+    def save_results(self, path2dataset):
         """Save datasets and learned SpiceMixPlus parameters to .h5ad file.
 
         Args:
@@ -261,3 +269,21 @@ class SpiceMixPlus:
         """
         replicate_names = [dataset.name for dataset in self.datasets]
         save_anndata(path2dataset, self.datasets, replicate_names)
+
+def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence[str]):
+    datasets = load_anndata(dataset_path, replicate_names, context="numpy")
+
+    first_dataset = datasets[0]
+    metagene_mode = first_dataset.uns["spicemixplus_hyperparameters"]["metagene_mode"]
+    K = first_dataset.uns["spicemixplus_hyperparameters"]["K"]
+    lambda_Sigma_x_inv = first_dataset.uns["spicemixplus_hyperparameters"]["lambda_Sigma_x_inv"]
+
+    trained_model = SpiceMixPlus(K=K,
+        metagene_mode=metagene_mode,
+        datasets=datasets,
+        replicate_names=replicate_names,
+        lambda_Sigma_x_inv=lambda_Sigma_x_inv,
+        pretrained=True
+    )
+
+    return trained_model

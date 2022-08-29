@@ -68,8 +68,11 @@ class SpiceMixDataset(ad.AnnData):
         distances = sparse_distance_matrix.data
         cutoff = np.percentile(distances, threshold)
         mask = dense_distances < cutoff
-
-        return csr_matrix(sparse_adjacency_matrix * mask)
+    
+        sparse_adjacency_matrix[~mask] = 0
+        sparse_adjacency_matrix.eliminate_zeros()
+        
+        return sparse_adjacency_matrix
 
     def plot_metagene_embedding(metagene_index, **scatterplot_kwargs):
         points = self.obsm["spatial"]
@@ -84,18 +87,19 @@ class EmbeddingOptimizer():
 
     """
 
-    def __init__(self, K, Ys, datasets, context=None):
+    def __init__(self, K, Ys, datasets, initial_context=None, context=None):
         self.datasets = datasets
         self.K = K
         self.Ys = Ys
-        self.context = context if context else {}
+        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
+        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         
         self.embedding_state = EmbeddingState(K, self.datasets, context=self.context)
 
     def link(self, parameter_optimizer):
         self.parameter_optimizer = parameter_optimizer
 
-    def update_embeddings(self):
+    def update_embeddings(self, use_neighbors=True):
         """Update SpiceMixPlus embeddings according to optimization scheme.
 
         """
@@ -105,22 +109,22 @@ class EmbeddingOptimizer():
         for dataset_index, dataset  in enumerate(self.datasets):
             is_spatial_replicate = ("adjacency_list" in dataset.obs)
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
-            Y = self.Ys[dataset_index]
-            X = self.embedding_state[dataset.name]
-            M = self.parameter_optimizer.metagene_state[dataset.name]
+            Y = self.Ys[dataset_index].to(self.context["device"])
+            X = self.embedding_state[dataset.name].to(self.context["device"])
+            M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
-            if not is_spatial_replicate:
+            if not is_spatial_replicate or not use_neighbors:
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wonbr(
-                    Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, context=self.context)
+                    Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset)
             else:
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr(
-                    Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, context=self.context)
+                    Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset)
 
             loss_list.append(loss)
 
     @torch.no_grad()
-    def estimate_weight_wonbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, context, n_epochs=1000, tol=1e-6, update_alg='gd', verbose=True):
+    def estimate_weight_wonbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, n_epochs=1000, tol=1e-6, update_alg='gd', verbose=True):
         """Estimate weights without spatial information - equivalent to vanilla NMF.
    
         Optimizes the follwing objective with respect to hidden state X:
@@ -229,7 +233,7 @@ class EmbeddingOptimizer():
         return loss, X
     
     @torch.no_grad()
-    def estimate_weight_wnbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, context, n_epochs=1000, tol=1e-5, update_alg='nesterov'):
+    def estimate_weight_wnbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, n_epochs=1000, tol=1e-5, update_alg='nesterov'):
         """Estimate updated weights taking neighbor-neighbor interactions into account.
     
         The optimization for all variables
@@ -256,11 +260,12 @@ class EmbeddingOptimizer():
         N = len(Z)
         
         E_adjacency_list = dataset.obs["adjacency_list"]
-        Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name]
+        adjacency_matrix = dataset.obsp["adjacency_matrix"].to(self.context["device"])
+        Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
     
         def get_adjacency_matrix(adjacency_list):
             edges = [(i, j) for i, e in enumerate(adjacency_list) for j in e]
-            adjacency_matrix = torch.sparse_coo_tensor(np.array(edges).T, np.ones(len(edges)), size=[len(adjacency_list), N], **context)
+            adjacency_matrix = torch.sparse_coo_tensor(np.array(edges).T, np.ones(len(edges)), size=[len(adjacency_list), N], **self.context)
             return adjacency_matrix
     
         def update_s():
@@ -342,7 +347,7 @@ class EmbeddingOptimizer():
     
         def update_z_gd_nesterov(Z, verbose=False):
             pbar = trange(N, leave=False, disable=True, desc='Updating Z w/ nbrs via Nesterov GD')
-            batch_number = 0
+           
             func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
             for idx in IndependentSet(E_adjacency_list, batch_size=256):
                 quad_batch = MTM
@@ -361,8 +366,21 @@ class EmbeddingOptimizer():
                         func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
                     NesterovGD.step_size = base_step_size / S_batch.square() # TM: I think this converges as s converges
                     func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
+                    # grad_limit = torch.quantile(torch.abs(grad), 0.9)
+                    # max_before = torch.max(torch.abs(grad))
+                    # grad.clamp_(min=-grad_limit, max=grad_limit)
+                    # max_after = torch.max(torch.abs(grad))
                     Z_batch_prev = Z_batch.clone()
                     Z_batch_copy = optimizer.step(grad)
+                    # if max(torch.linalg.norm(Z_batch_copy, ord=1, axis=1)) > 1000:
+                    #     print(f"L1 norm of Z_batch_copy: {torch.linalg.norm(Z_batch_copy, ord=1, axis=1)}")
+                    #     print(f"Max L1 norm of Z_batch_copy: {max(torch.linalg.norm(Z_batch_copy, ord=1, axis=1))}")
+                    #     print(f"L2 norm of Z_batch_copy: {torch.linalg.norm(Z_batch_copy, ord=2, axis=1)}")
+                    #     print(f"Max L2 norm of Z_batch_copy: {max(torch.linalg.norm(Z_batch_copy, ord=2, axis=1))}")
+                    #     print(f"Grad: {grad}")
+                    #     print(f"Grad max before: {max_before}")
+                    #     print(f"grad limit:{grad_limit}")
+                    #     print(f"Grad max after: {max_after}")
                     Z_batch = project2simplex(Z_batch_copy, dim=1)
                     optimizer.set_parameters(Z_batch)
                     dZ = (Z_batch_prev - Z_batch).abs().max().item()
@@ -396,7 +414,7 @@ class EmbeddingOptimizer():
                 raise NotImplementedError
     
             if Sigma_x_inv is not None:
-                loss += ((dataset.obsp["adjacency_matrix"] @ Z) @ Sigma_x_inv).mul(Z).sum() / 2
+                loss += ((adjacency_matrix @ Z) @ Sigma_x_inv).mul(Z).sum() / 2
             loss = loss.item()
             # assert loss <= loss_prev, (loss_prev, loss)
             return loss
@@ -439,10 +457,11 @@ class EmbeddingState(dict):
         K: embedding dimension:
 
     """
-    def __init__(self, K: int, datasets: Sequence[SpiceMixDataset], context=None):
+    def __init__(self, K: int, datasets: Sequence[SpiceMixDataset], initial_context=None, context=None):
         self.datasets = datasets
         self.K = K
-        self.context = context if context else {}
+        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
+        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         super().__init__()
             
         self.embeddings = []
@@ -467,8 +486,6 @@ class EmbeddingState(dict):
 
             dataset.obsm["normalized_X"] = zscore(dataset.obsm["X"])
             sc.pp.neighbors(dataset, use_rep="normalized_X")
-            print(sc.metrics.morans_i(dataset, obsm="learned_X"))
-            print(sc.metrics.morans_i(dataset, obsm="normalized_learned_X"))
 
 class ParameterOptimizer():
     """Optimizer and state for SpiceMix parameters.
@@ -483,6 +500,7 @@ class ParameterOptimizer():
             lambda_M=0.5,
             M_constraint="simplex",
             sigma_yx_inv_mode="separate",
+            initial_context=None,
             context=None
     ):
         self.datasets = datasets
@@ -496,16 +514,17 @@ class ParameterOptimizer():
         self.M_constraint = M_constraint
         self.prior_x_modes = prior_x_modes
         self.betas = betas
-        self.context = context if context else {}
+        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
+        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
         
-        self.metagene_state = MetageneState(self.K, self.datasets, mode=self.metagene_mode, M_constraint=self.M_constraint, context=self.context)
-        self.spatial_affinity_state = SpatialAffinityState(self.K, self.metagene_state, self.datasets, self.betas, mode=self.spatial_affinity_mode, context=self.context)
+        self.metagene_state = MetageneState(self.K, self.datasets, mode=self.metagene_mode, M_constraint=self.M_constraint, initial_context=self.initial_context, context=self.context)
+        self.spatial_affinity_state = SpatialAffinityState(self.K, self.metagene_state, self.datasets, self.betas, mode=self.spatial_affinity_mode, initial_context=self.initial_context, context=self.context)
         
         if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(torch.ones(self.K, **self.context),) for _ in range(len(self.datasets))]
+            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(torch.zeros(self.K, **self.context),) for _ in range(len(self.datasets))]
+            self.prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         else:
             raise NotImplementedError
 
@@ -527,13 +546,10 @@ class ParameterOptimizer():
         self.metagene_state.metagenes.div_(scale_factor)
         for dataset_index, replicate_embedding in enumerate(self.embedding_optimizer.embedding_state.embeddings):
             if norm_axis == 1:
-                print(scale_factor.shape)
                 replicate_scale_factor = scale_factor[dataset_index]
                 replicate_embedding.mul_(replicate_scale_factor)
             else:
                 replicate_embedding.mul_(scale_factor)
-
-        
 
     def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, Sigma_x_inv_bar=None, constraint="clamp", n_epochs=1000):
         """Optimize Sigma_x_inv parameters.
@@ -559,11 +575,11 @@ class ParameterOptimizer():
     
         linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
         size_factors = [torch.linalg.norm(X, axis=1, ord=1, keepdim=True) for X in Xs ]
-        Zs = [X / size_factor for X, size_factor in zip(Xs, size_factors)]
+        Zs = [X.to(self.context["device"]) / size_factor for X, size_factor in zip(Xs, size_factors)]
         nus = [] # sum of neighbors' z
         weighted_total_cells = 0
         for Z, dataset, use_spatial, beta in zip(Zs, datasets, spatial_flags, self.betas):
-            adjacency_matrix = dataset.obsp["adjacency_matrix"]
+            adjacency_matrix = dataset.obsp["adjacency_matrix"].to(self.context["device"])
             adjacency_list = dataset.obs["adjacency_list"]
 
             if use_spatial:
@@ -571,6 +587,7 @@ class ParameterOptimizer():
                 linear_term_coefficient = linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
             else:
                 nu = None
+
             nus.append(nu)
             weighted_total_cells += beta * sum(map(len, adjacency_list))
             del Z, adjacency_matrix
@@ -654,7 +671,7 @@ class ParameterOptimizer():
         if self.spatial_affinity_mode == "shared lookup":
             first_dataset = self.datasets[0]
             replicate_mask =  np.full(len(self.datasets), True)
-            Sigma_x_inv = self.spatial_affinity_state[first_dataset.name]
+            Sigma_x_inv = self.spatial_affinity_state[first_dataset.name].to(self.context["device"])
             Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask)
             with torch.no_grad():
                for dataset in self.datasets:
@@ -669,7 +686,7 @@ class ParameterOptimizer():
             for index, dataset in enumerate(self.datasets):
                 replicate_mask =  np.full(len(self.datasets), False)
                 replicate_mask[index] = True
-                Sigma_x_inv = self.spatial_affinity_state[dataset.name]
+                Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
                 Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask)
                 with torch.no_grad():
                     self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
@@ -742,16 +759,13 @@ class ParameterOptimizer():
         #     quadratic_factor.diagonal().add_(self.lambda_M)
         #     linear_term += self.lambda_M * M_bar
         differential_regularization_quadratic_factor = torch.zeros((K, K), **self.context)
-        differential_regularization_linear_term = 0
-        print(self.lambda_M)
+        differential_regularization_linear_term = torch.zeros(1, **self.context)
         if self.lambda_M > 0 and M_bar is not None:
             differential_regularization_quadratic_factor = self.lambda_M * torch.eye(K, **self.context)
             differential_regularization_linear_term = self.lambda_M * M_bar
         #     quadratic_factor.diagonal().add_(self.lambda_M)
         #     linear_term += self.lambda_M * M_bar
 
-        print(linear_term)
-        print(differential_regularization_quadratic_factor)
         np.save("quadratic_factor.npy", quadratic_factor.cpu().numpy())
         np.save("differential_regularization_quadratic_factor.npy", differential_regularization_quadratic_factor.cpu().numpy())
         print(f"DTYPE: {quadratic_factor.dtype}")
@@ -901,7 +915,6 @@ class ParameterOptimizer():
         else:
             raise NotImplementedError
        
-        print(M[0]) 
         return M
 
     def update_sigma_yx(self):
@@ -935,9 +948,10 @@ class MetageneState(dict):
         context: Parameters to define the context for PyTorch tensor instantiation.
         metagenes: A PyTorch tensor containing all metagene parameters.
     """
-    def __init__(self, K, datasets, mode="shared", M_constraint="simplex", context=None):
+    def __init__(self, K, datasets, mode="shared", M_constraint="simplex", initial_context=None, context=None):
         self.datasets = datasets
-        self.context = context if context else {}
+        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
+        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.M_constraint = M_constraint
         if mode == "shared":
             _, num_genes = self.datasets[0].shape
@@ -961,12 +975,13 @@ class MetageneState(dict):
         self.M_bar[:] = project_M(self.M_bar, self.M_constraint)
 
 class SpatialAffinityState(dict):
-    def __init__(self, K, metagene_state, datasets, betas, scaling=10, mode="shared lookup", context=None):
+    def __init__(self, K, metagene_state, datasets, betas, scaling=10, mode="shared lookup", initial_context=None, context=None):
         self.datasets = datasets
         self.metagene_state = metagene_state
         self.K = K
         self.mode = "shared lookup"
-        self.context = context if context else {}
+        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
+        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.betas = betas
         self.scaling = scaling
         self.optimizer = None
@@ -974,17 +989,17 @@ class SpatialAffinityState(dict):
 
         num_replicates = len(self.datasets)
         if mode == "shared lookup":
-            self.spatial_affinity = SpatialAffinityLookup(K=self.K, context=self.context)
+            self.spatial_affinity = SpatialAffinityLookup(K=self.K, initial_context=self.initial_context, context=self.context)
             metagene_affinities = self.spatial_affinity.get_metagene_affinities()[0]
             for dataset in self.datasets:
                 self.__setitem__(dataset.name, metagene_affinities)
 
         elif mode == "differential lookup":
-            self.spatial_affinity = SpatialAffinityLookup(K=self.K, num_replicates=num_replicates, context=self.context)
+            self.spatial_affinity = SpatialAffinityLookup(K=self.K, num_replicates=num_replicates, initial_context=self.initial_context, context=self.context)
             self.spatial_affinity_bar = torch.zeros_like(self.spatial_affinity.get_metagene_affinities()[0])
 
         elif mode == "attention":
-            self.spatial_affinity = SpatialAffinityAttention(K=self.K, num_replicates=num_replicates, context=self.context)
+            self.spatial_affinity = SpatialAffinityAttention(K=self.K, num_replicates=num_replicates, initial_context=self.initial_context, context=self.context)
             metagene_affinities = self.spatial_affinity.get_metagene_affinities(self.metagene_state[dataset.name])
             for dataset_index, dataset in enumerate(self.datasets):
                 self.__setitem__(dataset.name, metagene_affinities[dataset_index])
@@ -996,7 +1011,7 @@ class SpatialAffinityState(dict):
             return
 
         num_replicates = len(self.datasets)
-        Sigma_x_invs = torch.zeros([num_replicates, self.K, self.K], **self.context)
+        Sigma_x_invs = torch.zeros([num_replicates, self.K, self.K], **self.initial_context)
         for replicate, (beta, initial_embedding, is_spatial_replicate, dataset) in enumerate(zip(self.betas, initial_embeddings, use_spatial_info, self.datasets)):
             if not is_spatial_replicate:
                 continue
@@ -1005,7 +1020,7 @@ class SpatialAffinityState(dict):
             X = initial_embedding
             Z = X / torch.linalg.norm(X, dim=1, keepdim=True, ord=1)
             edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
-    
+   
             x = Z[edges[:, 0]]
             y = Z[edges[:, 1]]
             x = x - x.mean(dim=0, keepdim=True)
@@ -1048,28 +1063,30 @@ class SpatialAffinity():
     Parameters:
         K (int): number of latent spatial factors
     """
-    def __init__(self, K, context=None):
+    def __init__(self, K, initial_context=None, context=None):
         raise NotImplementedError()
 
     def get_metagene_affinities(self, metagenes):
         raise NotImplementedError()
 
 class SpatialAffinityLookup(SpatialAffinity):
-    def __init__(self, K, num_replicates=1, scaling=10, context=None):
+    def __init__(self, K, num_replicates=1, scaling=10, initial_context=None, context=None):
         self.K = K
-        self.context = context if context else {}
-        self.spatial_affinity_lookup = torch.zeros((num_replicates, K, K), **self.context)
+        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
+        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
+        self.spatial_affinity_lookup = torch.zeros((num_replicates, K, K), **self.initial_context)
 
     def get_metagene_affinities(self, metagenes=None):
         return self.spatial_affinity_lookup
 
 class SpatialAffinityAttention(SpatialAffinity):
-    def __init__(self, K, num_replicates=1, scaling=10, context=None):
+    def __init__(self, K, num_replicates=1, scaling=10, initial_context=None, context=None):
         self.K = K
-        self.context = context if context else {}
-        self.spatial_affinity_attention = MultiheadAttention(K * num_replicates, num_replicates, **self.context)
+        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
+        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
+        self.spatial_affinity_attention = MultiheadAttention(K * num_replicates, num_replicates, **self.initial_context)
 
     def get_metagene_affinities(self, metagenes):
-        _ , metagene_atttention_weights = self.spatial_affinity_attention(metagenes, metagenes, metagenes, average_attn_weights=False)
+        _ , metagene_attention_weights = self.spatial_affinity_attention(metagenes, metagenes, metagenes, average_attn_weights=False)
 
         return metagene_attention
