@@ -47,6 +47,7 @@ class SpiceMixPlus:
         metagene_mode: str = "shared",
         spatial_affinity_mode: str ="shared lookup",
         lambda_M: float = 0.5,
+        lambda_Sigma_bar: float = 0.5,
         random_state: int = 0
     ):
         """Initialize SpiceMixPlus object using ST data.
@@ -67,6 +68,8 @@ class SpiceMixPlus:
             spatial_affinity_mode: modality of spatial affinity parameters. Default: `shared lookup`
             lambda_M: hyperparameter to constrain metagene deviation in differential case. Ignored if
                 `metagene_mode` is `shared`. Default: `0`
+            lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
+                `spatial_affinity_mode` is `shared lookup`. Default: `0`
             random_state: seed for reproducibility of randomized computations. Default: `0`
         """
 
@@ -88,6 +91,7 @@ class SpiceMixPlus:
 
         self.K = K
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
+        self.lambda_Sigma_bar = lambda_Sigma_bar
         self.M_constraint = M_constraint
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.spatial_affinity_mode = spatial_affinity_mode
@@ -100,13 +104,13 @@ class SpiceMixPlus:
         elif dataset_path:
             self.load_dataset(dataset_path, replicate_names)
 
-        if self.context["device"] != "cpu":
-            preinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
-            print(preinit_memory_usage)
+        # if self.context["device"] != "cpu":
+        #     preinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
+        #     print(preinit_memory_usage)
         self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
-        if self.context["device"] != "cpu":
-            postinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
-            print(postinit_memory_usage)
+        # if self.context["device"] != "cpu":
+        #     postinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
+        #     print(postinit_memory_usage)
 
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
         """Load SpiceMixPlus data directly from AnnData objects.
@@ -158,7 +162,9 @@ class SpiceMixPlus:
         self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
                 lambda_M=self.lambda_M,
+                lambda_Sigma_bar=self.lambda_Sigma_bar,
                 metagene_mode=self.metagene_mode,
+                spatial_affinity_mode=self.spatial_affinity_mode,
                 M_constraint=self.M_constraint,
                 initial_context=self.initial_context,
                 context=self.context
@@ -203,6 +209,10 @@ class SpiceMixPlus:
                 if self.metagene_mode == "differential":
                     M_bar = self.parameter_optimizer.metagene_state.M_bar.cpu().detach().numpy()
                     dataset.uns["M_bar"] = {dataset.name: M_bar}
+                
+                if self.spatial_affinity_mode == "differential lookup":
+                    spatial_affinity_bar = self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar.cpu().detach().numpy()
+                    dataset.uns["spatial_affinity_bar"] = {dataset.name: spatial_affinity_bar}
 
                 metagene_state = self.parameter_optimizer.metagene_state[dataset.name].cpu().detach().numpy()
                 dataset.uns["M"] = {dataset.name: metagene_state}
@@ -220,6 +230,10 @@ class SpiceMixPlus:
                     "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
                 }
 
+                if self.metagene_mode == "differential":
+                    dataset.uns["spicemixplus_hyperparameters"]["lambda_M"] = self.lambda_M
+                if self.spatial_affinity_mode != "shared":
+                    dataset.uns["spicemixplus_hyperparameters"]["lambda_Sigma_bar"] = self.lambda_Sigma_bar
 
         self.synchronize_datasets()
     

@@ -19,6 +19,7 @@ def spicemix_with_neighbors():
         K=10, lambda_Sigma_x_inv=1e-5,
         metagene_mode="shared",
         torch_context=dict(device='cuda:0', dtype=torch.float32),
+        initial_context=dict(device='cuda:0', dtype=torch.float32),
         dataset_path=path2dataset / "all_data.h5",
         replicate_names=replicate_names
     )   
@@ -29,25 +30,24 @@ def spicemix_with_neighbors():
                 
     return obj
 
-        
 def test_Sigma_x_inv(spicemix_with_neighbors):
     Sigma_x_inv = spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.spatial_affinity.get_metagene_affinities().detach().cpu().numpy()
     # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_shared.npy", Sigma_x_inv)
     test_Sigma_x_inv = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_shared.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
-    
+
 def test_M(spicemix_with_neighbors):
     M_bar = spicemix_with_neighbors.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
     # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_shared.npy", M_bar)
     test_M = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_shared.npy")
     assert np.allclose(test_M, M_bar)
-    
+
 def test_X_0(spicemix_with_neighbors):
     X_0 = spicemix_with_neighbors.embedding_optimizer.embedding_state["0"].detach().cpu().numpy()
     # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_shared.npy", X_0)
     test_X_0 = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_shared.npy")
     assert np.allclose(test_X_0, X_0)
-    
+
 def test_louvain_clustering(spicemix_with_neighbors):
     df_meta = []
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')

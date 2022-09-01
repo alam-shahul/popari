@@ -54,6 +54,7 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
     obsm: Optional[str] = None,
     obsp: Optional[str] = None,
     uns: Optional[str] = None,
+    **heatmap_kwargs
   ):
     datasets = trained_model.datasets
 
@@ -64,9 +65,15 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
         height += (width * height != len(datasets))
         fig, axes = plt.subplots(height, width)
 
-    for dataset, ax in zip(datasets, axes.flat):
+    for dataset_index, ax in enumerate(axes.flat):
+        if dataset_index > len(datasets):
+            ax.set_visible(False)
+            continue
+
+        dataset = datasets[dataset_index]
         image = dataset.uns[uns][dataset.name]
-        ax.imshow(image, cmap='hot', interpolation='nearest', aspect=0.05)
+        aspect = 0.05 if "aspect" not in heatmap_kwargs else hetmap_kwargs["aspect"]
+        ax.imshow(image, cmap='hot', interpolation='nearest', aspect=aspect)
 
     return fig
 
@@ -89,12 +96,12 @@ def plot_ari_scores(trained_model: SpiceMixPlus, ax: Optional[Axes] = None):
 
 def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str = "X", column_names: Optional[str] = None):
     if column_names == None:
-        column_names = [f"{index}" for index in range(trained_model.K)]
+        column_names = [f"{embedding_key}_{index}" for index in range(trained_model.K)]
 
     datasets = trained_model.datasets
     for dataset in datasets:
         axes = sc.pl.spatial(
-            sq.pl.extract(dataset, embedding_key, prefix=f"{embedding_key}_"),
+            sq.pl.extract(dataset, embedding_key, prefix=f"{embedding_key}"),
             color=column_names,
             spot_size=2,
             wspace=0.2,

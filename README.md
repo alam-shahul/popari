@@ -34,16 +34,24 @@ for fov in range(5):
 # Define hyperparameters
 K = 20 # Number of metagenes
 lambda_Sigma_x_inv = 1e-4 # Spatial affinity regularization hyperparameter
-torch_context = dict(device='cuda:0', dtype=torch.float32) # Context for PyTorch tensor instantiation
+torch_context = dict(device='cuda:0', dtype=torch.float32) # Context for PyTorch tensor instantiation 
 
 # Initialize
 spicemixplus_demo = SpiceMixPlus(
     K=K,
+    datasets=datasets,
     lambda_Sigma_x_inv=lambda_Sigma_x_inv,
     torch_context=torch_context
 )
     
 # Train
+
+## Initialization with NMF
+for iteration in range(10):
+    spicemixplus_demo.estimate_parameters(update_spatial_affinities=False)
+    spicemixplus_demo.estimate_weights(use_neighbors=False)
+
+## Using spatial information
 num_iterations = 200
 for iteration in range(num_iterations):
     spicemixplus_demo.estimate_parameters()

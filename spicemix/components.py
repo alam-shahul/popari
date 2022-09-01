@@ -498,6 +498,7 @@ class ParameterOptimizer():
             spatial_affinity_mode="shared lookup",
             metagene_mode="shared",
             lambda_M=0.5,
+            lambda_Sigma_bar=0.5,
             M_constraint="simplex",
             sigma_yx_inv_mode="separate",
             initial_context=None,
@@ -508,6 +509,7 @@ class ParameterOptimizer():
         self.K = K
         self.Ys = Ys
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
+        self.lambda_Sigma_bar = lambda_Sigma_bar
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
         self.lambda_M = lambda_M
         self.metagene_mode = metagene_mode
@@ -551,7 +553,7 @@ class ParameterOptimizer():
             else:
                 replicate_embedding.mul_(scale_factor)
 
-    def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, Sigma_x_inv_bar=None, constraint="clamp", n_epochs=1000):
+    def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=None, constraint="clamp", n_epochs=1000):
         """Optimize Sigma_x_inv parameters.
     
        
@@ -566,7 +568,6 @@ class ParameterOptimizer():
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         spatial_flags = ["adjacency_list" in dataset.obs for dataset in datasets]
-        optimizer = self.spatial_affinity_state.optimizer
 
         num_edges_per_fov = [sum(map(len, dataset.obs["adjacency_list"])) for dataset in datasets]
     
@@ -607,7 +608,7 @@ class ParameterOptimizer():
             # Compute loss 
             linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1)
             if Sigma_x_inv_bar is not None:
-                regularization = self.lambda_Sigma_x_inv * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
+                regularization = self.lambda_Sigma_bar * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
             else:
                 regularization = self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
             
@@ -672,22 +673,19 @@ class ParameterOptimizer():
             first_dataset = self.datasets[0]
             replicate_mask =  np.full(len(self.datasets), True)
             Sigma_x_inv = self.spatial_affinity_state[first_dataset.name].to(self.context["device"])
-            Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask)
+            optimizer = self.spatial_affinity_state.optimizers[first_dataset.name]
+            Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer)
             with torch.no_grad():
                for dataset in self.datasets:
                   self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
 
-            # with torch.no_grad():
-            #     # Note: in-place update is necessary here in order for optimizer to track same object
-            #     self.Sigma_x_inv[:] = updated_Sigma_x_inv
-            #     for replicate, dataset in zip(self.repli_list, self.datasets):
-            #         dataset.uns["Sigma_x_inv"][f"{replicate}"][:] = updated_Sigma_x_inv
         elif self.spatial_affinity_mode == "differential lookup":
             for index, dataset in enumerate(self.datasets):
                 replicate_mask =  np.full(len(self.datasets), False)
                 replicate_mask[index] = True
                 Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
-                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask)
+                optimizer = self.spatial_affinity_state.optimizers[dataset.name]
+                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=self.spatial_affinity_state.spatial_affinity_bar)
                 with torch.no_grad():
                     self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
 
@@ -766,18 +764,17 @@ class ParameterOptimizer():
         #     quadratic_factor.diagonal().add_(self.lambda_M)
         #     linear_term += self.lambda_M * M_bar
 
-        np.save("quadratic_factor.npy", quadratic_factor.cpu().numpy())
-        np.save("differential_regularization_quadratic_factor.npy", differential_regularization_quadratic_factor.cpu().numpy())
-        print(f"DTYPE: {quadratic_factor.dtype}")
-        print(f"Max eigenvalue before : {torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
-        print(f"Eigenvalue before : {(torch.linalg.eigvals(quadratic_factor).abs())}")
-        print(f"Max eigenvalue after : {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs())}")
-        print(f"Eigenvalue after : {(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs())}")
-        print(f"Difference: {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
-        print(f"All differences: {(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - (torch.linalg.eigvals(quadratic_factor).abs())}")
-        print(f"Linear term: {torch.linalg.norm(linear_term)}")
-        print(f"Regularization linear term: {torch.linalg.norm(differential_regularization_linear_term)}")
-        print(f"Linear regularization term ratio: {torch.linalg.norm(differential_regularization_linear_term) / torch.linalg.norm(linear_term)}")
+        if verbose:
+            print(f"DTYPE: {quadratic_factor.dtype}")
+            print(f"Max eigenvalue before : {torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
+            print(f"Eigenvalue before : {(torch.linalg.eigvals(quadratic_factor).abs())}")
+            print(f"Max eigenvalue after : {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs())}")
+            print(f"Eigenvalue after : {(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs())}")
+            print(f"Difference: {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
+            print(f"All differences: {(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - (torch.linalg.eigvals(quadratic_factor).abs())}")
+            print(f"Linear term: {torch.linalg.norm(linear_term)}")
+            print(f"Regularization linear term: {torch.linalg.norm(differential_regularization_linear_term)}")
+            print(f"Linear regularization term ratio: {torch.linalg.norm(differential_regularization_linear_term) / torch.linalg.norm(linear_term)}")
         loss_prev, loss = np.inf, np.nan
         progress_bar = trange(n_epochs, leave=True, disable=not verbose, desc='Updating M', miniters=1000)
     
@@ -849,7 +846,7 @@ class ParameterOptimizer():
                 if stop_criterion:
                     break
             
-            loss, grad = compute_loss_and_gradient(M, verbose=True)
+            loss, grad = compute_loss_and_gradient(M, verbose=verbose)
             if verbose:
                 print(f"M NAG Final Loss: {loss}")
     
@@ -984,22 +981,26 @@ class SpatialAffinityState(dict):
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.betas = betas
         self.scaling = scaling
-        self.optimizer = None
+        self.optimizers = {}
         super().__init__()
 
         num_replicates = len(self.datasets)
         if mode == "shared lookup":
             self.spatial_affinity = SpatialAffinityLookup(K=self.K, initial_context=self.initial_context, context=self.context)
-            metagene_affinities = self.spatial_affinity.get_metagene_affinities()[0]
+            metagene_affinities = self.spatial_affinity.get_metagene_affinities()
             for dataset in self.datasets:
                 self.__setitem__(dataset.name, metagene_affinities)
 
         elif mode == "differential lookup":
-            self.spatial_affinity = SpatialAffinityLookup(K=self.K, num_replicates=num_replicates, initial_context=self.initial_context, context=self.context)
-            self.spatial_affinity_bar = torch.zeros_like(self.spatial_affinity.get_metagene_affinities()[0])
+            self.spatial_affinity = SpatialAffinityLookup(K=self.K, num_groups=num_replicates, initial_context=self.initial_context, context=self.context)
+            for dataset_index, dataset in enumerate(self.datasets):
+                metagene_affinity = self.spatial_affinity.get_metagene_affinities()[dataset_index]
+                self.__setitem__(dataset.name, metagene_affinity)
+
+            self.spatial_affinity_bar = torch.zeros((self.K, self.K), **self.context)
 
         elif mode == "attention":
-            self.spatial_affinity = SpatialAffinityAttention(K=self.K, num_replicates=num_replicates, initial_context=self.initial_context, context=self.context)
+            self.spatial_affinity = SpatialAffinityAttention(K=self.K, num_groups=num_replicates, initial_context=self.initial_context, context=self.context)
             metagene_affinities = self.spatial_affinity.get_metagene_affinities(self.metagene_state[dataset.name])
             for dataset_index, dataset in enumerate(self.datasets):
                 self.__setitem__(dataset.name, metagene_affinities[dataset_index])
@@ -1034,18 +1035,33 @@ class SpatialAffinityState(dict):
         Sigma_x_invs = (Sigma_x_invs + torch.transpose(Sigma_x_invs, 1, 2)) / 2
         Sigma_x_invs -= Sigma_x_invs.mean(dim=(1, 2), keepdims=True)
         Sigma_x_invs *= self.scaling
-        
+
         if self.mode == "shared lookup":
-            self.spatial_affinity.spatial_affinity_lookup[:] = Sigma_x_invs.mean(axis=0)
-            for dataset in self.datasets:
-                dataset.uns["Sigma_x_inv"] = {dataset.name : self.spatial_affinity.spatial_affinity_lookup[0]}
-            
-            # This optimizer retains its state throughout the optimization
-            self.optimizer = torch.optim.Adam(
-                [self.__getitem__(dataset.name)],
+            shared_lookup_state = self.spatial_affinity.get_metagene_affinities()
+            shared_lookup_state[:] = Sigma_x_invs.mean(axis=0)
+            optimizer = torch.optim.Adam(
+                [shared_lookup_state],
                 lr=1e-3,
                 betas=(.5, .9),
             )
+            for dataset in self.datasets:
+                dataset.uns["Sigma_x_inv"] = {dataset.name : self.spatial_affinity.spatial_affinity_lookup[0]}
+                self.optimizers[dataset.name] = optimizer
+            
+            # # This optimizer retains its state throughout the optimization
+            # self.optimizer = 
+            # optimizer = torch.optim.Adam(
+            #     [self.__getitem__(dataset.name)],
+            #     lr=1e-3,
+            #     betas=(.5, .9),
+            # )
+        elif self.mode == "differential lookup":
+            self.spatial_affinity.spatial_affinity_lookup[:] = Sigma_x_invs
+            self.spatial_affinity_bar = Sigma_x_invs.mean(axis=0)
+            for dataset_index, dataset in enumerate(self.datasets):
+                dataset.uns["Sigma_x_inv"] = {dataset.name : self.spatial_affinity.spatial_affinity_lookup[dataset_index]}
+
+                
         elif self.mode == "attention":
             #TODO: initialize with gradient descent
             raise NotImplementedError()
@@ -1070,21 +1086,21 @@ class SpatialAffinity():
         raise NotImplementedError()
 
 class SpatialAffinityLookup(SpatialAffinity):
-    def __init__(self, K, num_replicates=1, scaling=10, initial_context=None, context=None):
+    def __init__(self, K, num_groups=1, scaling=10, initial_context=None, context=None):
         self.K = K
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self.spatial_affinity_lookup = torch.zeros((num_replicates, K, K), **self.initial_context)
+        self.spatial_affinity_lookup = torch.squeeze(torch.zeros((num_groups, K, K), **self.initial_context))
 
     def get_metagene_affinities(self, metagenes=None):
         return self.spatial_affinity_lookup
 
 class SpatialAffinityAttention(SpatialAffinity):
-    def __init__(self, K, num_replicates=1, scaling=10, initial_context=None, context=None):
+    def __init__(self, K, num_groups=1, scaling=10, initial_context=None, context=None):
         self.K = K
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self.spatial_affinity_attention = MultiheadAttention(K * num_replicates, num_replicates, **self.initial_context)
+        self.spatial_affinity_attention = MultiheadAttention(K * num_groups, num_groups, **self.initial_context)
 
     def get_metagene_affinities(self, metagenes):
         _ , metagene_attention_weights = self.spatial_affinity_attention(metagenes, metagenes, metagenes, average_attn_weights=False)

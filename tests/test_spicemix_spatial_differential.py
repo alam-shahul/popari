@@ -17,45 +17,44 @@ def spicemix_with_neighbors():
     replicate_names=[0, 1]
     obj = SpiceMixPlus(
         K=10, lambda_Sigma_x_inv=1e-5,
-        metagene_mode="differential",
-        lambda_M=0.5,
-        torch_context=dict(device='cuda:0', dtype=torch.float64),
-        initial_context=dict(device='cuda:0', dtype=torch.float64),
+        metagene_mode="shared",
+        spatial_affinity_mode="differential lookup",
+        torch_context=dict(device='cuda:0', dtype=torch.float32),
+        initial_context=dict(device='cuda:0', dtype=torch.float32),
         dataset_path=path2dataset / "all_data.h5",
         replicate_names=replicate_names
-    )
+    )   
 
     for iteration in range(1, 5):
         obj.estimate_parameters()
         obj.estimate_weights()
-
+                
     return obj
 
-        
 def test_Sigma_x_inv(spicemix_with_neighbors):
     Sigma_x_inv = spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.spatial_affinity.get_metagene_affinities().detach().cpu().numpy()
-    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy", Sigma_x_inv)
-    test_Sigma_x_inv = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy")
+    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_spatial_differential.npy", Sigma_x_inv)
+    test_Sigma_x_inv = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_spatial_differential.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
-    
+
 def test_M(spicemix_with_neighbors):
-    M_bar = spicemix_with_neighbors.parameter_optimizer.metagene_state.M_bar.detach().cpu().numpy()
-    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy", M_bar)
-    test_M = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy")
+    M_bar = spicemix_with_neighbors.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
+    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_spatial_differential.npy", M_bar)
+    test_M = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_spatial_differential.npy")
     assert np.allclose(test_M, M_bar)
-    
+
 def test_X_0(spicemix_with_neighbors):
     X_0 = spicemix_with_neighbors.embedding_optimizer.embedding_state["0"].detach().cpu().numpy()
-    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_differential.npy", X_0)
-    test_X_0 = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_differential.npy")
+    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_spatial_differential.npy", X_0)
+    test_X_0 = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_spatial_differential.npy")
     assert np.allclose(test_X_0, X_0)
-    
+
 def test_louvain_clustering(spicemix_with_neighbors):
     df_meta = []
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
-    expected_aris = [0.7453796245473255, 0.6823626228214905]
-    expected_silhouettes = [0.2559359512252682, 0.2516828074072696]
+    expected_aris = [0.8541194354126493, 0.8732247853237098]
+    expected_silhouettes = [0.28914159536361694, 0.31729185581207275]
     
     for index, (r, X) in enumerate(spicemix_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')
@@ -115,3 +114,4 @@ if __name__ == "__main__":
     test_X_0()
     
     test_louvain_clustering()
+
