@@ -494,6 +494,7 @@ class ParameterOptimizer():
 
     def __init__(self, K, Ys, datasets, betas, prior_x_modes,
             spatial_affinity_regularization_power=2,
+            spatial_affinity_scaling=10,
             lambda_Sigma_x_inv=1e-2,
             spatial_affinity_mode="shared lookup",
             metagene_mode="shared",
@@ -521,7 +522,7 @@ class ParameterOptimizer():
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
         
         self.metagene_state = MetageneState(self.K, self.datasets, mode=self.metagene_mode, M_constraint=self.M_constraint, initial_context=self.initial_context, context=self.context)
-        self.spatial_affinity_state = SpatialAffinityState(self.K, self.metagene_state, self.datasets, self.betas, mode=self.spatial_affinity_mode, initial_context=self.initial_context, context=self.context)
+        self.spatial_affinity_state = SpatialAffinityState(self.K, self.metagene_state, self.datasets, self.betas, scaling=spatial_affinity_scaling, mode=self.spatial_affinity_mode, initial_context=self.initial_context, context=self.context)
         
         if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
@@ -610,7 +611,9 @@ class ParameterOptimizer():
             if Sigma_x_inv_bar is not None:
                 regularization = self.lambda_Sigma_bar * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
             else:
-                regularization = self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
+                regularization = torch.zeros(1, **self.context)
+
+            regularization += self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
             
             log_partition_function = 0
             for Z, nu, beta in zip(Zs, nus, self.betas):
@@ -623,7 +626,11 @@ class ParameterOptimizer():
                 log_partition_function += beta * logZ.sum()
     
             loss = (linear_term + regularization + log_partition_function) / weighted_total_cells
-    
+   
+            # print(f"total loss {loss}")
+            # print(f"linear term {linear_term}")
+            # print(f"regularization {regularization}")
+            # print(f"log_partition_function {log_partition_function}")
             if loss < loss_best:
                 Sigma_x_inv_best = Sigma_x_inv.clone().detach()
                 loss_best = loss.item()
@@ -676,8 +683,7 @@ class ParameterOptimizer():
             optimizer = self.spatial_affinity_state.optimizers[first_dataset.name]
             Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer)
             with torch.no_grad():
-               for dataset in self.datasets:
-                  self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
+               self.spatial_affinity_state[first_dataset.name][:] = Sigma_x_inv
 
         elif self.spatial_affinity_mode == "differential lookup":
             for index, dataset in enumerate(self.datasets):
@@ -685,9 +691,13 @@ class ParameterOptimizer():
                 replicate_mask[index] = True
                 Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
                 optimizer = self.spatial_affinity_state.optimizers[dataset.name]
+                print(Sigma_x_inv[0])
                 Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=self.spatial_affinity_state.spatial_affinity_bar)
+                print(Sigma_x_inv[0])
                 with torch.no_grad():
+                    # print(self.spatial_affinity_state[dataset.name][0])
                     self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
+                    # print(Sigma_x_inv[0])
 
     def update_metagenes(self):
         if self.metagene_mode == "shared":
@@ -976,7 +986,7 @@ class SpatialAffinityState(dict):
         self.datasets = datasets
         self.metagene_state = metagene_state
         self.K = K
-        self.mode = "shared lookup"
+        self.mode = mode
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.betas = betas
@@ -986,22 +996,19 @@ class SpatialAffinityState(dict):
 
         num_replicates = len(self.datasets)
         if mode == "shared lookup":
-            self.spatial_affinity = SpatialAffinityLookup(K=self.K, initial_context=self.initial_context, context=self.context)
-            metagene_affinities = self.spatial_affinity.get_metagene_affinities()
+            metagene_affinities = torch.zeros((K, K), **self.initial_context)
             for dataset in self.datasets:
                 self.__setitem__(dataset.name, metagene_affinities)
 
         elif mode == "differential lookup":
-            self.spatial_affinity = SpatialAffinityLookup(K=self.K, num_groups=num_replicates, initial_context=self.initial_context, context=self.context)
             for dataset_index, dataset in enumerate(self.datasets):
-                metagene_affinity = self.spatial_affinity.get_metagene_affinities()[dataset_index]
+                metagene_affinity = torch.zeros((K, K), **self.initial_context)
                 self.__setitem__(dataset.name, metagene_affinity)
 
             self.spatial_affinity_bar = torch.zeros((self.K, self.K), **self.context)
 
         elif mode == "attention":
-            self.spatial_affinity = SpatialAffinityAttention(K=self.K, num_groups=num_replicates, initial_context=self.initial_context, context=self.context)
-            metagene_affinities = self.spatial_affinity.get_metagene_affinities(self.metagene_state[dataset.name])
+            metagene_affinities = 0 # attention mechanism here
             for dataset_index, dataset in enumerate(self.datasets):
                 self.__setitem__(dataset.name, metagene_affinities[dataset_index])
 
@@ -1037,15 +1044,16 @@ class SpatialAffinityState(dict):
         Sigma_x_invs *= self.scaling
 
         if self.mode == "shared lookup":
-            shared_lookup_state = self.spatial_affinity.get_metagene_affinities()
-            shared_lookup_state[:] = Sigma_x_invs.mean(axis=0)
+            first_dataset = self.datasets[0]
+            shared_affinity = self.__getitem__(first_dataset.name)
+            shared_affinity[:] = Sigma_x_invs.mean(axis=0)
             optimizer = torch.optim.Adam(
-                [shared_lookup_state],
+                [shared_affinity],
                 lr=1e-3,
                 betas=(.5, .9),
             )
             for dataset in self.datasets:
-                dataset.uns["Sigma_x_inv"] = {dataset.name : self.spatial_affinity.spatial_affinity_lookup[0]}
+                dataset.uns["Sigma_x_inv"] = {dataset.name : shared_affinity}
                 self.optimizers[dataset.name] = optimizer
             
             # # This optimizer retains its state throughout the optimization
@@ -1056,10 +1064,17 @@ class SpatialAffinityState(dict):
             #     betas=(.5, .9),
             # )
         elif self.mode == "differential lookup":
-            self.spatial_affinity.spatial_affinity_lookup[:] = Sigma_x_invs
             self.spatial_affinity_bar = Sigma_x_invs.mean(axis=0)
             for dataset_index, dataset in enumerate(self.datasets):
-                dataset.uns["Sigma_x_inv"] = {dataset.name : self.spatial_affinity.spatial_affinity_lookup[dataset_index]}
+                differential_affinity = self.__getitem__(dataset.name)
+                differential_affinity[:] = Sigma_x_invs[dataset_index]
+                optimizer = torch.optim.Adam(
+                    [differential_affinity],
+                    lr=1e-3,
+                    betas=(.5, .9),
+                )
+                dataset.uns["Sigma_x_inv"] = {dataset.name : differential_affinity}
+                self.optimizers[dataset.name] = optimizer
 
                 
         elif self.mode == "attention":
@@ -1072,37 +1087,3 @@ class SpatialAffinityState(dict):
         for dataset in self.datasets:
             self.spatial_affinity_bar.add_(self.__getitem__(dataset.name))
         self.spatial_affinity_bar.div_(len(self.datasets))
-
-class SpatialAffinity():
-    """Compute spatial affinities betweeen factors in 2D space.
-
-    Parameters:
-        K (int): number of latent spatial factors
-    """
-    def __init__(self, K, initial_context=None, context=None):
-        raise NotImplementedError()
-
-    def get_metagene_affinities(self, metagenes):
-        raise NotImplementedError()
-
-class SpatialAffinityLookup(SpatialAffinity):
-    def __init__(self, K, num_groups=1, scaling=10, initial_context=None, context=None):
-        self.K = K
-        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
-        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self.spatial_affinity_lookup = torch.squeeze(torch.zeros((num_groups, K, K), **self.initial_context))
-
-    def get_metagene_affinities(self, metagenes=None):
-        return self.spatial_affinity_lookup
-
-class SpatialAffinityAttention(SpatialAffinity):
-    def __init__(self, K, num_groups=1, scaling=10, initial_context=None, context=None):
-        self.K = K
-        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
-        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self.spatial_affinity_attention = MultiheadAttention(K * num_groups, num_groups, **self.initial_context)
-
-    def get_metagene_affinities(self, metagenes):
-        _ , metagene_attention_weights = self.spatial_affinity_attention(metagenes, metagenes, metagenes, average_attn_weights=False)
-
-        return metagene_attention

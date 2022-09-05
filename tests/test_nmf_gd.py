@@ -13,6 +13,25 @@ from sklearn.metrics import silhouette_score, adjusted_rand_score
 
 @pytest.fixture(scope="module")
 def spicemix_without_neighbors():
+    path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    replicate_names=[0, 1]
+    obj = SpiceMixPlus(
+        K=10, 
+        metagene_mode="shared",
+        context=dict(device='cuda:0', dtype=torch.float32),
+    )   
+    obj.load_dataset(path2dataset, replicate_names, "all_data.h5")
+    obj.initialize(
+    #     method='kmeans',
+        method='svd',
+    )   
+
+    for iteration in range(1, 5):
+        obj.estimate_parameters()
+        obj.estimate_weights()
+                
+    return obj
+    
     path2dataset = Path('../tests/test_data/synthetic_500_100_20_15_0_0_i4')
     obj = SpiceMixPlus(
         K=10, lambda_Sigma_x_inv=1e-5,

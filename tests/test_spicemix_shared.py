@@ -31,7 +31,7 @@ def spicemix_with_neighbors():
     return obj
 
 def test_Sigma_x_inv(spicemix_with_neighbors):
-    Sigma_x_inv = spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.spatial_affinity.get_metagene_affinities().detach().cpu().numpy()
+    Sigma_x_inv = list(spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].cpu().detach().numpy()
     # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_shared.npy", Sigma_x_inv)
     test_Sigma_x_inv = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_shared.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)

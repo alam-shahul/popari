@@ -32,7 +32,7 @@ def spicemix_with_neighbors():
     return obj
 
 def test_Sigma_x_inv(spicemix_with_neighbors):
-    Sigma_x_inv = spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.spatial_affinity.get_metagene_affinities().detach().cpu().numpy()
+    Sigma_x_inv = list(spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].cpu().detach().numpy()
     # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_spatial_differential.npy", Sigma_x_inv)
     test_Sigma_x_inv = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_spatial_differential.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
@@ -53,8 +53,8 @@ def test_louvain_clustering(spicemix_with_neighbors):
     df_meta = []
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
-    expected_aris = [0.8541194354126493, 0.8732247853237098]
-    expected_silhouettes = [0.28914159536361694, 0.31729185581207275]
+    expected_aris = [0.8608853927805872, 0.8784561996357411]
+    expected_silhouettes = [0.28579771518707275, 0.31498679518699646]
     
     for index, (r, X) in enumerate(spicemix_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')

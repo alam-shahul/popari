@@ -38,6 +38,7 @@ class SpiceMixPlus:
         lambda_Sigma_x_inv: float = 1e-4,
         pretrained: bool = False,
         initialization_method: str = "svd",
+        groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
         prior_x_modes: Optional[Sequence[float]] = None,
         M_constraint: str = "simplex",
