@@ -10,25 +10,6 @@ from spicemix.components import SpiceMixDataset
 def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str], replicate_mask: Optional[Sequence[bool]] = None, context: str = "numpy"):
     """Load AnnData object from h5ad file and reformat for SpiceMixPlus.
 
-    When reloading the object, we need to reformat it for compatibility with SpiceMixPlus:
-
-        1. Load adjacency matrix as torch.sparse.coo_tensor
-        2. Generate adjacency list from adjacency matrix
-
-    The AnnData object must have the following properties to work correctly with SpiceMix:
-
-        1. dataset.uns["M"]
-        2. dataset.uns["M"] = {f"{replicate}": numpy.ndarray}
-        3. dataset.uns["M_bar"] = {f"{replicate}": numpy.ndarray}
-        4. dataset.obsm["X"] = numpy.ndarray
-        (first four are optional)
-        5. dataset.uns["Sigma_x_inv"] = {f"{replicate}": numpy.ndarray}
-        (the above can be set to None)
-        6. dataset.obsp["adjacency_matrix"] = numpy.ndarray
-        7. dataset.obs["adjacency_list"] = list of lists/numpy.ndarrays
-        8. dataset.obsm["spatial"] = numpy.ndarray
-        9. dataset.obs["replicate"] = list
-                                            
     """                                     
 
     merged_dataset = ad.read_h5ad(filepath)
