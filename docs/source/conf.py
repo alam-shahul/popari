@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.abspath('../..'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'SpiceMixPlus'
+project = 'popari'
 copyright = 'Ma Lab @ CMU, 2022'
 author = 'Shahul Alam'
 
@@ -71,10 +71,12 @@ html_static_path = ['_static']
 autosummary_generate=True
 nbsphinx_execute = 'never'
 autodoc_typehints = "description"
-remove_from_toctrees = ["api/*"]
+# remove_from_toctrees = ["api/*"]
 
 # -- Executable Book Theme options
 html_theme_options = {
     "show_navbar_depth": 1,
+    "repository_url": "https://github.com/alam-shahul/popari",
+    "use_repository_button": True,
 }
 

@@ -1,4 +1,4 @@
-# SpiceMixPlus
+# popari
 
 ```{include} intro.md
 ```
