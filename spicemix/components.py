@@ -702,11 +702,9 @@ class ParameterOptimizer():
                     optimizer = self.spatial_affinity_state.optimizers[dataset_name]
                     Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bar)
                     with torch.no_grad():
-                        # print(self.spatial_affinity_state[dataset.name][0])
                         self.spatial_affinity_state[dataset_name][:] = Sigma_x_inv
-                        # print(Sigma_x_inv[0])
             
-            # self.spatial_affinity_state.reaverage()
+            self.spatial_affinity_state.reaverage()
 
     def update_metagenes(self):
         if self.metagene_mode == "shared":

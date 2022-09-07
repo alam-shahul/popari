@@ -53,8 +53,8 @@ def test_louvain_clustering(spicemix_with_neighbors):
     df_meta = []
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
-    expected_aris = [0.8608853927805872, 0.8784561996357411]
-    expected_silhouettes = [0.28579771518707275, 0.31498679518699646]
+    expected_aris = [0.8226416387772343, 0.8784561996357411]
+    expected_silhouettes = [0.28547316789627075, 0.31491050124168396]
     
     for index, (r, X) in enumerate(spicemix_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')
