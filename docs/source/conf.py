@@ -71,7 +71,7 @@ html_static_path = ['_static']
 autosummary_generate=True
 nbsphinx_execute = 'never'
 autodoc_typehints = "description"
-# remove_from_toctrees = ["api/*"]
+remove_from_toctrees = ["api/*"]
 
 # -- Executable Book Theme options
 html_theme_options = {
