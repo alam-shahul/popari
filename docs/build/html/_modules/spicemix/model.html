@@ -1,0 +1,524 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>spicemix.model &#8212; SpiceMixPlus 0.0.1 documentation</title>
+    
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+
+    
+  <link rel="stylesheet"
+    href="../../_static/vendor/fontawesome/5.13.0/css/all.min.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="../../_static/vendor/fontawesome/5.13.0/webfonts/fa-solid-900.woff2">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="../../_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
+
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/styles/sphinx-book-theme.css" type="text/css" />
+    
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf">
+
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/scripts/sphinx-book-theme.js?digest=9c920249402e914e316237a7dbc6769907cce411"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/scripts/sphinx-book-theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="docsearch:language" content="None">
+    
+
+    <!-- Google Analytics -->
+    
+  </head>
+  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="60">
+<!-- Checkboxes to toggle the left sidebar -->
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle navigation sidebar">
+<label class="overlay overlay-navbar" for="__navigation">
+    <div class="visually-hidden">Toggle navigation sidebar</div>
+</label>
+<!-- Checkboxes to toggle the in-page toc -->
+<input type="checkbox" class="sidebar-toggle" name="__page-toc" id="__page-toc" aria-label="Toggle in-page Table of Contents">
+<label class="overlay overlay-pagetoc" for="__page-toc">
+    <div class="visually-hidden">Toggle in-page Table of Contents</div>
+</label>
+<!-- Headers at the top -->
+<div class="announcement header-item noprint"></div>
+<div class="header header-item noprint"></div>
+
+    
+    <div class="container-fluid" id="banner"></div>
+
+    
+
+    <div class="container-xl">
+      <div class="row">
+          
+<!-- Sidebar -->
+<div class="bd-sidebar noprint" id="site-navigation">
+    <div class="bd-sidebar__content">
+        <div class="bd-sidebar__top"><div class="navbar-brand-box">
+    <a class="navbar-brand text-wrap" href="../../index.html">
+      
+      
+      
+      <h1 class="site-logo" id="site-title">SpiceMixPlus 0.0.1 documentation</h1>
+      
+    </a>
+</div><form class="bd-search d-flex align-items-center" action="../../search.html" method="get">
+  <i class="icon fas fa-search"></i>
+  <input type="search" class="form-control" name="q" id="search-input" placeholder="Search the docs ..." aria-label="Search the docs ..." autocomplete="off" >
+</form><nav class="bd-links" id="bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item active">
+        
+    </div>
+</nav></div>
+        <div class="bd-sidebar__bottom">
+             <!-- To handle the deprecated key -->
+            
+            <div class="navbar_extra_footer">
+            Theme by the <a href="https://ebp.jupyterbook.org">Executable Book Project</a>
+            </div>
+            
+        </div>
+    </div>
+    <div id="rtd-footer-container"></div>
+</div>
+
+
+          
+
+
+          
+<!-- A tiny helper pixel to detect if we've scrolled -->
+<div class="sbt-scroll-pixel-helper"></div>
+<!-- Main content -->
+<div class="col py-0 content-container">
+    
+    <div class="header-article row sticky-top noprint">
+        
+
+
+
+<div class="col py-1 d-flex header-article-main">
+    <div class="header-article__left">
+        
+        <label for="__navigation"
+  class="headerbtn"
+  data-toggle="tooltip"
+data-placement="right"
+title="Toggle navigation"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-bars"></i>
+  </span>
+
+</label>
+
+        
+    </div>
+    <div class="header-article__right">
+<button onclick="toggleFullScreen()"
+  class="headerbtn"
+  data-toggle="tooltip"
+data-placement="bottom"
+title="Fullscreen mode"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+    </div>
+</div>
+
+<!-- Table of contents -->
+<div class="col-md-3 bd-toc show noprint">
+</div>
+    </div>
+    <div class="article row">
+        <div class="col pl-md-3 pl-lg-5 content-container">
+            <!-- Table of contents that is only displayed when printing the page -->
+            <div id="jb-print-docs-body" class="onlyprint">
+                <h1></h1>
+                <!-- Table of contents -->
+                <div id="print-main-content">
+                    <div id="jb-print-toc">
+                        
+                    </div>
+                </div>
+            </div>
+            <main id="main-content" role="main">
+                
+              <div>
+                
+  <h1>Source code for spicemix.model</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Sequence</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Optional</span>
+
+<span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">time</span><span class="o">,</span> <span class="nn">itertools</span><span class="o">,</span> <span class="nn">logging</span><span class="o">,</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">pickle</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+
+<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">anndata</span> <span class="k">as</span> <span class="nn">ad</span>
+
+<span class="kn">from</span> <span class="nn">spicemix.util</span> <span class="kn">import</span> <span class="n">print_datetime</span>
+<span class="kn">from</span> <span class="nn">spicemix.io</span> <span class="kn">import</span> <span class="n">load_anndata</span><span class="p">,</span> <span class="n">save_anndata</span>
+
+<span class="kn">from</span> <span class="nn">spicemix.initialization</span> <span class="kn">import</span> <span class="n">initialize_kmeans</span><span class="p">,</span> <span class="n">initialize_svd</span>
+<span class="kn">from</span> <span class="nn">spicemix.sample_for_integral</span> <span class="kn">import</span> <span class="n">integrate_of_exponential_over_simplex</span>
+
+<span class="kn">from</span> <span class="nn">spicemix.components</span> <span class="kn">import</span> <span class="n">SpiceMixDataset</span><span class="p">,</span> <span class="n">ParameterOptimizer</span><span class="p">,</span> <span class="n">EmbeddingOptimizer</span>
+
+<div class="viewcode-block" id="SpiceMixPlus"><a class="viewcode-back" href="../../spicemix.html#spicemix.model.SpiceMixPlus">[docs]</a><span class="k">class</span> <span class="nc">SpiceMixPlus</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;SpiceMixPlus optimization model.</span>
+
+<span class="sd">    Models spatial biological data using the NMF-HMRF formulation. Supports multiple</span>
+<span class="sd">    fields-of-view (FOVs) and multimodal data.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        K: number of metagenes to learn</span>
+<span class="sd">        datasets: list of input AnnData spatial datasets for SpiceMix.</span>
+<span class="sd">        embedding_optimizer: object wrapping learned embeddings (i.e. X) and related state</span>
+<span class="sd">        parameter_optimizer: object wrapping learned parameters (i.e. M, sigma_yxs, spatial affinities)</span>
+<span class="sd">            and related state</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+        <span class="n">K</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">replicate_names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">datasets</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Sequence</span><span class="p">[</span><span class="n">ad</span><span class="o">.</span><span class="n">AnnData</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">dataset_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span> <span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">lambda_Sigma_x_inv</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-4</span><span class="p">,</span>
+        <span class="n">pretrained</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">initialization_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;svd&quot;</span><span class="p">,</span>
+        <span class="n">groups</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">betas</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">prior_x_modes</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">M_constraint</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;simplex&quot;</span><span class="p">,</span>
+        <span class="n">sigma_yx_inv_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;separate&quot;</span><span class="p">,</span>
+        <span class="n">torch_context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">initial_context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">metagene_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;shared&quot;</span><span class="p">,</span>
+        <span class="n">spatial_affinity_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span><span class="s2">&quot;shared lookup&quot;</span><span class="p">,</span>
+        <span class="n">lambda_M</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+        <span class="n">lambda_Sigma_bar</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+        <span class="n">random_state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Initialize SpiceMixPlus object using ST data.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            K: number of metagenes to learn</span>
+<span class="sd">            datasets: list of input AnnData spatial datasets for SpiceMix.</span>
+<span class="sd">            dataset_path: path to AnnData merged dataset on disk. Ignored if `datasets` is specified.</span>
+<span class="sd">            replicate_names: names of spatial datasets</span>
+<span class="sd">            lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: 1e-4</span>
+<span class="sd">            initialization_method: algorithm to use for initializing metagenes and embeddings. Default: `svd`</span>
+<span class="sd">            betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset</span>
+<span class="sd">            prior_x_modes: family of prior distribution for embeddings of each dataset</span>
+<span class="sd">            M_constraint: constraint on columns of M. Default: `simplex`</span>
+<span class="sd">            sigma_yx_inv_mode: form of sigma_yx_inv parameter. Default: `separate`</span>
+<span class="sd">            torch_context: keyword args to use during initialization of PyTorch tensors.</span>
+<span class="sd">            metagene_mode: modality of metagene parameters. Default: `shared`</span>
+<span class="sd">            spatial_affinity_mode: modality of spatial affinity parameters. Default: `shared lookup`</span>
+<span class="sd">            lambda_M: hyperparameter to constrain metagene deviation in differential case. Ignored if</span>
+<span class="sd">                `metagene_mode` is `shared`. Default: `0`</span>
+<span class="sd">            lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if</span>
+<span class="sd">                `spatial_affinity_mode` is `shared lookup`. Default: `0`</span>
+<span class="sd">            random_state: seed for reproducibility of randomized computations. Default: `0`</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">([</span><span class="n">datasets</span><span class="p">,</span> <span class="n">dataset_path</span><span class="p">]):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;At least one of `datasets`, `dataset_path` must be specified in the SpiceMixPlus constructor.&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">torch_context</span><span class="p">:</span>
+            <span class="n">torch_context</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="s1">&#39;cpu&#39;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">initial_context</span><span class="p">:</span>
+            <span class="n">initial_context</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="s1">&#39;cpu&#39;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">replicate_names</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate_name</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">replicate_name</span> <span class="ow">in</span> <span class="n">replicate_names</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">groups</span><span class="p">:</span>
+            <span class="n">groups</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">replicate_names</span><span class="p">}</span>
+
+        <span class="n">included_replicate_names</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">groups</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span> <span class="p">[])</span>
+        <span class="k">if</span> <span class="nb">set</span><span class="p">(</span><span class="n">included_replicate_names</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">replicate_names</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;If `groups` argument is used, then every `replicate_name` must appear in a group.&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">context</span> <span class="o">=</span> <span class="n">torch_context</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span> <span class="o">=</span> <span class="n">initial_context</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">groups</span> <span class="o">=</span> <span class="n">groups</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">random_state</span> <span class="o">=</span> <span class="n">random_state</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">random_state</span><span class="p">)</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">random_state</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">K</span> <span class="o">=</span> <span class="n">K</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambda_Sigma_x_inv</span> <span class="o">=</span> <span class="n">lambda_Sigma_x_inv</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambda_Sigma_bar</span> <span class="o">=</span> <span class="n">lambda_Sigma_bar</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">M_constraint</span> <span class="o">=</span> <span class="n">M_constraint</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sigma_yx_inv_mode</span> <span class="o">=</span> <span class="n">sigma_yx_inv_mode</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">spatial_affinity_mode</span> <span class="o">=</span> <span class="n">spatial_affinity_mode</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">metagene_mode</span> <span class="o">=</span> <span class="n">metagene_mode</span> 
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambda_M</span> <span class="o">=</span> <span class="n">lambda_M</span>
+
+        <span class="k">if</span> <span class="n">datasets</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">load_anndata_datasets</span><span class="p">(</span><span class="n">datasets</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">replicate_names</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">dataset_path</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">load_dataset</span><span class="p">(</span><span class="n">dataset_path</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">replicate_names</span><span class="p">)</span>
+
+        <span class="c1"># if self.context[&quot;device&quot;] != &quot;cpu&quot;:</span>
+        <span class="c1">#     preinit_memory_usage = torch.cuda.memory_summary(self.context[&quot;device&quot;], True)</span>
+        <span class="c1">#     print(preinit_memory_usage)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initialize</span><span class="p">(</span><span class="n">betas</span><span class="o">=</span><span class="n">betas</span><span class="p">,</span> <span class="n">prior_x_modes</span><span class="o">=</span><span class="n">prior_x_modes</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="n">initialization_method</span><span class="p">,</span> <span class="n">pretrained</span><span class="o">=</span><span class="n">pretrained</span><span class="p">)</span>
+        <span class="c1"># if self.context[&quot;device&quot;] != &quot;cpu&quot;:</span>
+        <span class="c1">#     postinit_memory_usage = torch.cuda.memory_summary(self.context[&quot;device&quot;], True)</span>
+        <span class="c1">#     print(postinit_memory_usage)</span>
+
+<div class="viewcode-block" id="SpiceMixPlus.load_anndata_datasets"><a class="viewcode-back" href="../../spicemix.html#spicemix.model.SpiceMixPlus.load_anndata_datasets">[docs]</a>    <span class="k">def</span> <span class="nf">load_anndata_datasets</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">datasets</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ad</span><span class="o">.</span><span class="n">AnnData</span><span class="p">],</span> <span class="n">replicate_names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+        <span class="sd">&quot;&quot;&quot;Load SpiceMixPlus data directly from AnnData objects.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            datasets: spatial transcriptomics datasets in AnnData format (one for each FOV)</span>
+<span class="sd">            replicate_names: names for all datasets/replicates</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span> <span class="o">=</span> <span class="p">[</span><span class="n">SpiceMixDataset</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="n">replicate_name</span><span class="p">)</span> <span class="k">for</span> <span class="n">dataset</span><span class="p">,</span> <span class="n">replicate_name</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">datasets</span><span class="p">,</span> <span class="n">replicate_names</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Ys</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">:</span>
+            <span class="n">Y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">X</span><span class="p">,</span> <span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">Ys</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Y</span><span class="p">)</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_replicates</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="SpiceMixPlus.load_dataset"><a class="viewcode-back" href="../../spicemix.html#spicemix.model.SpiceMixPlus.load_dataset">[docs]</a>    <span class="k">def</span> <span class="nf">load_dataset</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dataset_path</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span> <span class="n">replicate_names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+        <span class="sd">&quot;&quot;&quot;Load dataset into SpiceMixPlus from saved .h5ad file.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            dataset_path: path to input ST datasets, stored in .h5ad format</span>
+<span class="sd">            replicate_names: names for all datasets/replicates. Note that these must match the names in the .h5ad file.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">dataset_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">dataset_path</span><span class="p">)</span>
+        
+        <span class="n">datasets</span> <span class="o">=</span> <span class="n">load_anndata</span><span class="p">(</span><span class="n">dataset_path</span><span class="p">,</span> <span class="n">replicate_names</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">load_anndata_datasets</span><span class="p">(</span><span class="n">datasets</span><span class="p">,</span> <span class="n">replicate_names</span><span class="p">)</span></div>
+
+    <span class="k">def</span> <span class="nf">_initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pretrained</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">betas</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">prior_x_modes</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;svd&#39;</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Initialize metagenes and hidden states.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset</span>
+<span class="sd">            prior_x_modes: family of prior distribution for embeddings of each dataset</span>
+<span class="sd">            method: algorithm to use for initializing metagenes and embeddings. Default: SVD</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+       
+        <span class="k">if</span> <span class="n">betas</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">betas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_replicates</span><span class="p">,</span> <span class="mi">1</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">num_replicates</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">betas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">betas</span><span class="p">,</span> <span class="n">copy</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">/</span> <span class="nb">sum</span><span class="p">(</span><span class="n">betas</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">prior_x_modes</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">prior_x_modes</span> <span class="o">=</span> <span class="p">[</span><span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_replicates</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">prior_x_modes</span> <span class="o">=</span> <span class="n">prior_x_modes</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span> <span class="o">=</span> <span class="n">ParameterOptimizer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">K</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">Ys</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">betas</span><span class="p">,</span> <span class="n">prior_x_modes</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">groups</span><span class="p">,</span>
+                <span class="n">lambda_Sigma_x_inv</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_Sigma_x_inv</span><span class="p">,</span>
+                <span class="n">lambda_M</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_M</span><span class="p">,</span>
+                <span class="n">lambda_Sigma_bar</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_Sigma_bar</span><span class="p">,</span>
+                <span class="n">metagene_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">metagene_mode</span><span class="p">,</span>
+                <span class="n">spatial_affinity_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">spatial_affinity_mode</span><span class="p">,</span>
+                <span class="n">M_constraint</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">M_constraint</span><span class="p">,</span>
+                <span class="n">initial_context</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span><span class="p">,</span>
+                <span class="n">context</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">context</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_optimizer</span> <span class="o">=</span> <span class="n">EmbeddingOptimizer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">K</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">Ys</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">,</span> <span class="n">initial_context</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="p">)</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">link</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_optimizer</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_optimizer</span><span class="o">.</span><span class="n">link</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">pretrained</span><span class="p">:</span>
+            <span class="n">first_dataset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">metagene_mode</span> <span class="o">==</span> <span class="s2">&quot;differential&quot;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">metagene_state</span><span class="o">.</span><span class="n">M_bar</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">first_dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M_bar&quot;</span><span class="p">][</span><span class="n">first_dataset</span><span class="o">.</span><span class="n">name</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">dataset_index</span><span class="p">,</span> <span class="n">dataset</span>  <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">metagene_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">][:]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">][</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">embedding_optimizer</span><span class="o">.</span><span class="n">embedding_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">][:]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span><span class="p">)</span>
+                    
+                <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">spatial_affinity_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv&quot;</span><span class="p">][</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span><span class="p">)</span>
+        
+            <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">update_sigma_yx</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;kmeans&#39;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">M</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">Xs</span> <span class="o">=</span> <span class="n">initialize_kmeans</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">K</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span><span class="p">,</span> <span class="n">kwargs_kmeans</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">random_state</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;svd&#39;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">M</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">Xs</span> <span class="o">=</span> <span class="n">initialize_svd</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">K</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">initial_context</span><span class="p">,</span> <span class="n">M_nonneg</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">M_constraint</span> <span class="o">==</span> <span class="s1">&#39;simplex&#39;</span><span class="p">),</span> <span class="n">X_nonneg</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+            
+            <span class="k">for</span> <span class="n">dataset_index</span><span class="p">,</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">):</span>
+                <span class="nb">print</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">metagene_state</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">metagene_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">][:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">M</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">embedding_optimizer</span><span class="o">.</span><span class="n">embedding_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">][:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">Xs</span><span class="p">[</span><span class="n">dataset_index</span><span class="p">]</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">scale_metagenes</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">Sigma_x_inv_bar</span> <span class="o">=</span> <span class="kc">None</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">update_sigma_yx</span><span class="p">()</span>
+
+            <span class="n">initial_embeddings</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_optimizer</span><span class="o">.</span><span class="n">embedding_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">spatial_affinity_state</span><span class="o">.</span><span class="n">initialize</span><span class="p">(</span><span class="n">initial_embeddings</span><span class="p">)</span>
+            
+            <span class="k">for</span> <span class="n">dataset_index</span><span class="p">,</span> <span class="n">dataset</span>  <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">):</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">metagene_mode</span> <span class="o">==</span> <span class="s2">&quot;differential&quot;</span><span class="p">:</span>
+                    <span class="k">for</span> <span class="n">group_name</span><span class="p">,</span> <span class="n">group_replicates</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                        <span class="n">M_bar</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">metagene_state</span><span class="o">.</span><span class="n">M_bar</span><span class="p">[</span><span class="n">group_name</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+                        <span class="k">for</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="n">dataset</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">group_replicates</span><span class="p">:</span>
+                                <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M_bar&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">M_bar</span><span class="p">}</span>
+                
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">spatial_affinity_mode</span> <span class="o">==</span> <span class="s2">&quot;differential lookup&quot;</span><span class="p">:</span>
+                    <span class="k">for</span> <span class="n">group_name</span><span class="p">,</span> <span class="n">group_replicates</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                        <span class="n">spatial_affinity_bar</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">spatial_affinity_state</span><span class="o">.</span><span class="n">spatial_affinity_bar</span><span class="p">[</span><span class="n">group_name</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+                        <span class="k">for</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="n">dataset</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">group_replicates</span><span class="p">:</span>
+                                <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spatial_affinity_bar&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="n">dataset_name</span><span class="p">:</span> <span class="n">spatial_affinity_bar</span><span class="p">}</span>
+
+                <span class="n">metagene_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">metagene_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+                <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">metagene_state</span><span class="p">}</span>
+
+                <span class="n">X</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_optimizer</span><span class="o">.</span><span class="n">embedding_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+                <span class="n">dataset</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">X</span>
+                
+                <span class="n">Sigma_x_inv</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">spatial_affinity_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+                <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span> <span class="p">:</span> <span class="n">Sigma_x_inv</span><span class="p">}</span>
+
+                <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                    <span class="s2">&quot;metagene_mode&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">metagene_mode</span><span class="p">,</span>
+                    <span class="s2">&quot;prior_x&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">prior_xs</span><span class="p">[</span><span class="n">dataset_index</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span>
+                    <span class="s2">&quot;K&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">K</span><span class="p">,</span>
+                    <span class="s2">&quot;lambda_Sigma_x_inv&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambda_Sigma_x_inv</span><span class="p">,</span>
+                <span class="p">}</span>
+
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">metagene_mode</span> <span class="o">==</span> <span class="s2">&quot;differential&quot;</span><span class="p">:</span>
+                    <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;lambda_M&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambda_M</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">spatial_affinity_mode</span> <span class="o">!=</span> <span class="s2">&quot;shared&quot;</span><span class="p">:</span>
+                    <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;lambda_Sigma_bar&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambda_Sigma_bar</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">synchronize_datasets</span><span class="p">()</span>
+    
+<div class="viewcode-block" id="SpiceMixPlus.synchronize_datasets"><a class="viewcode-back" href="../../spicemix.html#spicemix.model.SpiceMixPlus.synchronize_datasets">[docs]</a>    <span class="k">def</span> <span class="nf">synchronize_datasets</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Synchronize datasets with learned SpiceMix parameters and embeddings.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">dataset_index</span><span class="p">,</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">):</span>
+            <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">][</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">metagene_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+            <span class="n">dataset</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_optimizer</span><span class="o">.</span><span class="n">embedding_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+            <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;sigma_yx&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">sigma_yxs</span><span class="p">[</span><span class="n">dataset_index</span><span class="p">]</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv&quot;</span><span class="p">][</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">][:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">spatial_affinity_state</span><span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">spatial_affinity_mode</span> <span class="o">==</span> <span class="s2">&quot;differential lookup&quot;</span><span class="p">:</span>
+                <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spatial_affinity_bar&quot;</span><span class="p">][</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">][:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">spatial_affinity_state</span><span class="o">.</span><span class="n">spatial_affinity_bar</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">metagene_mode</span> <span class="o">==</span> <span class="s2">&quot;differential&quot;</span><span class="p">:</span>
+                <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M_bar&quot;</span><span class="p">][</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">metagene_state</span><span class="o">.</span><span class="n">M_bar</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span></div>
+
+<div class="viewcode-block" id="SpiceMixPlus.estimate_weights"><a class="viewcode-back" href="../../spicemix.html#spicemix.model.SpiceMixPlus.estimate_weights">[docs]</a>    <span class="k">def</span> <span class="nf">estimate_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">use_neighbors</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Update embeddings (latent states) for each replicate.&quot;&quot;&quot;</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">print_datetime</span><span class="p">()</span><span class="si">}</span><span class="s1">Updating latent states&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_optimizer</span><span class="o">.</span><span class="n">update_embeddings</span><span class="p">(</span><span class="n">use_neighbors</span><span class="o">=</span><span class="n">use_neighbors</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">synchronize_datasets</span><span class="p">()</span></div>
+
+<div class="viewcode-block" id="SpiceMixPlus.estimate_parameters"><a class="viewcode-back" href="../../spicemix.html#spicemix.model.SpiceMixPlus.estimate_parameters">[docs]</a>    <span class="k">def</span> <span class="nf">estimate_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update_spatial_affinities</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Update parameters for each replicate.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            update_spatial_affinities: If specified, spatial affinities will be updated during this iteration.</span>
+<span class="sd">                Default: True.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">print_datetime</span><span class="p">()</span><span class="si">}</span><span class="s1">Updating model parameters&#39;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">update_spatial_affinities</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">update_spatial_affinity</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">update_metagenes</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parameter_optimizer</span><span class="o">.</span><span class="n">update_sigma_yx</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">synchronize_datasets</span><span class="p">()</span></div>
+
+<div class="viewcode-block" id="SpiceMixPlus.save_results"><a class="viewcode-back" href="../../spicemix.html#spicemix.model.SpiceMixPlus.save_results">[docs]</a>    <span class="k">def</span> <span class="nf">save_results</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path2dataset</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Save datasets and learned SpiceMixPlus parameters to .h5ad file.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            dataset_path: path to input ST datasets, to be stored in .h5ad format</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">replicate_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">]</span>
+        <span class="n">save_anndata</span><span class="p">(</span><span class="n">path2dataset</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">datasets</span><span class="p">,</span> <span class="n">replicate_names</span><span class="p">)</span></div></div>
+
+<div class="viewcode-block" id="load_trained_model"><a class="viewcode-back" href="../../spicemix.html#spicemix.model.load_trained_model">[docs]</a><span class="k">def</span> <span class="nf">load_trained_model</span><span class="p">(</span><span class="n">dataset_path</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span> <span class="n">replicate_names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+    <span class="n">datasets</span> <span class="o">=</span> <span class="n">load_anndata</span><span class="p">(</span><span class="n">dataset_path</span><span class="p">,</span> <span class="n">replicate_names</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">)</span>
+
+    <span class="n">first_dataset</span> <span class="o">=</span> <span class="n">datasets</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">metagene_mode</span> <span class="o">=</span> <span class="n">first_dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;metagene_mode&quot;</span><span class="p">]</span>
+    <span class="n">K</span> <span class="o">=</span> <span class="n">first_dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;K&quot;</span><span class="p">]</span>
+    <span class="n">lambda_Sigma_x_inv</span> <span class="o">=</span> <span class="n">first_dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;lambda_Sigma_x_inv&quot;</span><span class="p">]</span>
+
+    <span class="n">trained_model</span> <span class="o">=</span> <span class="n">SpiceMixPlus</span><span class="p">(</span><span class="n">K</span><span class="o">=</span><span class="n">K</span><span class="p">,</span>
+        <span class="n">metagene_mode</span><span class="o">=</span><span class="n">metagene_mode</span><span class="p">,</span>
+        <span class="n">datasets</span><span class="o">=</span><span class="n">datasets</span><span class="p">,</span>
+        <span class="n">replicate_names</span><span class="o">=</span><span class="n">replicate_names</span><span class="p">,</span>
+        <span class="n">lambda_Sigma_x_inv</span><span class="o">=</span><span class="n">lambda_Sigma_x_inv</span><span class="p">,</span>
+        <span class="n">pretrained</span><span class="o">=</span><span class="kc">True</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">trained_model</span></div>
+</pre></div>
+
+              </div>
+              
+            </main>
+            <footer class="footer-article noprint">
+                
+    <!-- Previous / next buttons -->
+<div class='prev-next-area'>
+</div>
+            </footer>
+        </div>
+    </div>
+    <div class="footer-content row">
+        <footer class="col footer"><p>
+  
+    By Shahul Alam<br/>
+  
+      &copy; Copyright 2022, CMU.<br/>
+</p>
+        </footer>
+    </div>
+    
+</div>
+
+
+      </div>
+    </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf"></script>
+
+
+  </body>
+</html>

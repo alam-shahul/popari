@@ -83,8 +83,17 @@ class SpiceMixPlus:
         if not initial_context:
             initial_context = dict(device='cpu', dtype=torch.float32)
 
+        self.replicate_names = [f"{replicate_name}" for replicate_name in replicate_names]
+        if not groups:
+            groups = {"default": self.replicate_names}
+
+        included_replicate_names = sum(groups.values(), [])
+        if set(included_replicate_names) != set(self.replicate_names):
+            raise ValueError("If `groups` argument is used, then every `replicate_name` must appear in a group.")
+
         self.context = torch_context
         self.initial_context = initial_context
+        self.groups = groups
 
         self.random_state = random_state
         torch.manual_seed(self.random_state)
@@ -101,9 +110,9 @@ class SpiceMixPlus:
         self.lambda_M = lambda_M
 
         if datasets:
-            self.load_anndata_datasets(datasets, replicate_names)
+            self.load_anndata_datasets(datasets, self.replicate_names)
         elif dataset_path:
-            self.load_dataset(dataset_path, replicate_names)
+            self.load_dataset(dataset_path, self.replicate_names)
 
         # if self.context["device"] != "cpu":
         #     preinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
@@ -160,7 +169,7 @@ class SpiceMixPlus:
 
         self.prior_x_modes = prior_x_modes
 
-        self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes,
+        self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes, self.groups,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
                 lambda_M=self.lambda_M,
                 lambda_Sigma_bar=self.lambda_Sigma_bar,
@@ -176,6 +185,9 @@ class SpiceMixPlus:
         self.embedding_optimizer.link(self.parameter_optimizer)
 
         if pretrained:
+            for group_name, group_replicates in self.groups.items():
+                pass
+
             first_dataset = self.datasets[0]
             if self.metagene_mode == "differential":
                 self.parameter_optimizer.metagene_state.M_bar = torch.from_numpy(first_dataset.uns["M_bar"][first_dataset.name]).to(**self.initial_context)
@@ -195,6 +207,7 @@ class SpiceMixPlus:
                 raise NotImplementedError
             
             for dataset_index, dataset in enumerate(self.datasets):
+                print(self.parameter_optimizer.metagene_state.keys())
                 self.parameter_optimizer.metagene_state[dataset.name][:] = self.M
                 self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
 
@@ -206,15 +219,7 @@ class SpiceMixPlus:
             initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
             self.parameter_optimizer.spatial_affinity_state.initialize(initial_embeddings)
             
-            for dataset_index, dataset  in enumerate(self.datasets):
-                if self.metagene_mode == "differential":
-                    M_bar = self.parameter_optimizer.metagene_state.M_bar.cpu().detach().numpy()
-                    dataset.uns["M_bar"] = {dataset.name: M_bar}
-                
-                if self.spatial_affinity_mode == "differential lookup":
-                    spatial_affinity_bar = self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar.cpu().detach().numpy()
-                    dataset.uns["spatial_affinity_bar"] = {dataset.name: spatial_affinity_bar}
-
+            for dataset_index, dataset in enumerate(self.datasets):
                 metagene_state = self.parameter_optimizer.metagene_state[dataset.name].cpu().detach().numpy()
                 dataset.uns["M"] = {dataset.name: metagene_state}
 
@@ -235,6 +240,16 @@ class SpiceMixPlus:
                     dataset.uns["spicemixplus_hyperparameters"]["lambda_M"] = self.lambda_M
                 if self.spatial_affinity_mode != "shared":
                     dataset.uns["spicemixplus_hyperparameters"]["lambda_Sigma_bar"] = self.lambda_Sigma_bar
+                
+            if self.metagene_mode == "differential":
+                M_bar = {group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy() for group_name in self.groups}
+                for dataset in self.datasets:
+                    dataset.uns["M_bar"] = M_bar
+            
+            if self.spatial_affinity_mode == "differential lookup":
+                spatial_affinity_bar = {group_name: self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].cpu().detach().numpy() for group_name in self.groups}
+                for dataset in self.datasets:
+                    dataset.uns["spatial_affinity_bar"] = spatial_affinity_bar
 
         self.synchronize_datasets()
     
@@ -246,12 +261,16 @@ class SpiceMixPlus:
             dataset.uns["sigma_yx"] = self.parameter_optimizer.sigma_yxs[dataset_index]
             with torch.no_grad():
                 dataset.uns["Sigma_x_inv"][dataset.name][:] = self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
-
-            if self.spatial_affinity_mode == "differential lookup":
-                dataset.uns["spatial_affinity_bar"][dataset.name][:] = self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar.cpu().detach().numpy()
-
-            if self.metagene_mode == "differential":
-                dataset.uns["M_bar"][dataset.name] = self.parameter_optimizer.metagene_state.M_bar.cpu().detach().numpy()
+            
+        if self.metagene_mode == "differential":
+            M_bar = {group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy() for group_name in self.groups}
+            for dataset in self.datasets:
+                dataset.uns["M_bar"] = M_bar
+        
+        if self.spatial_affinity_mode == "differential lookup":
+            spatial_affinity_bar = {group_name: self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].cpu().detach().numpy() for group_name in self.groups}
+            for dataset in self.datasets:
+                dataset.uns["spatial_affinity_bar"] = spatial_affinity_bar
 
     def estimate_weights(self, use_neighbors=True):
         """Update embeddings (latent states) for each replicate."""

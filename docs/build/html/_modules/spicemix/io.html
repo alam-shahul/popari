@@ -1,0 +1,414 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>spicemix.io &#8212; SpiceMixPlus 0.0.1 documentation</title>
+    
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+
+    
+  <link rel="stylesheet"
+    href="../../_static/vendor/fontawesome/5.13.0/css/all.min.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="../../_static/vendor/fontawesome/5.13.0/webfonts/fa-solid-900.woff2">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="../../_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
+
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/styles/sphinx-book-theme.css" type="text/css" />
+    
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf">
+
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/scripts/sphinx-book-theme.js?digest=9c920249402e914e316237a7dbc6769907cce411"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/scripts/sphinx-book-theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="docsearch:language" content="None">
+    
+
+    <!-- Google Analytics -->
+    
+  </head>
+  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="60">
+<!-- Checkboxes to toggle the left sidebar -->
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle navigation sidebar">
+<label class="overlay overlay-navbar" for="__navigation">
+    <div class="visually-hidden">Toggle navigation sidebar</div>
+</label>
+<!-- Checkboxes to toggle the in-page toc -->
+<input type="checkbox" class="sidebar-toggle" name="__page-toc" id="__page-toc" aria-label="Toggle in-page Table of Contents">
+<label class="overlay overlay-pagetoc" for="__page-toc">
+    <div class="visually-hidden">Toggle in-page Table of Contents</div>
+</label>
+<!-- Headers at the top -->
+<div class="announcement header-item noprint"></div>
+<div class="header header-item noprint"></div>
+
+    
+    <div class="container-fluid" id="banner"></div>
+
+    
+
+    <div class="container-xl">
+      <div class="row">
+          
+<!-- Sidebar -->
+<div class="bd-sidebar noprint" id="site-navigation">
+    <div class="bd-sidebar__content">
+        <div class="bd-sidebar__top"><div class="navbar-brand-box">
+    <a class="navbar-brand text-wrap" href="../../index.html">
+      
+      
+      
+      <h1 class="site-logo" id="site-title">SpiceMixPlus 0.0.1 documentation</h1>
+      
+    </a>
+</div><form class="bd-search d-flex align-items-center" action="../../search.html" method="get">
+  <i class="icon fas fa-search"></i>
+  <input type="search" class="form-control" name="q" id="search-input" placeholder="Search the docs ..." aria-label="Search the docs ..." autocomplete="off" >
+</form><nav class="bd-links" id="bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item active">
+        
+    </div>
+</nav></div>
+        <div class="bd-sidebar__bottom">
+             <!-- To handle the deprecated key -->
+            
+            <div class="navbar_extra_footer">
+            Theme by the <a href="https://ebp.jupyterbook.org">Executable Book Project</a>
+            </div>
+            
+        </div>
+    </div>
+    <div id="rtd-footer-container"></div>
+</div>
+
+
+          
+
+
+          
+<!-- A tiny helper pixel to detect if we've scrolled -->
+<div class="sbt-scroll-pixel-helper"></div>
+<!-- Main content -->
+<div class="col py-0 content-container">
+    
+    <div class="header-article row sticky-top noprint">
+        
+
+
+
+<div class="col py-1 d-flex header-article-main">
+    <div class="header-article__left">
+        
+        <label for="__navigation"
+  class="headerbtn"
+  data-toggle="tooltip"
+data-placement="right"
+title="Toggle navigation"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-bars"></i>
+  </span>
+
+</label>
+
+        
+    </div>
+    <div class="header-article__right">
+<button onclick="toggleFullScreen()"
+  class="headerbtn"
+  data-toggle="tooltip"
+data-placement="bottom"
+title="Fullscreen mode"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+    </div>
+</div>
+
+<!-- Table of contents -->
+<div class="col-md-3 bd-toc show noprint">
+</div>
+    </div>
+    <div class="article row">
+        <div class="col pl-md-3 pl-lg-5 content-container">
+            <!-- Table of contents that is only displayed when printing the page -->
+            <div id="jb-print-docs-body" class="onlyprint">
+                <h1></h1>
+                <!-- Table of contents -->
+                <div id="print-main-content">
+                    <div id="jb-print-toc">
+                        
+                    </div>
+                </div>
+            </div>
+            <main id="main-content" role="main">
+                
+              <div>
+                
+  <h1>Source code for spicemix.io</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">,</span> <span class="n">Optional</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">anndata</span> <span class="k">as</span> <span class="nn">ad</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="kn">from</span> <span class="nn">spicemix.components</span> <span class="kn">import</span> <span class="n">SpiceMixDataset</span>
+
+<div class="viewcode-block" id="load_anndata"><a class="viewcode-back" href="../../spicemix.html#spicemix.io.load_anndata">[docs]</a><span class="k">def</span> <span class="nf">load_anndata</span><span class="p">(</span><span class="n">filepath</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span> <span class="n">replicate_names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">replicate_mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Sequence</span><span class="p">[</span><span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;numpy&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Load AnnData object from h5ad file and reformat for SpiceMixPlus.</span>
+
+<span class="sd">    When reloading the object, we need to reformat it for compatibility with SpiceMixPlus:</span>
+
+<span class="sd">        1. Load adjacency matrix as torch.sparse.coo_tensor</span>
+<span class="sd">        2. Generate adjacency list from adjacency matrix</span>
+
+<span class="sd">    The AnnData object must have the following properties to work correctly with SpiceMix:</span>
+
+<span class="sd">        1. dataset.uns[&quot;M&quot;]</span>
+<span class="sd">        2. dataset.uns[&quot;M&quot;] = {f&quot;{replicate}&quot;: numpy.ndarray}</span>
+<span class="sd">        3. dataset.uns[&quot;M_bar&quot;] = {f&quot;{replicate}&quot;: numpy.ndarray}</span>
+<span class="sd">        4. dataset.obsm[&quot;X&quot;] = numpy.ndarray</span>
+<span class="sd">        (first four are optional)</span>
+<span class="sd">        5. dataset.uns[&quot;Sigma_x_inv&quot;] = {f&quot;{replicate}&quot;: numpy.ndarray}</span>
+<span class="sd">        (the above can be set to None)</span>
+<span class="sd">        6. dataset.obsp[&quot;adjacency_matrix&quot;] = numpy.ndarray</span>
+<span class="sd">        7. dataset.obs[&quot;adjacency_list&quot;] = list of lists/numpy.ndarrays</span>
+<span class="sd">        8. dataset.obsm[&quot;spatial&quot;] = numpy.ndarray</span>
+<span class="sd">        9. dataset.obs[&quot;replicate&quot;] = list</span>
+<span class="sd">                                            </span>
+<span class="sd">    &quot;&quot;&quot;</span>                                     
+
+    <span class="n">merged_dataset</span> <span class="o">=</span> <span class="n">ad</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">filepath</span><span class="p">)</span>
+
+    <span class="n">indices</span> <span class="o">=</span> <span class="n">merged_dataset</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">&quot;batch&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">indices</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+    <span class="n">datasets</span> <span class="o">=</span> <span class="p">[</span><span class="n">merged_dataset</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">indices</span><span class="p">]</span>
+    
+    <span class="k">if</span> <span class="n">replicate_mask</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">replicate_mask</span> <span class="o">=</span> <span class="p">[</span><span class="kc">True</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">datasets</span><span class="p">)</span>
+   
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">replicate_names</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">datasets</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;List of replicates &#39;</span><span class="si">{</span><span class="n">replicate_names</span><span class="si">}</span><span class="s2">&#39; does not match number of datasets (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">datasets</span><span class="p">)</span><span class="si">}</span><span class="s2">) stored in AnnData object.&quot;</span><span class="p">)</span>
+        
+    <span class="k">for</span> <span class="n">replicate</span><span class="p">,</span> <span class="n">dataset</span><span class="p">,</span> <span class="n">load_replicate</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">replicate_names</span><span class="p">,</span> <span class="n">datasets</span><span class="p">,</span> <span class="n">replicate_mask</span><span class="p">):</span>
+        <span class="k">if</span> <span class="s2">&quot;Sigma_x_inv&quot;</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="c1"># Keep only Sigma_x_inv corresponding to a particular replicate</span>
+            <span class="n">replicate_Sigma_x_inv</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv&quot;</span><span class="p">][</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isscalar</span><span class="p">(</span><span class="n">replicate_Sigma_x_inv</span><span class="p">)</span> <span class="ow">and</span> <span class="n">replicate_Sigma_x_inv</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+                <span class="n">replicate_Sigma_x_inv</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="k">elif</span> <span class="n">context</span> <span class="o">!=</span> <span class="s2">&quot;numpy&quot;</span><span class="p">:</span>
+                <span class="n">replicate_Sigma_x_inv</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">replicate_Sigma_x_inv</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">)</span>
+
+            <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">replicate_Sigma_x_inv</span>
+            <span class="p">}</span>
+        
+        <span class="k">if</span> <span class="s2">&quot;Sigma_x_inv_bar&quot;</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="c1"># Keep only Sigma_x_inv_bar corresponding to a particular replicate</span>
+            <span class="n">replicate_Sigma_x_inv_bar</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv_bar&quot;</span><span class="p">][</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isscalar</span><span class="p">(</span><span class="n">replicate_Sigma_x_inv_bar</span><span class="p">)</span> <span class="ow">and</span> <span class="n">replicate_Sigma_x_inv_bar</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+                <span class="n">replicate_Sigma_x_inv_bar</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="k">elif</span> <span class="n">context</span> <span class="o">!=</span> <span class="s2">&quot;numpy&quot;</span><span class="p">:</span>
+                <span class="n">replicate_Sigma_x_inv_bar</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">replicate_Sigma_x_inv_bar</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">)</span>
+
+            <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv_bar&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">replicate_Sigma_x_inv_bar</span>
+            <span class="p">}</span>
+
+        <span class="n">adjacency_matrix</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s2">&quot;adjacency_matrix&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">tocoo</span><span class="p">()</span>
+
+        <span class="n">num_cells</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">adjacency_list</span> <span class="o">=</span> <span class="p">[[]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_cells</span><span class="p">)]</span>
+        <span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">nonzero</span><span class="p">()):</span>
+            <span class="n">adjacency_list</span><span class="p">[</span><span class="n">x</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+
+        <span class="n">dataset</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">&quot;adjacency_list&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">adjacency_list</span>
+        
+        <span class="k">if</span> <span class="s2">&quot;M&quot;</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">context</span> <span class="o">==</span> <span class="s2">&quot;numpy&quot;</span><span class="p">:</span>
+                <span class="k">if</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">]:</span>
+                    <span class="n">replicate_M</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">][</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">])</span>
+                    <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">replicate_M</span><span class="p">}</span>
+    
+        <span class="k">if</span> <span class="s2">&quot;M_bar&quot;</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">context</span> <span class="o">==</span> <span class="s2">&quot;numpy&quot;</span><span class="p">:</span>
+                <span class="k">if</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M_bar&quot;</span><span class="p">]:</span>
+                    <span class="n">replicate_M_bar</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M_bar&quot;</span><span class="p">][</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">])</span>
+                    <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M_bar&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">replicate_M_bar</span><span class="p">}</span>
+        
+        <span class="k">if</span> <span class="s2">&quot;spicemixplus_hyperparameters&quot;</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">context</span> <span class="o">==</span> <span class="s2">&quot;numpy&quot;</span><span class="p">:</span>
+                <span class="k">if</span> <span class="s2">&quot;prior_x&quot;</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">]:</span>
+                    <span class="n">prior_x</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;prior_x&quot;</span><span class="p">])</span>
+                    <span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;prior_x&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">prior_x</span>
+ 
+        <span class="k">if</span> <span class="s2">&quot;X&quot;</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">obsm</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">context</span> <span class="o">==</span> <span class="s2">&quot;numpy&quot;</span><span class="p">:</span>
+                <span class="n">replicate_X</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">])</span>
+                <span class="n">dataset</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">replicate_X</span>
+
+        <span class="k">if</span> <span class="n">context</span> <span class="o">!=</span> <span class="s2">&quot;numpy&quot;</span><span class="p">:</span>
+            <span class="n">dataset</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s2">&quot;adjacency_matrix&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">convert_numpy_to_pytorch_sparse_coo</span><span class="p">(</span><span class="n">adjacency_matrix</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">datasets</span></div>
+
+
+<div class="viewcode-block" id="save_anndata"><a class="viewcode-back" href="../../spicemix.html#spicemix.io.save_anndata">[docs]</a><span class="k">def</span> <span class="nf">save_anndata</span><span class="p">(</span><span class="n">filepath</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span> <span class="n">datasets</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">SpiceMixDataset</span><span class="p">],</span> <span class="n">replicate_names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+    <span class="sd">&quot;&quot;&quot;Save SpiceMixPlus state as AnnData object.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">dataset_copies</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">replicate</span><span class="p">,</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">replicate_names</span><span class="p">,</span> <span class="n">datasets</span><span class="p">):</span>
+        <span class="n">dataset_copy</span> <span class="o">=</span> <span class="n">ad</span><span class="o">.</span><span class="n">AnnData</span><span class="p">(</span>
+                <span class="n">X</span><span class="o">=</span><span class="n">dataset</span><span class="o">.</span><span class="n">X</span><span class="p">,</span>
+                <span class="n">obs</span><span class="o">=</span><span class="n">dataset</span><span class="o">.</span><span class="n">obs</span><span class="p">,</span>
+                <span class="n">var</span><span class="o">=</span><span class="n">dataset</span><span class="o">.</span><span class="n">var</span><span class="p">,</span>
+                <span class="n">uns</span><span class="o">=</span><span class="n">dataset</span><span class="o">.</span><span class="n">uns</span><span class="p">,</span>
+                <span class="n">obsm</span><span class="o">=</span><span class="n">dataset</span><span class="o">.</span><span class="n">obsm</span><span class="p">,</span>
+                <span class="n">obsp</span><span class="o">=</span><span class="n">dataset</span><span class="o">.</span><span class="n">obsp</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">dataset_copy</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s2">&quot;adjacency_matrix&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s2">&quot;adjacency_matrix&quot;</span><span class="p">])</span>
+       
+        <span class="k">if</span> <span class="s2">&quot;Sigma_x_inv&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="n">replicate_Sigma_x_inv</span> <span class="o">=</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv&quot;</span><span class="p">][</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv&quot;</span><span class="p">]:</span>
+                <span class="c1"># Using a sentinel value - hopefully this can be fixed in the future!</span>
+                <span class="k">if</span> <span class="n">replicate_Sigma_x_inv</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span> 
+                    <span class="n">replicate_Sigma_x_inv</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">replicate_Sigma_x_inv</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">replicate_Sigma_x_inv</span><span class="p">)</span>
+        
+            <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">replicate_Sigma_x_inv</span><span class="p">}</span>
+        
+        <span class="k">if</span> <span class="s2">&quot;Sigma_x_inv_bar&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="n">replicate_Sigma_x_inv_bar</span> <span class="o">=</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv_bar&quot;</span><span class="p">][</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv_bar&quot;</span><span class="p">]:</span>
+                <span class="c1"># Using a sentinel value - hopefully this can be fixed in the future!</span>
+                <span class="k">if</span> <span class="n">replicate_Sigma_x_inv_bar</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span> 
+                    <span class="n">replicate_Sigma_x_inv_bar</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">replicate_Sigma_x_inv_bar</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">replicate_Sigma_x_inv_bar</span><span class="p">)</span>
+        
+            <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;Sigma_x_inv_bar&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">replicate_Sigma_x_inv_bar</span><span class="p">}</span>
+
+        <span class="k">if</span> <span class="s2">&quot;M&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="k">if</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">]:</span>
+                <span class="n">replicate_M</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">][</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">])</span>
+                <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">replicate_M</span><span class="p">}</span>
+    
+        <span class="k">if</span> <span class="s2">&quot;M_bar&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="k">if</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M_bar&quot;</span><span class="p">]:</span>
+                <span class="n">replicate_M_bar</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M_bar&quot;</span><span class="p">][</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">])</span>
+                <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;M_bar&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">replicate_M_bar</span><span class="p">}</span>
+        
+        <span class="k">if</span> <span class="s2">&quot;spicemixplus_hyperparameters&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s2">&quot;prior_x&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">]:</span>
+                <span class="n">prior_x</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;prior_x&quot;</span><span class="p">])</span>
+                <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;prior_x&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">prior_x</span>
+            
+            <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">][</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">name</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">dataset_copy</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">&quot;spicemixplus_hyperparameters&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">}</span>
+
+                
+        <span class="k">if</span> <span class="s2">&quot;X&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">obsm</span><span class="p">:</span>
+            <span class="n">replicate_X</span> <span class="o">=</span> <span class="n">make_hdf5_compatible</span><span class="p">(</span><span class="n">dataset_copy</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">])</span>
+            <span class="n">dataset_copy</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">replicate_X</span>
+ 
+        <span class="n">dataset_copies</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dataset_copy</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="s2">&quot;adjacency_list&quot;</span> <span class="ow">in</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">obs</span><span class="p">:</span>
+            <span class="k">del</span> <span class="n">dataset_copy</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">&quot;adjacency_list&quot;</span><span class="p">]</span>
+
+
+    <span class="n">merged_dataset</span> <span class="o">=</span> <span class="n">ad</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">dataset_copies</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;batch&quot;</span><span class="p">,</span> <span class="n">merge</span><span class="o">=</span><span class="s2">&quot;unique&quot;</span><span class="p">,</span> <span class="n">uns_merge</span><span class="o">=</span><span class="s2">&quot;unique&quot;</span><span class="p">,</span> <span class="n">pairwise</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">merged_dataset</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">filepath</span><span class="p">)</span>
+   
+    <span class="n">reloaded_dataset</span> <span class="o">=</span> <span class="n">ad</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">filepath</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">merged_dataset</span></div>
+
+<div class="viewcode-block" id="make_hdf5_compatible"><a class="viewcode-back" href="../../spicemix.html#spicemix.io.make_hdf5_compatible">[docs]</a><span class="k">def</span> <span class="nf">make_hdf5_compatible</span><span class="p">(</span><span class="n">array</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]):</span>
+    <span class="sd">&quot;&quot;&quot;Convert tensors to Numpy array for compatibility with HDF5.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        array: array to convert to Numpy.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">array</span><span class="p">)</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">cpu_tensor</span> <span class="o">=</span> <span class="n">array</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">cpu_tensor</span><span class="o">.</span><span class="n">is_sparse</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">cpu_tensor</span><span class="o">.</span><span class="n">to_dense</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">cpu_tensor</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">array</span></div>
+
+<div class="viewcode-block" id="convert_numpy_to_pytorch_sparse_coo"><a class="viewcode-back" href="../../spicemix.html#spicemix.io.convert_numpy_to_pytorch_sparse_coo">[docs]</a><span class="k">def</span> <span class="nf">convert_numpy_to_pytorch_sparse_coo</span><span class="p">(</span><span class="n">numpy_coo</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+    <span class="n">indices</span> <span class="o">=</span> <span class="n">numpy_coo</span><span class="o">.</span><span class="n">nonzero</span><span class="p">()</span>
+    <span class="n">values</span> <span class="o">=</span> <span class="n">numpy_coo</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">numpy_coo</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">nonzero</span><span class="p">()]</span>
+
+    <span class="n">i</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">LongTensor</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">FloatTensor</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+    <span class="n">size</span> <span class="o">=</span> <span class="n">numpy_coo</span><span class="o">.</span><span class="n">shape</span>
+
+    <span class="n">torch_coo</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sparse_coo_tensor</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">size</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">torch_coo</span></div>
+</pre></div>
+
+              </div>
+              
+            </main>
+            <footer class="footer-article noprint">
+                
+    <!-- Previous / next buttons -->
+<div class='prev-next-area'>
+</div>
+            </footer>
+        </div>
+    </div>
+    <div class="footer-content row">
+        <footer class="col footer"><p>
+  
+    By Shahul Alam<br/>
+  
+      &copy; Copyright 2022, CMU.<br/>
+</p>
+        </footer>
+    </div>
+    
+</div>
+
+
+      </div>
+    </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf"></script>
+
+
+  </body>
+</html>

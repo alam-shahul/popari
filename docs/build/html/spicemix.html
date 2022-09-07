@@ -1,0 +1,1335 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>spicemix package &#8212; SpiceMixPlus 0.0.1 documentation</title>
+    
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+<link href="_static/styles/pydata-sphinx-theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+
+    
+  <link rel="stylesheet"
+    href="_static/vendor/fontawesome/5.13.0/css/all.min.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="_static/vendor/fontawesome/5.13.0/webfonts/fa-solid-900.woff2">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
+
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="_static/styles/sphinx-book-theme.css" type="text/css" />
+    
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf">
+
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/scripts/sphinx-book-theme.js?digest=9c920249402e914e316237a7dbc6769907cce411"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/scripts/sphinx-book-theme.js"></script>
+    <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="docsearch:language" content="None">
+    
+
+    <!-- Google Analytics -->
+    
+  </head>
+  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="60">
+<!-- Checkboxes to toggle the left sidebar -->
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle navigation sidebar">
+<label class="overlay overlay-navbar" for="__navigation">
+    <div class="visually-hidden">Toggle navigation sidebar</div>
+</label>
+<!-- Checkboxes to toggle the in-page toc -->
+<input type="checkbox" class="sidebar-toggle" name="__page-toc" id="__page-toc" aria-label="Toggle in-page Table of Contents">
+<label class="overlay overlay-pagetoc" for="__page-toc">
+    <div class="visually-hidden">Toggle in-page Table of Contents</div>
+</label>
+<!-- Headers at the top -->
+<div class="announcement header-item noprint"></div>
+<div class="header header-item noprint"></div>
+
+    
+    <div class="container-fluid" id="banner"></div>
+
+    
+
+    <div class="container-xl">
+      <div class="row">
+          
+<!-- Sidebar -->
+<div class="bd-sidebar noprint" id="site-navigation">
+    <div class="bd-sidebar__content">
+        <div class="bd-sidebar__top"><div class="navbar-brand-box">
+    <a class="navbar-brand text-wrap" href="index.html">
+      
+      
+      
+      <h1 class="site-logo" id="site-title">SpiceMixPlus 0.0.1 documentation</h1>
+      
+    </a>
+</div><form class="bd-search d-flex align-items-center" action="search.html" method="get">
+  <i class="icon fas fa-search"></i>
+  <input type="search" class="form-control" name="q" id="search-input" placeholder="Search the docs ..." aria-label="Search the docs ..." autocomplete="off" >
+</form><nav class="bd-links" id="bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item active">
+        
+    </div>
+</nav></div>
+        <div class="bd-sidebar__bottom">
+             <!-- To handle the deprecated key -->
+            
+            <div class="navbar_extra_footer">
+            Theme by the <a href="https://ebp.jupyterbook.org">Executable Book Project</a>
+            </div>
+            
+        </div>
+    </div>
+    <div id="rtd-footer-container"></div>
+</div>
+
+
+          
+
+
+          
+<!-- A tiny helper pixel to detect if we've scrolled -->
+<div class="sbt-scroll-pixel-helper"></div>
+<!-- Main content -->
+<div class="col py-0 content-container">
+    
+    <div class="header-article row sticky-top noprint">
+        
+
+
+
+<div class="col py-1 d-flex header-article-main">
+    <div class="header-article__left">
+        
+        <label for="__navigation"
+  class="headerbtn"
+  data-toggle="tooltip"
+data-placement="right"
+title="Toggle navigation"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-bars"></i>
+  </span>
+
+</label>
+
+        
+    </div>
+    <div class="header-article__right">
+<button onclick="toggleFullScreen()"
+  class="headerbtn"
+  data-toggle="tooltip"
+data-placement="bottom"
+title="Fullscreen mode"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+<div class="menu-dropdown menu-dropdown-download-buttons">
+  <button class="headerbtn menu-dropdown__trigger"
+      aria-label="Download this page">
+      <i class="fas fa-download"></i>
+  </button>
+  <div class="menu-dropdown__content">
+    <ul>
+      <li>
+        <a href="_sources/spicemix.rst.txt"
+   class="headerbtn"
+   data-toggle="tooltip"
+data-placement="left"
+title="Download source file"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="headerbtn__text-container">.rst</span>
+</a>
+
+      </li>
+      
+      <li>
+        
+<button onclick="printPdf(this)"
+  class="headerbtn"
+  data-toggle="tooltip"
+data-placement="left"
+title="Print to PDF"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="headerbtn__text-container">.pdf</span>
+</button>
+
+      </li>
+      
+    </ul>
+  </div>
+</div>
+<label for="__page-toc"
+  class="headerbtn headerbtn-page-toc"
+  
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-list"></i>
+  </span>
+
+</label>
+
+    </div>
+</div>
+
+<!-- Table of contents -->
+<div class="col-md-3 bd-toc show noprint">
+    <div class="tocsection onthispage pt-5 pb-3">
+        <i class="fas fa-list"></i> Contents
+    </div>
+    <nav id="bd-toc-nav" aria-label="Page">
+        <ul class="visible nav section-nav flex-column">
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#submodules">
+   Submodules
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.analysis">
+   spicemix.analysis module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.components">
+   spicemix.components module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#spicemix-estimate-parameters-module">
+   spicemix.estimate_parameters module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#spicemix-estimate-weights-module">
+   spicemix.estimate_weights module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.initialization">
+   spicemix.initialization module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.io">
+   spicemix.io module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#spicemix-main-module">
+   spicemix.main module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.model">
+   spicemix.model module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.sample_for_integral">
+   spicemix.sample_for_integral module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.simulation_framework">
+   spicemix.simulation_framework module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.synthesize">
+   spicemix.synthesize module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.util">
+   spicemix.util module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix">
+   Module contents
+  </a>
+ </li>
+</ul>
+
+    </nav>
+</div>
+    </div>
+    <div class="article row">
+        <div class="col pl-md-3 pl-lg-5 content-container">
+            <!-- Table of contents that is only displayed when printing the page -->
+            <div id="jb-print-docs-body" class="onlyprint">
+                <h1>spicemix package</h1>
+                <!-- Table of contents -->
+                <div id="print-main-content">
+                    <div id="jb-print-toc">
+                        
+                        <div>
+                            <h2> Contents </h2>
+                        </div>
+                        <nav aria-label="Page">
+                            <ul class="visible nav section-nav flex-column">
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#submodules">
+   Submodules
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.analysis">
+   spicemix.analysis module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.components">
+   spicemix.components module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#spicemix-estimate-parameters-module">
+   spicemix.estimate_parameters module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#spicemix-estimate-weights-module">
+   spicemix.estimate_weights module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.initialization">
+   spicemix.initialization module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.io">
+   spicemix.io module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#spicemix-main-module">
+   spicemix.main module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.model">
+   spicemix.model module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.sample_for_integral">
+   spicemix.sample_for_integral module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.simulation_framework">
+   spicemix.simulation_framework module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.synthesize">
+   spicemix.synthesize module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix.util">
+   spicemix.util module
+  </a>
+ </li>
+ <li class="toc-h2 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#module-spicemix">
+   Module contents
+  </a>
+ </li>
+</ul>
+
+                        </nav>
+                    </div>
+                </div>
+            </div>
+            <main id="main-content" role="main">
+                
+              <div>
+                
+  <div class="section" id="spicemix-package">
+<h1>spicemix package<a class="headerlink" href="#spicemix-package" title="Permalink to this headline">#</a></h1>
+<div class="section" id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">#</a></h2>
+</div>
+<div class="section" id="module-spicemix.analysis">
+<span id="spicemix-analysis-module"></span><h2>spicemix.analysis module<a class="headerlink" href="#module-spicemix.analysis" title="Permalink to this headline">#</a></h2>
+<dl class="py function">
+<dt id="spicemix.analysis.compute_ari_scores">
+<code class="sig-prename descclassname"><span class="pre">spicemix.analysis.</span></code><code class="sig-name descname"><span class="pre">compute_ari_scores</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trained_model</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><a class="reference internal" href="#spicemix.model.SpiceMixPlus" title="spicemix.model.SpiceMixPlus"><span class="pre">spicemix.model.SpiceMixPlus</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">labels</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">predictions</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ari_key</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">'ari'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/analysis.html#compute_ari_scores"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.analysis.compute_ari_scores" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.analysis.leiden">
+<code class="sig-prename descclassname"><span class="pre">spicemix.analysis.</span></code><code class="sig-name descname"><span class="pre">leiden</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trained_model</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><a class="reference internal" href="#spicemix.model.SpiceMixPlus" title="spicemix.model.SpiceMixPlus"><span class="pre">spicemix.model.SpiceMixPlus</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_rep</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'normalized_X'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolution</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">float</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/analysis.html#leiden"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.analysis.leiden" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.analysis.multireplicate_heatmap">
+<code class="sig-prename descclassname"><span class="pre">spicemix.analysis.</span></code><code class="sig-name descname"><span class="pre">multireplicate_heatmap</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trained_model</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><a class="reference internal" href="#spicemix.model.SpiceMixPlus" title="spicemix.model.SpiceMixPlus"><span class="pre">spicemix.model.SpiceMixPlus</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">matplotlib.axes._axes.Axes</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">obsm</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">obsp</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">uns</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">heatmap_kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/analysis.html#multireplicate_heatmap"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.analysis.multireplicate_heatmap" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.analysis.plot_all_metagene_embeddings">
+<code class="sig-prename descclassname"><span class="pre">spicemix.analysis.</span></code><code class="sig-name descname"><span class="pre">plot_all_metagene_embeddings</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trained_model</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><a class="reference internal" href="#spicemix.model.SpiceMixPlus" title="spicemix.model.SpiceMixPlus"><span class="pre">spicemix.model.SpiceMixPlus</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">embedding_key</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">'X'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">column_names</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/analysis.html#plot_all_metagene_embeddings"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.analysis.plot_all_metagene_embeddings" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.analysis.plot_ari_scores">
+<code class="sig-prename descclassname"><span class="pre">spicemix.analysis.</span></code><code class="sig-name descname"><span class="pre">plot_ari_scores</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trained_model</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><a class="reference internal" href="#spicemix.model.SpiceMixPlus" title="spicemix.model.SpiceMixPlus"><span class="pre">spicemix.model.SpiceMixPlus</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">ax</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">matplotlib.axes._axes.Axes</span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/analysis.html#plot_ari_scores"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.analysis.plot_ari_scores" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.analysis.plot_in_situ">
+<code class="sig-prename descclassname"><span class="pre">spicemix.analysis.</span></code><code class="sig-name descname"><span class="pre">plot_in_situ</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trained_model</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><a class="reference internal" href="#spicemix.model.SpiceMixPlus" title="spicemix.model.SpiceMixPlus"><span class="pre">spicemix.model.SpiceMixPlus</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'leiden'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">matplotlib.axes._axes.Axes</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/analysis.html#plot_in_situ"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.analysis.plot_in_situ" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.analysis.plot_metagene_embedding">
+<code class="sig-prename descclassname"><span class="pre">spicemix.analysis.</span></code><code class="sig-name descname"><span class="pre">plot_metagene_embedding</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trained_model</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><a class="reference internal" href="#spicemix.model.SpiceMixPlus" title="spicemix.model.SpiceMixPlus"><span class="pre">spicemix.model.SpiceMixPlus</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">metagene_index</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">matplotlib.axes._axes.Axes</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/analysis.html#plot_metagene_embedding"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.analysis.plot_metagene_embedding" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-spicemix.components">
+<span id="spicemix-components-module"></span><h2>spicemix.components module<a class="headerlink" href="#module-spicemix.components" title="Permalink to this headline">#</a></h2>
+<dl class="py class">
+<dt id="spicemix.components.EmbeddingOptimizer">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.components.</span></code><code class="sig-name descname"><span class="pre">EmbeddingOptimizer</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">K</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Ys</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datasets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#EmbeddingOptimizer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.EmbeddingOptimizer" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Optimizer and state for SpiceMix embeddings.</p>
+<dl class="py method">
+<dt id="spicemix.components.EmbeddingOptimizer.estimate_weight_wnbr">
+<code class="sig-name descname"><span class="pre">estimate_weight_wnbr</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_yx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dataset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_epochs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">update_alg</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'nesterov'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#EmbeddingOptimizer.estimate_weight_wnbr"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.EmbeddingOptimizer.estimate_weight_wnbr" title="Permalink to this definition">#</a></dt>
+<dd><p>Estimate updated weights taking neighbor-neighbor interactions into account.</p>
+<p>The optimization for all variables
+min 1/2σ^2 || Y - diag(S) Z MT ||_2^2 + lam || S ||_1 + sum_{ij in E} ziT Σx-1 zj</p>
+<p>for s_i
+min 1/2σ^2 || y - M z s ||_2^2 + lam s
+s* = max(0, ( yT M z / σ^2 - lam ) / ( zT MT M z / σ^2) )</p>
+<p>for Z
+min 1/2σ^2 || Y - diag(S) Z MT ||_2^2 + sum_{ij in E} ziT Σx-1 zj
+grad_i = MT M z s^2 / σ^2 - MT y s / σ^2 + sum_{j in Ei} Σx-1 zj</p>
+<p>TODO: Try projected Newton’s method.
+TM: Inverse is precomputed once, and projection is cheap. Not sure if it works theoretically</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.EmbeddingOptimizer.estimate_weight_wonbr">
+<code class="sig-name descname"><span class="pre">estimate_weight_wonbr</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_yx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dataset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_epochs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-06</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">update_alg</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'gd'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#EmbeddingOptimizer.estimate_weight_wonbr"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.EmbeddingOptimizer.estimate_weight_wonbr" title="Permalink to this definition">#</a></dt>
+<dd><p>Estimate weights without spatial information - equivalent to vanilla NMF.</p>
+<p>Optimizes the follwing objective with respect to hidden state X:</p>
+<p>min 1/2σ^2 || Y - X MT ||_2^2 + lam || X ||_1
+grad = X MT M / σ^2 - Y MT / σ^2 + lam</p>
+<p>TODO: use (projected) Nesterov GD. not urgent</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>Y</strong> (<em>torch.Tensor</em>) – </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.EmbeddingOptimizer.link">
+<code class="sig-name descname"><span class="pre">link</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parameter_optimizer</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#EmbeddingOptimizer.link"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.EmbeddingOptimizer.link" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.EmbeddingOptimizer.update_embeddings">
+<code class="sig-name descname"><span class="pre">update_embeddings</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">use_neighbors</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#EmbeddingOptimizer.update_embeddings"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.EmbeddingOptimizer.update_embeddings" title="Permalink to this definition">#</a></dt>
+<dd><p>Update SpiceMixPlus embeddings according to optimization scheme.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt id="spicemix.components.EmbeddingState">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.components.</span></code><code class="sig-name descname"><span class="pre">EmbeddingState</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">K</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datasets</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#spicemix.components.SpiceMixDataset" title="spicemix.components.SpiceMixDataset"><span class="pre">spicemix.components.SpiceMixDataset</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#EmbeddingState"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.EmbeddingState" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">dict</span></code></p>
+<p>Collections of cell embeddings for all ST replicates.</p>
+<dl class="py attribute">
+<dt id="spicemix.components.EmbeddingState.K">
+<code class="sig-name descname"><span class="pre">K</span></code><a class="headerlink" href="#spicemix.components.EmbeddingState.K" title="Permalink to this definition">#</a></dt>
+<dd><p>embedding dimension:</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.EmbeddingState.normalize">
+<code class="sig-name descname"><span class="pre">normalize</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">normalized_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'normalized_X'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#EmbeddingState.normalize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.EmbeddingState.normalize" title="Permalink to this definition">#</a></dt>
+<dd><p>Normalize embeddings per each cell.</p>
+<p>This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt id="spicemix.components.MetageneState">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.components.</span></code><code class="sig-name descname"><span class="pre">MetageneState</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">K</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datasets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">groups</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'shared'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M_constraint</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'simplex'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#MetageneState"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.MetageneState" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">dict</span></code></p>
+<p>State to store metagene parameters during SpiceMixPlus optimization.</p>
+<p>Metagene state can be shared across replicates or maintained separately for each replicate.</p>
+<dl class="py attribute">
+<dt id="spicemix.components.MetageneState.datasets">
+<code class="sig-name descname"><span class="pre">datasets</span></code><a class="headerlink" href="#spicemix.components.MetageneState.datasets" title="Permalink to this definition">#</a></dt>
+<dd><p>A reference to the list of SpiceMixDatasets that are being optimized.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="spicemix.components.MetageneState.context">
+<code class="sig-name descname"><span class="pre">context</span></code><a class="headerlink" href="#spicemix.components.MetageneState.context" title="Permalink to this definition">#</a></dt>
+<dd><p>Parameters to define the context for PyTorch tensor instantiation.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="spicemix.components.MetageneState.metagenes">
+<code class="sig-name descname"><span class="pre">metagenes</span></code><a class="headerlink" href="#spicemix.components.MetageneState.metagenes" title="Permalink to this definition">#</a></dt>
+<dd><p>A PyTorch tensor containing all metagene parameters.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.MetageneState.reaverage">
+<code class="sig-name descname"><span class="pre">reaverage</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#MetageneState.reaverage"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.MetageneState.reaverage" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt id="spicemix.components.ParameterOptimizer">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.components.</span></code><code class="sig-name descname"><span class="pre">ParameterOptimizer</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">K</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Ys</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datasets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">betas</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x_modes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">groups</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spatial_affinity_regularization_power</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spatial_affinity_scaling</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_Sigma_x_inv</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spatial_affinity_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'shared</span> <span class="pre">lookup'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metagene_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'shared'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_M</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_Sigma_bar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M_constraint</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'simplex'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_yx_inv_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'separate'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#ParameterOptimizer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.ParameterOptimizer" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Optimizer and state for SpiceMix parameters.</p>
+<dl class="py method">
+<dt id="spicemix.components.ParameterOptimizer.estimate_M">
+<code class="sig-name descname"><span class="pre">estimate_M</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_mask</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M_bar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_epochs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-06</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backend_algorithm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'gd</span> <span class="pre">Nesterov'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#ParameterOptimizer.estimate_M"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.ParameterOptimizer.estimate_M" title="Permalink to this definition">#</a></dt>
+<dd><p>Optimize metagene parameters.</p>
+<p>M is shared across all replicates.
+min || Y - X MT ||_2^2 / (2 σ_yx^2)
+s.t. || Mk ||_p = 1
+grad = (M XT X - YT X) / (σ_yx^2)</p>
+<p>Each replicate may have a slightly different M
+min || Y - X MT ||_2^2 / (2 σ_yx^2) + || M - M_bar ||_2^2 λ_M / 2
+s.t. || Mk ||_p = 1
+grad = ( M XT X - YT X ) / ( σ_yx^2 ) + λ_M ( M - M_bar )</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>M</strong> – current estimate of metagene parameters</p></li>
+<li><p><strong>betas</strong> – weight of each FOV in optimization scheme</p></li>
+<li><p><strong>context</strong> – context ith which to create PyTorch tensor</p></li>
+<li><p><strong>n_epochs</strong> – number of epochs</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Updated estimate of metagene parameters.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.ParameterOptimizer.estimate_Sigma_x_inv">
+<code class="sig-name descname"><span class="pre">estimate_Sigma_x_inv</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Sigma_x_inv</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_mask</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">optimizer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Sigma_x_inv_bar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constraint</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'clamp'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_epochs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#ParameterOptimizer.estimate_Sigma_x_inv"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.ParameterOptimizer.estimate_Sigma_x_inv" title="Permalink to this definition">#</a></dt>
+<dd><p>Optimize Sigma_x_inv parameters.</p>
+<p>Differential mode:
+grad =  … + λ_Sigma_x_inv ( Sigma_x_inv - Sigma_x_inv_bar )</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>Xs</strong> – list of latent expression embeddings for each FOV.</p></li>
+<li><p><strong>Sigma_x_inv</strong> – previous estimate of Σx-1</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.ParameterOptimizer.link">
+<code class="sig-name descname"><span class="pre">link</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">embedding_optimizer</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#ParameterOptimizer.link"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.ParameterOptimizer.link" title="Permalink to this definition">#</a></dt>
+<dd><p>Link to embedding_optimizer.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.ParameterOptimizer.scale_metagenes">
+<code class="sig-name descname"><span class="pre">scale_metagenes</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#ParameterOptimizer.scale_metagenes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.ParameterOptimizer.scale_metagenes" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.ParameterOptimizer.update_metagenes">
+<code class="sig-name descname"><span class="pre">update_metagenes</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#ParameterOptimizer.update_metagenes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.ParameterOptimizer.update_metagenes" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.ParameterOptimizer.update_sigma_yx">
+<code class="sig-name descname"><span class="pre">update_sigma_yx</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#ParameterOptimizer.update_sigma_yx"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.ParameterOptimizer.update_sigma_yx" title="Permalink to this definition">#</a></dt>
+<dd><p>Update sigma_yx for each replicate.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.ParameterOptimizer.update_spatial_affinity">
+<code class="sig-name descname"><span class="pre">update_spatial_affinity</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#ParameterOptimizer.update_spatial_affinity"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.ParameterOptimizer.update_spatial_affinity" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt id="spicemix.components.SpatialAffinityState">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.components.</span></code><code class="sig-name descname"><span class="pre">SpatialAffinityState</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">K</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metagene_state</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datasets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">groups</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">betas</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaling</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'shared</span> <span class="pre">lookup'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#SpatialAffinityState"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.SpatialAffinityState" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">dict</span></code></p>
+<dl class="py method">
+<dt id="spicemix.components.SpatialAffinityState.initialize">
+<code class="sig-name descname"><span class="pre">initialize</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">initial_embeddings</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaling</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#SpatialAffinityState.initialize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.SpatialAffinityState.initialize" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.SpatialAffinityState.reaverage">
+<code class="sig-name descname"><span class="pre">reaverage</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#SpatialAffinityState.reaverage"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.SpatialAffinityState.reaverage" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt id="spicemix.components.SpiceMixDataset">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.components.</span></code><code class="sig-name descname"><span class="pre">SpiceMixDataset</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dataset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coordinates_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'spatial'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#SpiceMixDataset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.SpiceMixDataset" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">anndata._core.anndata.AnnData</span></code></p>
+<p>Wrapper around AnnData object. Allows for preprocessing of dataset for SpiceMix.</p>
+<dl class="py method">
+<dt id="spicemix.components.SpiceMixDataset.compute_spatial_neighbors">
+<code class="sig-name descname"><span class="pre">compute_spatial_neighbors</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#SpiceMixDataset.compute_spatial_neighbors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.SpiceMixDataset.compute_spatial_neighbors" title="Permalink to this definition">#</a></dt>
+<dd><p>Compute neighbor graph based on spatial coordinates.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.SpiceMixDataset.plot_metagene_embedding">
+<code class="sig-name descname"><span class="pre">plot_metagene_embedding</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">scatterplot_kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#SpiceMixDataset.plot_metagene_embedding"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.SpiceMixDataset.plot_metagene_embedding" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.components.SpiceMixDataset.remove_connectivity_artifacts">
+<em class="property"><span class="pre">static</span> </em><code class="sig-name descname"><span class="pre">remove_connectivity_artifacts</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sparse_distance_matrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparse_adjacency_matrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">94.5</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/components.html#SpiceMixDataset.remove_connectivity_artifacts"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.components.SpiceMixDataset.remove_connectivity_artifacts" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="spicemix-estimate-parameters-module">
+<h2>spicemix.estimate_parameters module<a class="headerlink" href="#spicemix-estimate-parameters-module" title="Permalink to this headline">#</a></h2>
+</div>
+<div class="section" id="spicemix-estimate-weights-module">
+<h2>spicemix.estimate_weights module<a class="headerlink" href="#spicemix-estimate-weights-module" title="Permalink to this headline">#</a></h2>
+</div>
+<div class="section" id="module-spicemix.initialization">
+<span id="spicemix-initialization-module"></span><h2>spicemix.initialization module<a class="headerlink" href="#module-spicemix.initialization" title="Permalink to this headline">#</a></h2>
+<dl class="py function">
+<dt id="spicemix.initialization.initialize_kmeans">
+<code class="sig-prename descclassname"><span class="pre">spicemix.initialization.</span></code><code class="sig-name descname"><span class="pre">initialize_kmeans</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datasets</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#spicemix.components.SpiceMixDataset" title="spicemix.components.SpiceMixDataset"><span class="pre">spicemix.components.SpiceMixDataset</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">K</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs_kmeans</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">torch.Tensor</span><span class="p"><span class="pre">,</span> </span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">torch.Tensor</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><a class="reference internal" href="_modules/spicemix/initialization.html#initialize_kmeans"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.initialization.initialize_kmeans" title="Permalink to this definition">#</a></dt>
+<dd><p>Initialize metagenes and hidden states using k-means clustering.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>datasets</strong> – input ST replicates to use for initialization</p></li>
+<li><p><strong>K</strong> – dimension of latent states for cell embeddings</p></li>
+<li><p><strong>context</strong> – context to use for creating PyTorch tensors</p></li>
+<li><p><strong>kwargs_kmeans</strong> – parameters to pass to KMeans classifier</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>A tuple (M, Xs), where M is the initial estimate of the metagene
+values and Xs is the list of initial estimates of the hidden states
+of each replicate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.initialization.initialize_svd">
+<code class="sig-prename descclassname"><span class="pre">spicemix.initialization.</span></code><code class="sig-name descname"><span class="pre">initialize_svd</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datasets</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#spicemix.components.SpiceMixDataset" title="spicemix.components.SpiceMixDataset"><span class="pre">spicemix.components.SpiceMixDataset</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">K</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M_nonneg</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">bool</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X_nonneg</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">bool</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">torch.Tensor</span><span class="p"><span class="pre">,</span> </span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">torch.Tensor</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><a class="reference internal" href="_modules/spicemix/initialization.html#initialize_svd"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.initialization.initialize_svd" title="Permalink to this definition">#</a></dt>
+<dd><p>Initialize metagenes and hidden states using SVD.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>datasets</strong> – input ST replicates to use for initialization</p></li>
+<li><p><strong>K</strong> – dimension of latent states for cell embeddings</p></li>
+<li><p><strong>context</strong> – context to use for creating PyTorch tensors</p></li>
+<li><p><strong>M_nonneg</strong> – if specified, initial M estimate will contain only non-negative values</p></li>
+<li><p><strong>X_nonneg</strong> – if specified, initial X estimate will contain only non-negative values</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>A tuple (M, Xs), where M is the initial estimate of the metagene
+values and Xs is the list of initial estimates of the hidden states
+of each replicate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</div>
+<div class="section" id="module-spicemix.io">
+<span id="spicemix-io-module"></span><h2>spicemix.io module<a class="headerlink" href="#module-spicemix.io" title="Permalink to this headline">#</a></h2>
+<dl class="py function">
+<dt id="spicemix.io.convert_numpy_to_pytorch_sparse_coo">
+<code class="sig-prename descclassname"><span class="pre">spicemix.io.</span></code><code class="sig-name descname"><span class="pre">convert_numpy_to_pytorch_sparse_coo</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">numpy_coo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/io.html#convert_numpy_to_pytorch_sparse_coo"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.io.convert_numpy_to_pytorch_sparse_coo" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.io.load_anndata">
+<code class="sig-prename descclassname"><span class="pre">spicemix.io.</span></code><code class="sig-name descname"><span class="pre">load_anndata</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span> </span><span class="pre">pathlib.Path</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_names</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_mask</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">bool</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">'numpy'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/io.html#load_anndata"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.io.load_anndata" title="Permalink to this definition">#</a></dt>
+<dd><p>Load AnnData object from h5ad file and reformat for SpiceMixPlus.</p>
+<p>When reloading the object, we need to reformat it for compatibility with SpiceMixPlus:</p>
+<blockquote>
+<div><ol class="arabic simple">
+<li><p>Load adjacency matrix as torch.sparse.coo_tensor</p></li>
+<li><p>Generate adjacency list from adjacency matrix</p></li>
+</ol>
+</div></blockquote>
+<p>The AnnData object must have the following properties to work correctly with SpiceMix:</p>
+<blockquote>
+<div><ol class="arabic simple">
+<li><p>dataset.uns[“M”]</p></li>
+<li><p>dataset.uns[“M”] = {f”{replicate}”: numpy.ndarray}</p></li>
+<li><p>dataset.uns[“M_bar”] = {f”{replicate}”: numpy.ndarray}</p></li>
+</ol>
+<p>4. dataset.obsm[“X”] = numpy.ndarray
+(first four are optional)
+5. dataset.uns[“Sigma_x_inv”] = {f”{replicate}”: numpy.ndarray}
+(the above can be set to None)
+6. dataset.obsp[“adjacency_matrix”] = numpy.ndarray
+7. dataset.obs[“adjacency_list”] = list of lists/numpy.ndarrays
+8. dataset.obsm[“spatial”] = numpy.ndarray
+9. dataset.obs[“replicate”] = list</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.io.make_hdf5_compatible">
+<code class="sig-prename descclassname"><span class="pre">spicemix.io.</span></code><code class="sig-name descname"><span class="pre">make_hdf5_compatible</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">torch.Tensor</span><span class="p"><span class="pre">,</span> </span><span class="pre">numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/io.html#make_hdf5_compatible"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.io.make_hdf5_compatible" title="Permalink to this definition">#</a></dt>
+<dd><p>Convert tensors to Numpy array for compatibility with HDF5.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>array</strong> – array to convert to Numpy.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.io.save_anndata">
+<code class="sig-prename descclassname"><span class="pre">spicemix.io.</span></code><code class="sig-name descname"><span class="pre">save_anndata</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span> </span><span class="pre">pathlib.Path</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datasets</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#spicemix.components.SpiceMixDataset" title="spicemix.components.SpiceMixDataset"><span class="pre">spicemix.components.SpiceMixDataset</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_names</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/io.html#save_anndata"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.io.save_anndata" title="Permalink to this definition">#</a></dt>
+<dd><p>Save SpiceMixPlus state as AnnData object.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="spicemix-main-module">
+<h2>spicemix.main module<a class="headerlink" href="#spicemix-main-module" title="Permalink to this headline">#</a></h2>
+</div>
+<div class="section" id="module-spicemix.model">
+<span id="spicemix-model-module"></span><h2>spicemix.model module<a class="headerlink" href="#module-spicemix.model" title="Permalink to this headline">#</a></h2>
+<dl class="py class">
+<dt id="spicemix.model.SpiceMixPlus">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.model.</span></code><code class="sig-name descname"><span class="pre">SpiceMixPlus</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">K</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_names</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">datasets</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">anndata._core.anndata.AnnData</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dataset_path</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span> </span><span class="pre">pathlib.Path</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_Sigma_x_inv</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">float</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">0.0001</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pretrained</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">bool</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initialization_method</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">'svd'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">groups</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">dict</span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">betas</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x_modes</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M_constraint</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">'simplex'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_yx_inv_mode</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">'separate'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">torch_context</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">dict</span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_context</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">dict</span><span class="p"><span class="pre">]</span></span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metagene_mode</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">'shared'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spatial_affinity_mode</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">str</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">'shared</span> <span class="pre">lookup'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_M</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">float</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_Sigma_bar</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">float</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">random_state</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">int</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/model.html#SpiceMixPlus"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.model.SpiceMixPlus" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>SpiceMixPlus optimization model.</p>
+<p>Models spatial biological data using the NMF-HMRF formulation. Supports multiple
+fields-of-view (FOVs) and multimodal data.</p>
+<dl class="py attribute">
+<dt id="spicemix.model.SpiceMixPlus.K">
+<code class="sig-name descname"><span class="pre">K</span></code><a class="headerlink" href="#spicemix.model.SpiceMixPlus.K" title="Permalink to this definition">#</a></dt>
+<dd><p>number of metagenes to learn</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="spicemix.model.SpiceMixPlus.datasets">
+<code class="sig-name descname"><span class="pre">datasets</span></code><a class="headerlink" href="#spicemix.model.SpiceMixPlus.datasets" title="Permalink to this definition">#</a></dt>
+<dd><p>list of input AnnData spatial datasets for SpiceMix.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="spicemix.model.SpiceMixPlus.embedding_optimizer">
+<code class="sig-name descname"><span class="pre">embedding_optimizer</span></code><a class="headerlink" href="#spicemix.model.SpiceMixPlus.embedding_optimizer" title="Permalink to this definition">#</a></dt>
+<dd><p>object wrapping learned embeddings (i.e. X) and related state</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="spicemix.model.SpiceMixPlus.parameter_optimizer">
+<code class="sig-name descname"><span class="pre">parameter_optimizer</span></code><a class="headerlink" href="#spicemix.model.SpiceMixPlus.parameter_optimizer" title="Permalink to this definition">#</a></dt>
+<dd><p>object wrapping learned parameters (i.e. M, sigma_yxs, spatial affinities)
+and related state</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.model.SpiceMixPlus.estimate_parameters">
+<code class="sig-name descname"><span class="pre">estimate_parameters</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update_spatial_affinities</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">bool</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/model.html#SpiceMixPlus.estimate_parameters"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.model.SpiceMixPlus.estimate_parameters" title="Permalink to this definition">#</a></dt>
+<dd><p>Update parameters for each replicate.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>update_spatial_affinities</strong> – If specified, spatial affinities will be updated during this iteration.
+Default: True.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.model.SpiceMixPlus.estimate_weights">
+<code class="sig-name descname"><span class="pre">estimate_weights</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">use_neighbors</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/model.html#SpiceMixPlus.estimate_weights"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.model.SpiceMixPlus.estimate_weights" title="Permalink to this definition">#</a></dt>
+<dd><p>Update embeddings (latent states) for each replicate.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.model.SpiceMixPlus.load_anndata_datasets">
+<code class="sig-name descname"><span class="pre">load_anndata_datasets</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datasets</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">anndata._core.anndata.AnnData</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_names</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/model.html#SpiceMixPlus.load_anndata_datasets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.model.SpiceMixPlus.load_anndata_datasets" title="Permalink to this definition">#</a></dt>
+<dd><p>Load SpiceMixPlus data directly from AnnData objects.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>datasets</strong> – spatial transcriptomics datasets in AnnData format (one for each FOV)</p></li>
+<li><p><strong>replicate_names</strong> – names for all datasets/replicates</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.model.SpiceMixPlus.load_dataset">
+<code class="sig-name descname"><span class="pre">load_dataset</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dataset_path</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span> </span><span class="pre">pathlib.Path</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_names</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/model.html#SpiceMixPlus.load_dataset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.model.SpiceMixPlus.load_dataset" title="Permalink to this definition">#</a></dt>
+<dd><p>Load dataset into SpiceMixPlus from saved .h5ad file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>dataset_path</strong> – path to input ST datasets, stored in .h5ad format</p></li>
+<li><p><strong>replicate_names</strong> – names for all datasets/replicates. Note that these must match the names in the .h5ad file.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.model.SpiceMixPlus.save_results">
+<code class="sig-name descname"><span class="pre">save_results</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path2dataset</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/model.html#SpiceMixPlus.save_results"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.model.SpiceMixPlus.save_results" title="Permalink to this definition">#</a></dt>
+<dd><p>Save datasets and learned SpiceMixPlus parameters to .h5ad file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>dataset_path</strong> – path to input ST datasets, to be stored in .h5ad format</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.model.SpiceMixPlus.synchronize_datasets">
+<code class="sig-name descname"><span class="pre">synchronize_datasets</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/model.html#SpiceMixPlus.synchronize_datasets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.model.SpiceMixPlus.synchronize_datasets" title="Permalink to this definition">#</a></dt>
+<dd><p>Synchronize datasets with learned SpiceMix parameters and embeddings.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.model.load_trained_model">
+<code class="sig-prename descclassname"><span class="pre">spicemix.model.</span></code><code class="sig-name descname"><span class="pre">load_trained_model</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dataset_path</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span> </span><span class="pre">pathlib.Path</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_names</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/model.html#load_trained_model"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.model.load_trained_model" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-spicemix.sample_for_integral">
+<span id="spicemix-sample-for-integral-module"></span><h2>spicemix.sample_for_integral module<a class="headerlink" href="#module-spicemix.sample_for_integral" title="Permalink to this headline">#</a></h2>
+<dl class="py function">
+<dt id="spicemix.sample_for_integral.integrate_of_exponential_over_simplex">
+<code class="sig-prename descclassname"><span class="pre">spicemix.sample_for_integral.</span></code><code class="sig-name descname"><span class="pre">integrate_of_exponential_over_simplex</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-15</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/sample_for_integral.html#integrate_of_exponential_over_simplex"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.sample_for_integral.integrate_of_exponential_over_simplex" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.sample_for_integral.project2simplex">
+<code class="sig-prename descclassname"><span class="pre">spicemix.sample_for_integral.</span></code><code class="sig-name descname"><span class="pre">project2simplex</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zero_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/sample_for_integral.html#project2simplex"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.sample_for_integral.project2simplex" title="Permalink to this definition">#</a></dt>
+<dd><p># <a class="reference external" href="https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex">https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex</a>
+find a scalar mu such that || (y-mu)_+ ||_1 = 1</p>
+<p>Currently uses Newton’s method to optimize || y - mu ||^2</p>
+<p>TODO: try implementing it this way instead: <a class="reference external" href="https://arxiv.org/pdf/1101.6081.pdf">https://arxiv.org/pdf/1101.6081.pdf</a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>y</strong> – vector to be projected to unit simplex</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.sample_for_integral.test_project2simplex">
+<code class="sig-prename descclassname"><span class="pre">spicemix.sample_for_integral.</span></code><code class="sig-name descname"><span class="pre">test_project2simplex</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/sample_for_integral.html#test_project2simplex"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.sample_for_integral.test_project2simplex" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.sample_for_integral.test_project2simplex_basic">
+<code class="sig-prename descclassname"><span class="pre">spicemix.sample_for_integral.</span></code><code class="sig-name descname"><span class="pre">test_project2simplex_basic</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/sample_for_integral.html#test_project2simplex_basic"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.sample_for_integral.test_project2simplex_basic" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-spicemix.simulation_framework">
+<span id="spicemix-simulation-framework-module"></span><h2>spicemix.simulation_framework module<a class="headerlink" href="#module-spicemix.simulation_framework" title="Permalink to this headline">#</a></h2>
+</div>
+<div class="section" id="module-spicemix.synthesize">
+<span id="spicemix-synthesize-module"></span><h2>spicemix.synthesize module<a class="headerlink" href="#module-spicemix.synthesize" title="Permalink to this headline">#</a></h2>
+<dl class="py class">
+<dt id="spicemix.synthesize.SyntheticDataset">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.synthesize.</span></code><code class="sig-name descname"><span class="pre">SyntheticDataset</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">distributions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_type_definitions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask_conditions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metagene_variation_probabilities</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shared_metagenes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#SyntheticDataset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.SyntheticDataset" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Synthetic mouse brain cortex dataset.</p>
+<p>This class provides methods for initializing a semi-random mouse cortex spatial
+transcriptomics dataset, as well as methods to visualize aspects of the dataset.</p>
+<dl class="py method">
+<dt id="spicemix.synthesize.SyntheticDataset.initialize_data_directory">
+<code class="sig-name descname"><span class="pre">initialize_data_directory</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#SyntheticDataset.initialize_data_directory"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.SyntheticDataset.initialize_data_directory" title="Permalink to this definition">#</a></dt>
+<dd><p>Initialize data directory structure on user file system.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.synthesize.SyntheticDataset.plot_cell_types">
+<code class="sig-name descname"><span class="pre">plot_cell_types</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">replicate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_figure</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">colors</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#SyntheticDataset.plot_cell_types"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.SyntheticDataset.plot_cell_types" title="Permalink to this definition">#</a></dt>
+<dd><p>Plot cells in situ using cell type labels.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.synthesize.SyntheticDataset.plot_cells_UMAP">
+<code class="sig-name descname"><span class="pre">plot_cells_UMAP</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">replicate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">latent_space</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_types</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">colors</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_figure</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">normalize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">annotate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#SyntheticDataset.plot_cells_UMAP"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.SyntheticDataset.plot_cells_UMAP" title="Permalink to this definition">#</a></dt>
+<dd><p>Plot synthesized cells using UMAP.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.synthesize.SyntheticDataset.plot_hidden_states">
+<code class="sig-name descname"><span class="pre">plot_hidden_states</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">replicate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_figure</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#SyntheticDataset.plot_hidden_states"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.SyntheticDataset.plot_hidden_states" title="Permalink to this definition">#</a></dt>
+<dd><p>Plot synthetic cell embeddings.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.synthesize.SyntheticDataset.plot_metagenes">
+<code class="sig-name descname"><span class="pre">plot_metagenes</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">order_genes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#SyntheticDataset.plot_metagenes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.SyntheticDataset.plot_metagenes" title="Permalink to this definition">#</a></dt>
+<dd><p>Plot density map of metagenes in terms of constituent genes.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.synthesize.SyntheticDataset.plot_metagenes_in_situ">
+<code class="sig-name descname"><span class="pre">plot_metagenes_in_situ</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">replicate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_figure</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#SyntheticDataset.plot_metagenes_in_situ"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.SyntheticDataset.plot_metagenes_in_situ" title="Permalink to this definition">#</a></dt>
+<dd><p>Plot metagene values per cell in-situ.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.synthesize.generate_affinity_matrix">
+<code class="sig-prename descclassname"><span class="pre">spicemix.synthesize.</span></code><code class="sig-name descname"><span class="pre">generate_affinity_matrix</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tau</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'delaunay'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#generate_affinity_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.generate_affinity_matrix" title="Permalink to this definition">#</a></dt>
+<dd><p>Given a set of 2D spatial coordinates, generate an affinity matrix.</p>
+<p>Can optionally use Delaunay triangulation or simple distance thresholding.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.synthesize.multivariate_normal">
+<code class="sig-prename descclassname"><span class="pre">spicemix.synthesize.</span></code><code class="sig-name descname"><span class="pre">multivariate_normal</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mean</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cov</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">check_valid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'warn'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-08</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#spicemix.synthesize.multivariate_normal" title="Permalink to this definition">#</a></dt>
+<dd><p>Draw random samples from a multivariate normal distribution.</p>
+<p>The multivariate normal, multinormal or Gaussian distribution is a
+generalization of the one-dimensional normal distribution to higher
+dimensions.  Such a distribution is specified by its mean and
+covariance matrix.  These parameters are analogous to the mean
+(average or “center”) and variance (standard deviation, or “width,”
+squared) of the one-dimensional normal distribution.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>New code should use the <code class="docutils literal notranslate"><span class="pre">multivariate_normal</span></code> method of a <code class="docutils literal notranslate"><span class="pre">default_rng()</span></code>
+instance instead; please see the <span class="xref std std-ref">random-quick-start</span>.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>mean</strong> (<em>1-D array_like</em><em>, </em><em>of length N</em>) – Mean of the N-dimensional distribution.</p></li>
+<li><p><strong>cov</strong> (<em>2-D array_like</em><em>, </em><em>of shape</em><em> (</em><em>N</em><em>, </em><em>N</em><em>)</em>) – Covariance matrix of the distribution. It must be symmetric and
+positive-semidefinite for proper sampling.</p></li>
+<li><p><strong>size</strong> (<em>int</em><em> or </em><em>tuple of ints</em><em>, </em><em>optional</em>) – Given a shape of, for example, <code class="docutils literal notranslate"><span class="pre">(m,n,k)</span></code>, <code class="docutils literal notranslate"><span class="pre">m*n*k</span></code> samples are
+generated, and packed in an <cite>m</cite>-by-<cite>n</cite>-by-<cite>k</cite> arrangement.  Because
+each sample is <cite>N</cite>-dimensional, the output shape is <code class="docutils literal notranslate"><span class="pre">(m,n,k,N)</span></code>.
+If no shape is specified, a single (<cite>N</cite>-D) sample is returned.</p></li>
+<li><p><strong>check_valid</strong> (<em>{ 'warn'</em><em>, </em><em>'raise'</em><em>, </em><em>'ignore' }</em><em>, </em><em>optional</em>) – Behavior when the covariance matrix is not positive semidefinite.</p></li>
+<li><p><strong>tol</strong> (<em>float</em><em>, </em><em>optional</em>) – Tolerance when checking the singular values in covariance matrix.
+cov is cast to double before the check.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><p><strong>out</strong> – The drawn samples, of shape <em>size</em>, if that was provided.  If not,
+the shape is <code class="docutils literal notranslate"><span class="pre">(N,)</span></code>.</p>
+<p>In other words, each entry <code class="docutils literal notranslate"><span class="pre">out[i,j,...,:]</span></code> is an N-dimensional
+value drawn from the distribution.</p>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">Generator.multivariate_normal</span></code></dt><dd><p>which should be used for new code.</p>
+</dd>
+</dl>
+</div>
+<p class="rubric">Notes</p>
+<p>The mean is a coordinate in N-dimensional space, which represents the
+location where samples are most likely to be generated.  This is
+analogous to the peak of the bell curve for the one-dimensional or
+univariate normal distribution.</p>
+<p>Covariance indicates the level to which two variables vary together.
+From the multivariate normal distribution, we draw N-dimensional
+samples, <span class="math notranslate nohighlight">\(X = [x_1, x_2, ... x_N]\)</span>.  The covariance matrix
+element <span class="math notranslate nohighlight">\(C_{ij}\)</span> is the covariance of <span class="math notranslate nohighlight">\(x_i\)</span> and <span class="math notranslate nohighlight">\(x_j\)</span>.
+The element <span class="math notranslate nohighlight">\(C_{ii}\)</span> is the variance of <span class="math notranslate nohighlight">\(x_i\)</span> (i.e. its
+“spread”).</p>
+<p>Instead of specifying the full covariance matrix, popular
+approximations include:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Spherical covariance (<cite>cov</cite> is a multiple of the identity matrix)</p></li>
+<li><p>Diagonal covariance (<cite>cov</cite> has non-negative elements, and only on
+the diagonal)</p></li>
+</ul>
+</div></blockquote>
+<p>This geometrical property can be seen in two dimensions by plotting
+generated data-points:</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">mean</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">cov</span> <span class="o">=</span> <span class="p">[[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">100</span><span class="p">]]</span>  <span class="c1"># diagonal covariance</span>
+</pre></div>
+</div>
+<p>Diagonal covariance means that points are oriented along x or y-axis:</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">multivariate_normal</span><span class="p">(</span><span class="n">mean</span><span class="p">,</span> <span class="n">cov</span><span class="p">,</span> <span class="mi">5000</span><span class="p">)</span><span class="o">.</span><span class="n">T</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="s1">&#39;x&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">plt</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s1">&#39;equal&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Note that the covariance matrix must be positive semidefinite (a.k.a.
+nonnegative-definite). Otherwise, the behavior of this method is
+undefined and backwards compatibility is not guaranteed.</p>
+<p class="rubric">References</p>
+<dl class="footnote brackets">
+<dt class="label" id="id1"><span class="brackets">1</span></dt>
+<dd><p>Papoulis, A., “Probability, Random Variables, and Stochastic
+Processes,” 3rd ed., New York: McGraw-Hill, 1991.</p>
+</dd>
+<dt class="label" id="id2"><span class="brackets">2</span></dt>
+<dd><p>Duda, R. O., Hart, P. E., and Stork, D. G., “Pattern
+Classification,” 2nd ed., New York: Wiley, 2001.</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">mean</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">cov</span> <span class="o">=</span> <span class="p">[[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">multivariate_normal</span><span class="p">(</span><span class="n">mean</span><span class="p">,</span> <span class="n">cov</span><span class="p">,</span> <span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">x</span><span class="o">.</span><span class="n">shape</span>
+<span class="go">(3, 3, 2)</span>
+</pre></div>
+</div>
+<p>The following is probably true, given that 0.6 is roughly twice the
+standard deviation:</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">list</span><span class="p">((</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">,:]</span> <span class="o">-</span> <span class="n">mean</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.6</span><span class="p">)</span>
+<span class="go">[True, True] # random</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.synthesize.perturb_genes">
+<code class="sig-prename descclassname"><span class="pre">spicemix.synthesize.</span></code><code class="sig-name descname"><span class="pre">perturb_genes</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gene_expression</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_metagenes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">first_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">second_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shape</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2.5</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#perturb_genes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.perturb_genes" title="Permalink to this definition">#</a></dt>
+<dd><p>Randomly perturb gene expression values.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.synthesize.sample_2D_points">
+<code class="sig-prename descclassname"><span class="pre">spicemix.synthesize.</span></code><code class="sig-name descname"><span class="pre">sample_2D_points</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">num_points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">minimum_distance</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#sample_2D_points"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.sample_2D_points" title="Permalink to this definition">#</a></dt>
+<dd><p>Generate 2D samples that are at least minimum_distance apart from each other.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.synthesize.sample_gaussian">
+<code class="sig-prename descclassname"><span class="pre">spicemix.synthesize.</span></code><code class="sig-name descname"><span class="pre">sample_gaussian</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sigma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#sample_gaussian"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.sample_gaussian" title="Permalink to this definition">#</a></dt>
+<dd><p>TODO: Not exactly sure how this works.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.synthesize.sample_truncated_gaussian">
+<code class="sig-prename descclassname"><span class="pre">spicemix.synthesize.</span></code><code class="sig-name descname"><span class="pre">sample_truncated_gaussian</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">covariance_matrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">means</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_walkers</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10000</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#sample_truncated_gaussian"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.sample_truncated_gaussian" title="Permalink to this definition">#</a></dt>
+<dd><p>Sample gene expression vectors from a multivariate truncated Gaussian distribution.</p>
+<p>See <a class="reference external" href="https://stackoverflow.com/a/20188431/13952002">https://stackoverflow.com/a/20188431/13952002</a> for details</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>covariance_matrix</strong> – </p></li>
+<li><p><strong>means</strong> – </p></li>
+<li><p><strong>num_walkers</strong> – </p></li>
+</ul>
+</dd>
+</dl>
+<p>Return:</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.synthesize.synthesize_cell_embeddings">
+<code class="sig-prename descclassname"><span class="pre">spicemix.synthesize.</span></code><code class="sig-name descname"><span class="pre">synthesize_cell_embeddings</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">distributions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_type_definitions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask_conditions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_cells</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_noise_metagenes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signal_sigma_x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">background_sigma_x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.03</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_x_scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#synthesize_cell_embeddings"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.synthesize_cell_embeddings" title="Permalink to this definition">#</a></dt>
+<dd><p>Generate synthetic cell embeddings.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.synthesize.synthesize_metagenes">
+<code class="sig-prename descclassname"><span class="pre">spicemix.synthesize.</span></code><code class="sig-name descname"><span class="pre">synthesize_metagenes</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">num_genes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_real_metagenes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_noise_metagenes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">real_metagene_parameter</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">noise_metagene_parameter</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metagene_variation_probabilities</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">original_metagenes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replicate_variability</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">normalize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/synthesize.html#synthesize_metagenes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.synthesize.synthesize_metagenes" title="Permalink to this definition">#</a></dt>
+<dd><p>Synthesize related metagenes according to the metagene_variation_probabilities vector.</p>
+<p>Creates num_real_metagenes synthetic metagenes using a random Gamma distribution with
+shape parameter real_metagene_parameter. For each metagene i, if dropout_probabilities[i] != 0,
+randomly permutes a metagene_variation_probabilities[i] fraction of metagene i-1 to create metagene i;
+otherwise, creates a new random metagene. In addition, adds n_noise_metagenes parameterized by
+a Gamma distribution with shape parameter noise_metagene_parameter.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="module-spicemix.util">
+<span id="spicemix-util-module"></span><h2>spicemix.util module<a class="headerlink" href="#module-spicemix.util" title="Permalink to this headline">#</a></h2>
+<dl class="py class">
+<dt id="spicemix.util.IndependentSet">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">IndependentSet</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">adjacency_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#IndependentSet"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.IndependentSet" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Iterator class that yields a list of batch_size independent nodes from a spatial graph.</p>
+<p>For each iteration, no pair of yielded nodes can be neighbors of each other according to the
+adjacency matrix.</p>
+<dl class="py attribute">
+<dt id="spicemix.util.IndependentSet.N">
+<code class="sig-name descname"><span class="pre">N</span></code><a class="headerlink" href="#spicemix.util.IndependentSet.N" title="Permalink to this definition">#</a></dt>
+<dd><p>number of nodes in graph</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="spicemix.util.IndependentSet.adjacency_list">
+<code class="sig-name descname"><span class="pre">adjacency_list</span></code><a class="headerlink" href="#spicemix.util.IndependentSet.adjacency_list" title="Permalink to this definition">#</a></dt>
+<dd><p>graph neighbor information stored in adjacency list format</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="spicemix.util.IndependentSet.batch_size">
+<code class="sig-name descname"><span class="pre">batch_size</span></code><a class="headerlink" href="#spicemix.util.IndependentSet.batch_size" title="Permalink to this definition">#</a></dt>
+<dd><p>number of nodes to draw independently every iteration</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt id="spicemix.util.NesterovGD">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">NesterovGD</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parameters</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">torch.Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step_size</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#NesterovGD"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.NesterovGD" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Optimizer that implements Nesterov’s Accelerated Gradient Descent.</p>
+<p>See below for implementation details:
+# <a class="reference external" href="https://blogs.princeton.edu/imabandit/2013/04/01/acceleratedgradientdescent/">https://blogs.princeton.edu/imabandit/2013/04/01/acceleratedgradientdescent/</a></p>
+<dl class="py attribute">
+<dt id="spicemix.util.NesterovGD.parameters">
+<code class="sig-name descname"><span class="pre">parameters</span></code><a class="headerlink" href="#spicemix.util.NesterovGD.parameters" title="Permalink to this definition">#</a></dt>
+<dd><p>object to optimize with Nesterov</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="spicemix.util.NesterovGD.step_size">
+<code class="sig-name descname"><span class="pre">step_size</span></code><a class="headerlink" href="#spicemix.util.NesterovGD.step_size" title="Permalink to this definition">#</a></dt>
+<dd><p>size of gradient update</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.util.NesterovGD.set_parameters">
+<code class="sig-name descname"><span class="pre">set_parameters</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parameters</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#NesterovGD.set_parameters"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.NesterovGD.set_parameters" title="Permalink to this definition">#</a></dt>
+<dd><p>Reset parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>parameters</strong> – object to optimize with Nesterov</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="spicemix.util.NesterovGD.step">
+<code class="sig-name descname"><span class="pre">step</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grad</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">torch.Tensor</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#NesterovGD.step"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.NesterovGD.step" title="Permalink to this definition">#</a></dt>
+<dd><p>Update parameters according to state and step size.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>grad</strong> – naive gradient for updating parameters</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.a2i">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">a2i</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">order</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ignores</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#a2i"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.a2i" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.array2string">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">array2string</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#array2string"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.array2string" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.calc_modularity">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">calc_modularity</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">adjacency_matrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">label</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolution</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#calc_modularity"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.calc_modularity" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.clustering_louvain">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">clustering_louvain</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs_neighbors</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs_clustering</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_rs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'louvain'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#clustering_louvain"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.clustering_louvain" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.clustering_louvain_nclust">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">clustering_louvain_nclust</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_clust_target</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs_neighbors</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs_clustering</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolution_boundaries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolution_init</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolution_update</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_rs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'louvain'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#clustering_louvain_nclust"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.clustering_louvain_nclust" title="Permalink to this definition">#</a></dt>
+<dd><p>Some sort of wrapper around Louvain clustering.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.encode4h5">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">encode4h5</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#encode4h5"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.encode4h5" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.evaluate_embedding">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">evaluate_embedding</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">obj</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">embedding</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'X'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">do_plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">do_sil</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#evaluate_embedding"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.evaluate_embedding" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.evaluate_prediction">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">evaluate_prediction</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">df_meta</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key_pred</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'label</span> <span class="pre">SpiceMixPlus'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key_truth</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cell</span> <span class="pre">type'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key_repli</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'repli'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#evaluate_prediction"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.evaluate_prediction" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.evaluate_prediction_wrapper">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">evaluate_prediction_wrapper</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="pre">obj</span></em>, <em class="sig-param"><span class="pre">*</span></em>, <em class="sig-param"><span class="pre">key_truth='cell</span> <span class="pre">type</span> <span class="pre">encoded'</span></em>, <em class="sig-param"><span class="pre">display_fn=&lt;built-in</span> <span class="pre">function</span> <span class="pre">print&gt;</span></em>, <em class="sig-param"><span class="pre">**kwargs</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#evaluate_prediction_wrapper"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.evaluate_prediction_wrapper" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.getRank">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">getRank</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#getRank"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.getRank" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.get_datetime">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">get_datetime</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#get_datetime"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.get_datetime" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.openH5File">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">openH5File</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'a'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_attempts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">duration</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#openH5File"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.openH5File" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.parseIiter">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">parseIiter</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">g</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iiter</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#parseIiter"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.parseIiter" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.parse_suffix">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">parse_suffix</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">s</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#parse_suffix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.parse_suffix" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.print_datetime">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">print_datetime</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#print_datetime"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.print_datetime" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.project2simplex">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">project2simplex</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">int</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zero_threshold</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">float</span></span> <span class="o"><span class="pre">=</span></span> <span class="default_value"><span class="pre">1e-10</span></span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">torch.Tensor</span><a class="reference internal" href="_modules/spicemix/util.html#project2simplex"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.project2simplex" title="Permalink to this definition">#</a></dt>
+<dd><p>Projects a matrix such that the columns (or rows) lie on the unit simplex.</p>
+<p>See <a class="reference external" href="https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex">https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex</a>
+for a reference.</p>
+<p>The goal is to find a scalar mu such that || (y-mu)_+ ||_1 = 1</p>
+<p>Currently uses Newton’s method to optimize || y - mu ||^2</p>
+<p>TODO: try implementing it this way instead: <a class="reference external" href="https://arxiv.org/pdf/1101.6081.pdf">https://arxiv.org/pdf/1101.6081.pdf</a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>y</strong> – list of vectors to be projected to unit simplex</p></li>
+<li><p><strong>dim</strong> – dimension along which to project</p></li>
+<li><p><strong>zero_threshold</strong> – threshold to treat as zero for numerical stability purposes</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.project_M">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">project_M</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M_constraint</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#project_M"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.project_M" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.unzipTensors">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">unzipTensors</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shapes</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#unzipTensors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.unzipTensors" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="spicemix.util.zipTensors">
+<code class="sig-prename descclassname"><span class="pre">spicemix.util.</span></code><code class="sig-name descname"><span class="pre">zipTensors</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">tensors</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/spicemix/util.html#zipTensors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#spicemix.util.zipTensors" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-spicemix">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-spicemix" title="Permalink to this headline">#</a></h2>
+</div>
+</div>
+
+
+              </div>
+              
+            </main>
+            <footer class="footer-article noprint">
+                
+    <!-- Previous / next buttons -->
+<div class='prev-next-area'>
+</div>
+            </footer>
+        </div>
+    </div>
+    <div class="footer-content row">
+        <footer class="col footer"><p>
+  
+    By Shahul Alam<br/>
+  
+      &copy; Copyright 2022, CMU.<br/>
+</p>
+        </footer>
+    </div>
+    
+</div>
+
+
+      </div>
+    </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf"></script>
+
+
+  </body>
+</html>

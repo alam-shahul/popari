@@ -1,0 +1,667 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>spicemix.util &#8212; SpiceMixPlus 0.0.1 documentation</title>
+    
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+
+    
+  <link rel="stylesheet"
+    href="../../_static/vendor/fontawesome/5.13.0/css/all.min.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="../../_static/vendor/fontawesome/5.13.0/webfonts/fa-solid-900.woff2">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="../../_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
+
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/styles/sphinx-book-theme.css" type="text/css" />
+    
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf">
+
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/scripts/sphinx-book-theme.js?digest=9c920249402e914e316237a7dbc6769907cce411"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/scripts/sphinx-book-theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="docsearch:language" content="None">
+    
+
+    <!-- Google Analytics -->
+    
+  </head>
+  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="60">
+<!-- Checkboxes to toggle the left sidebar -->
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle navigation sidebar">
+<label class="overlay overlay-navbar" for="__navigation">
+    <div class="visually-hidden">Toggle navigation sidebar</div>
+</label>
+<!-- Checkboxes to toggle the in-page toc -->
+<input type="checkbox" class="sidebar-toggle" name="__page-toc" id="__page-toc" aria-label="Toggle in-page Table of Contents">
+<label class="overlay overlay-pagetoc" for="__page-toc">
+    <div class="visually-hidden">Toggle in-page Table of Contents</div>
+</label>
+<!-- Headers at the top -->
+<div class="announcement header-item noprint"></div>
+<div class="header header-item noprint"></div>
+
+    
+    <div class="container-fluid" id="banner"></div>
+
+    
+
+    <div class="container-xl">
+      <div class="row">
+          
+<!-- Sidebar -->
+<div class="bd-sidebar noprint" id="site-navigation">
+    <div class="bd-sidebar__content">
+        <div class="bd-sidebar__top"><div class="navbar-brand-box">
+    <a class="navbar-brand text-wrap" href="../../index.html">
+      
+      
+      
+      <h1 class="site-logo" id="site-title">SpiceMixPlus 0.0.1 documentation</h1>
+      
+    </a>
+</div><form class="bd-search d-flex align-items-center" action="../../search.html" method="get">
+  <i class="icon fas fa-search"></i>
+  <input type="search" class="form-control" name="q" id="search-input" placeholder="Search the docs ..." aria-label="Search the docs ..." autocomplete="off" >
+</form><nav class="bd-links" id="bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item active">
+        
+    </div>
+</nav></div>
+        <div class="bd-sidebar__bottom">
+             <!-- To handle the deprecated key -->
+            
+            <div class="navbar_extra_footer">
+            Theme by the <a href="https://ebp.jupyterbook.org">Executable Book Project</a>
+            </div>
+            
+        </div>
+    </div>
+    <div id="rtd-footer-container"></div>
+</div>
+
+
+          
+
+
+          
+<!-- A tiny helper pixel to detect if we've scrolled -->
+<div class="sbt-scroll-pixel-helper"></div>
+<!-- Main content -->
+<div class="col py-0 content-container">
+    
+    <div class="header-article row sticky-top noprint">
+        
+
+
+
+<div class="col py-1 d-flex header-article-main">
+    <div class="header-article__left">
+        
+        <label for="__navigation"
+  class="headerbtn"
+  data-toggle="tooltip"
+data-placement="right"
+title="Toggle navigation"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-bars"></i>
+  </span>
+
+</label>
+
+        
+    </div>
+    <div class="header-article__right">
+<button onclick="toggleFullScreen()"
+  class="headerbtn"
+  data-toggle="tooltip"
+data-placement="bottom"
+title="Fullscreen mode"
+>
+  
+
+<span class="headerbtn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+    </div>
+</div>
+
+<!-- Table of contents -->
+<div class="col-md-3 bd-toc show noprint">
+</div>
+    </div>
+    <div class="article row">
+        <div class="col pl-md-3 pl-lg-5 content-container">
+            <!-- Table of contents that is only displayed when printing the page -->
+            <div id="jb-print-docs-body" class="onlyprint">
+                <h1></h1>
+                <!-- Table of contents -->
+                <div id="print-main-content">
+                    <div id="jb-print-toc">
+                        
+                    </div>
+                </div>
+            </div>
+            <main id="main-content" role="main">
+                
+              <div>
+                
+  <h1>Source code for spicemix.util</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">time</span><span class="o">,</span> <span class="nn">pickle</span><span class="o">,</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">datetime</span><span class="o">,</span> <span class="nn">logging</span>
+<span class="kn">from</span> <span class="nn">tqdm.auto</span> <span class="kn">import</span> <span class="n">tqdm</span><span class="p">,</span> <span class="n">trange</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">from</span> <span class="nn">sklearn.preprocessing</span> <span class="kn">import</span> <span class="n">StandardScaler</span>
+<span class="kn">from</span> <span class="nn">sklearn.cluster</span> <span class="kn">import</span> <span class="n">AgglomerativeClustering</span>
+<span class="kn">from</span> <span class="nn">sklearn.metrics</span> <span class="kn">import</span> <span class="n">silhouette_score</span><span class="p">,</span> <span class="n">adjusted_rand_score</span><span class="p">,</span> <span class="n">accuracy_score</span><span class="p">,</span> <span class="n">f1_score</span>
+<span class="kn">from</span> <span class="nn">umap</span> <span class="kn">import</span> <span class="n">UMAP</span>
+
+<span class="kn">from</span> <span class="nn">anndata</span> <span class="kn">import</span> <span class="n">AnnData</span>
+<span class="kn">import</span> <span class="nn">scanpy</span> <span class="k">as</span> <span class="nn">sc</span>
+
+<span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="kn">import</span> <span class="nn">matplotlib</span>
+<span class="kn">from</span> <span class="nn">matplotlib</span> <span class="kn">import</span> <span class="n">pyplot</span> <span class="k">as</span> <span class="n">plt</span>
+<span class="kn">import</span> <span class="nn">matplotlib.patches</span> <span class="k">as</span> <span class="nn">patches</span>
+<span class="kn">import</span> <span class="nn">seaborn</span> <span class="k">as</span> <span class="nn">sns</span>
+
+<div class="viewcode-block" id="calc_modularity"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.calc_modularity">[docs]</a><span class="k">def</span> <span class="nf">calc_modularity</span><span class="p">(</span><span class="n">adjacency_matrix</span><span class="p">,</span> <span class="n">label</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+    <span class="n">adjacency_matrix</span> <span class="o">=</span> <span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">tocoo</span><span class="p">()</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">adjacency_matrix_sum</span> <span class="o">=</span> <span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+    <span class="n">score</span> <span class="o">=</span> <span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">label</span><span class="p">[</span><span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">row</span><span class="p">]</span> <span class="o">==</span> <span class="n">label</span><span class="p">[</span><span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">col</span><span class="p">]]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">/</span> <span class="n">adjacency_matrix_sum</span>
+
+    <span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+    <span class="n">label</span> <span class="o">=</span> <span class="n">label</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+    <span class="n">k</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span> <span class="o">/</span> <span class="n">adjacency_matrix_sum</span>
+    <span class="n">k</span> <span class="o">=</span> <span class="n">k</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+    <span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([[</span><span class="mi">0</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">nonzero</span><span class="p">(</span><span class="n">label</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">label</span><span class="p">[</span><span class="mi">1</span><span class="p">:])[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">label</span><span class="p">)]])</span>
+    <span class="n">score</span> <span class="o">-=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">k</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">j</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">**</span> <span class="mi">2</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">idx</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">idx</span><span class="p">[</span><span class="mi">1</span><span class="p">:]))</span> <span class="o">*</span> <span class="n">resolution</span>
+    <span class="k">return</span> <span class="n">score</span></div>
+
+
+<div class="viewcode-block" id="clustering_louvain"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.clustering_louvain">[docs]</a><span class="k">def</span> <span class="nf">clustering_louvain</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">kwargs_neighbors</span><span class="p">,</span> <span class="n">kwargs_clustering</span><span class="p">,</span> <span class="n">num_rs</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;louvain&#39;</span><span class="p">):</span>
+    <span class="n">adata</span> <span class="o">=</span> <span class="n">AnnData</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>
+    <span class="n">sc</span><span class="o">.</span><span class="n">pp</span><span class="o">.</span><span class="n">neighbors</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">use_rep</span><span class="o">=</span><span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs_neighbors</span><span class="p">)</span>
+    <span class="n">best</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;score&#39;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">}</span>
+    <span class="n">resolution</span> <span class="o">=</span> <span class="n">kwargs_clustering</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;resolution&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">pbar</span> <span class="o">=</span> <span class="n">trange</span><span class="p">(</span><span class="n">num_rs</span><span class="p">,</span> <span class="n">desc</span><span class="o">=</span><span class="sa">f</span><span class="s1">&#39;Louvain clustering: res=</span><span class="si">{</span><span class="n">resolution</span><span class="si">:</span><span class="s1">.2e</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">rs</span> <span class="ow">in</span> <span class="n">pbar</span><span class="p">:</span>
+        <span class="nb">getattr</span><span class="p">(</span><span class="n">sc</span><span class="o">.</span><span class="n">tl</span><span class="p">,</span> <span class="n">method</span><span class="p">)(</span><span class="n">adata</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs_clustering</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="n">rs</span><span class="p">)</span>
+        <span class="n">cluster</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">method</span><span class="p">]))</span>
+        <span class="n">score</span> <span class="o">=</span> <span class="n">calc_modularity</span><span class="p">(</span>
+            <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s1">&#39;connectivities&#39;</span><span class="p">],</span> <span class="n">cluster</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="n">resolution</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">best</span><span class="p">[</span><span class="s1">&#39;score&#39;</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">score</span><span class="p">:</span>
+            <span class="n">best</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;score&#39;</span><span class="p">:</span> <span class="n">score</span><span class="p">,</span> <span class="s1">&#39;cluster&#39;</span><span class="p">:</span> <span class="n">cluster</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span> <span class="s1">&#39;rs&#39;</span><span class="p">:</span> <span class="n">rs</span><span class="p">})</span>
+        <span class="n">pbar</span><span class="o">.</span><span class="n">set_description</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s1">&#39;Louvain clustering: res=</span><span class="si">{</span><span class="n">resolution</span><span class="si">:</span><span class="s1">.2e</span><span class="si">}</span><span class="s1">; &#39;</span>
+            <span class="sa">f</span><span class="s2">&quot;best: score = </span><span class="si">{</span><span class="n">best</span><span class="p">[</span><span class="s1">&#39;score&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> rs = </span><span class="si">{</span><span class="n">best</span><span class="p">[</span><span class="s1">&#39;rs&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> # of clusters = </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">best</span><span class="p">[</span><span class="s1">&#39;cluster&#39;</span><span class="p">]))</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">best</span><span class="p">[</span><span class="s1">&#39;cluster&#39;</span><span class="p">]</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Categorical</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">categories</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">y</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">y</span></div>
+
+
+<div class="viewcode-block" id="clustering_louvain_nclust"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.clustering_louvain_nclust">[docs]</a><span class="k">def</span> <span class="nf">clustering_louvain_nclust</span><span class="p">(</span>
+    <span class="n">X</span><span class="p">,</span> <span class="n">n_clust_target</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">kwargs_neighbors</span><span class="p">,</span> <span class="n">kwargs_clustering</span><span class="p">,</span>
+    <span class="n">resolution_boundaries</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">resolution_init</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">resolution_update</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">num_rs</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;louvain&#39;</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Some sort of wrapper around Louvain clustering.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">adata</span> <span class="o">=</span> <span class="n">AnnData</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>
+
+    <span class="c1"># Get nearest neighbors in embedding space</span>
+    <span class="n">sc</span><span class="o">.</span><span class="n">pp</span><span class="o">.</span><span class="n">neighbors</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">use_rep</span><span class="o">=</span><span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs_neighbors</span><span class="p">)</span>
+    <span class="n">kwargs_clustering</span> <span class="o">=</span> <span class="n">kwargs_clustering</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">do_clustering</span><span class="p">(</span><span class="n">res</span><span class="p">):</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">clustering_louvain</span><span class="p">(</span>
+            <span class="n">X</span><span class="p">,</span>
+            <span class="n">kwargs_neighbors</span><span class="o">=</span><span class="n">kwargs_neighbors</span><span class="p">,</span>
+            <span class="n">kwargs_clustering</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs_clustering</span><span class="p">,</span> <span class="o">**</span><span class="nb">dict</span><span class="p">(</span><span class="n">resolution</span><span class="o">=</span><span class="n">res</span><span class="p">)),</span>
+            <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
+            <span class="n">num_rs</span><span class="o">=</span><span class="n">num_rs</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">n_clust</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">y</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">y</span><span class="p">,</span> <span class="n">n_clust</span>
+
+    <span class="n">lb</span> <span class="o">=</span> <span class="n">rb</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">resolution_boundaries</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">lb</span><span class="p">,</span> <span class="n">rb</span> <span class="o">=</span> <span class="n">resolution_boundaries</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="n">resolution_init</span>
+        <span class="n">y</span><span class="p">,</span> <span class="n">n_clust</span> <span class="o">=</span> <span class="n">do_clustering</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n_clust</span> <span class="o">&gt;</span> <span class="n">n_clust_target</span><span class="p">:</span>
+            <span class="k">while</span> <span class="n">n_clust</span> <span class="o">&gt;</span> <span class="n">n_clust_target</span> <span class="ow">and</span> <span class="n">res</span> <span class="o">&gt;</span> <span class="mf">1e-2</span><span class="p">:</span>
+                <span class="n">rb</span> <span class="o">=</span> <span class="n">res</span>
+                <span class="n">res</span> <span class="o">/=</span> <span class="n">resolution_update</span>
+                <span class="n">y</span><span class="p">,</span> <span class="n">n_clust</span> <span class="o">=</span> <span class="n">do_clustering</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+            <span class="n">lb</span> <span class="o">=</span> <span class="n">res</span>
+        <span class="k">elif</span> <span class="n">n_clust</span> <span class="o">&lt;</span> <span class="n">n_clust_target</span><span class="p">:</span>
+            <span class="k">while</span> <span class="n">n_clust</span> <span class="o">&lt;</span> <span class="n">n_clust_target</span><span class="p">:</span>
+                <span class="n">lb</span> <span class="o">=</span> <span class="n">res</span>
+                <span class="n">res</span> <span class="o">*=</span> <span class="n">resolution_update</span>
+                <span class="n">y</span><span class="p">,</span> <span class="n">n_clust</span> <span class="o">=</span> <span class="n">do_clustering</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+            <span class="n">rb</span> <span class="o">=</span> <span class="n">res</span>
+        <span class="k">if</span> <span class="n">n_clust</span> <span class="o">==</span> <span class="n">n_clust_target</span><span class="p">:</span>
+            <span class="n">lb</span> <span class="o">=</span> <span class="n">rb</span> <span class="o">=</span> <span class="n">res</span>
+
+    <span class="k">while</span> <span class="n">rb</span> <span class="o">-</span> <span class="n">lb</span> <span class="o">&gt;</span> <span class="mf">.01</span><span class="p">:</span>
+        <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">lb</span> <span class="o">*</span> <span class="n">rb</span><span class="p">)</span> <span class="o">**</span> <span class="mf">.5</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">clustering_louvain</span><span class="p">(</span>
+            <span class="n">X</span><span class="p">,</span>
+            <span class="n">kwargs_neighbors</span><span class="o">=</span><span class="n">kwargs_neighbors</span><span class="p">,</span>
+            <span class="n">kwargs_clustering</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs_clustering</span><span class="p">,</span> <span class="o">**</span><span class="nb">dict</span><span class="p">(</span><span class="n">resolution</span><span class="o">=</span><span class="n">mid</span><span class="p">)),</span>
+            <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
+            <span class="n">num_rs</span><span class="o">=</span><span class="n">num_rs</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">n_clust</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">y</span><span class="p">))</span>
+        <span class="c1"># print(</span>
+        <span class="c1">#   f&#39;binary search for resolution: lb={lb:.2f}\trb={rb:.2f}\tmid={mid:.2f}\tn_clust={n_clust}&#39;,</span>
+        <span class="c1">#   # &#39;{:.2f}&#39;.format(adjusted_rand_score(obj.data[&#39;cell type&#39;], obj.data[&#39;cluster&#39;])),</span>
+        <span class="c1">#   sep=&#39;\t&#39;,</span>
+        <span class="c1"># )</span>
+        <span class="k">if</span> <span class="n">n_clust</span> <span class="o">==</span> <span class="n">n_clust_target</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="k">if</span> <span class="n">n_clust</span> <span class="o">&gt;</span> <span class="n">n_clust_target</span><span class="p">:</span>
+            <span class="n">rb</span> <span class="o">=</span> <span class="n">mid</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">lb</span> <span class="o">=</span> <span class="n">mid</span>
+
+    <span class="k">return</span> <span class="n">y</span></div>
+
+<div class="viewcode-block" id="evaluate_embedding"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.evaluate_embedding">[docs]</a><span class="k">def</span> <span class="nf">evaluate_embedding</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">embedding</span><span class="o">=</span><span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="n">do_plot</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">do_sil</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">embedding</span> <span class="o">==</span> <span class="s1">&#39;X&#39;</span><span class="p">:</span>
+        <span class="n">Xs</span> <span class="o">=</span> <span class="p">[</span><span class="n">X</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span> <span class="k">for</span> <span class="n">X</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">Xs</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="n">embedding</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">phenotype_predictors</span><span class="p">:</span>
+        <span class="n">Xs</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">phenotype_predictors</span><span class="p">[</span><span class="s1">&#39;cell type encoded&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">](</span><span class="n">X</span><span class="p">)</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">X</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">Xs</span>
+        <span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+    <span class="c1"># x = np.concatenate(Xs, axis=0)</span>
+
+    <span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">replicate</span><span class="p">,</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">Xs</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">repli_list</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">datasets</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">StandardScaler</span><span class="p">()</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">n_clust</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">6</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">9</span><span class="p">]:</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">AgglomerativeClustering</span><span class="p">(</span>
+                <span class="n">n_clusters</span><span class="o">=</span><span class="n">n_clust</span><span class="p">,</span>
+                <span class="n">linkage</span><span class="o">=</span><span class="s1">&#39;ward&#39;</span><span class="p">,</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">fit_predict</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Categorical</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">categories</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">y</span><span class="p">))</span>
+            <span class="n">dataset</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">&quot;spicemixplus_label&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">y</span>
+            
+            <span class="nb">print</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;replicate </span><span class="si">{</span><span class="n">replicate</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;hierarchical w/ K=</span><span class="si">{</span><span class="n">n_clust</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;ARI = </span><span class="si">{</span><span class="n">adjusted_rand_score</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s1">&#39;cell_type&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">sep</span><span class="o">=</span><span class="s1">&#39; &#39;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="c1"># y = clustering_louvain_nclust(</span>
+        <span class="c1">#     x.copy(), 8,</span>
+        <span class="c1">#     kwargs_neighbors=dict(n_neighbors=10),</span>
+        <span class="c1">#     kwargs_clustering=dict(),</span>
+        <span class="c1">#     resolution_boundaries=(.1, 1.),</span>
+        <span class="c1"># )</span>
+        
+    <span class="c1"># obj.meta[&#39;label SpiceMixPlus&#39;] = y</span>
+    <span class="c1"># print(&#39;ari = {:.2f}&#39;.format(adjusted_rand_score(*obj.meta[[&#39;cell type&#39;, &#39;label SpiceMixPlus&#39;]].values.T)))</span>
+    <span class="c1"># for repli, df in obj.meta.groupby(&#39;repli&#39;):</span>
+    <span class="c1">#     print(&#39;ari {} = {:.8f}&#39;.format(repli, adjusted_rand_score(*df[[&#39;cell type&#39;, &#39;label SpiceMixPlus&#39;]].values.T)))</span>
+    <span class="k">if</span> <span class="n">do_plot</span><span class="p">:</span>
+        <span class="n">ncol</span> <span class="o">=</span> <span class="mi">4</span>
+        <span class="n">nrow</span> <span class="o">=</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">num_repli</span> <span class="o">+</span> <span class="n">ncol</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">ncol</span>
+        <span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">nrow</span><span class="p">,</span> <span class="n">ncol</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="n">ncol</span><span class="p">,</span> <span class="mi">4</span><span class="o">*</span><span class="n">nrow</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">ax</span><span class="p">,</span> <span class="n">replicate</span><span class="p">,</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">axes</span><span class="o">.</span><span class="n">flat</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">repli_list</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">datasets</span><span class="p">):</span>
+            <span class="n">sns</span><span class="o">.</span><span class="n">heatmap</span><span class="p">(</span>
+                <span class="n">dataset</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">groupby</span><span class="p">([</span><span class="s1">&#39;cell_type&#39;</span><span class="p">,</span> <span class="s1">&#39;spicemixplus_label&#39;</span><span class="p">])</span><span class="o">.</span><span class="n">size</span><span class="p">()</span><span class="o">.</span><span class="n">unstack</span><span class="p">()</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">),</span>
+                <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">annot</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s1">&#39;d&#39;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">do_sil</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">replicate</span><span class="p">,</span> <span class="n">dataset</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">Xs</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">repli_list</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">datasets</span><span class="p">):</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">StandardScaler</span><span class="p">()</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">UMAP</span><span class="p">(</span>
+                <span class="n">random_state</span><span class="o">=</span><span class="n">obj</span><span class="o">.</span><span class="n">random_state</span><span class="p">,</span>
+                <span class="n">n_neighbors</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;sil&#39;</span><span class="p">,</span> <span class="n">silhouette_score</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dataset</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s1">&#39;cell_type&#39;</span><span class="p">],</span> <span class="n">random_state</span><span class="o">=</span><span class="n">obj</span><span class="o">.</span><span class="n">random_state</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">do_plot</span><span class="p">:</span>
+                <span class="n">keys</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;cell_type&#39;</span><span class="p">,</span> <span class="s1">&#39;replicate&#39;</span><span class="p">,</span> <span class="s1">&#39;spicemixplus_label&#39;</span><span class="p">]</span>
+                <span class="n">ncol</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">keys</span><span class="p">)</span>
+                <span class="n">nrow</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">+</span> <span class="n">obj</span><span class="o">.</span><span class="n">num_repli</span>
+                <span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">nrow</span><span class="p">,</span> <span class="n">ncol</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="o">*</span><span class="n">ncol</span><span class="p">,</span> <span class="mi">5</span><span class="o">*</span><span class="n">nrow</span><span class="p">))</span>
+                <span class="k">def</span> <span class="nf">plot</span><span class="p">(</span><span class="n">axes</span><span class="p">,</span> <span class="n">idx</span><span class="p">):</span>
+                    <span class="k">for</span> <span class="n">ax</span><span class="p">,</span> <span class="n">key</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">axes</span><span class="p">,</span> <span class="n">keys</span><span class="p">):</span>
+                        <span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">dataset</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span> <span class="n">x</span><span class="o">=</span><span class="n">x</span><span class="p">[</span><span class="n">idx</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">y</span><span class="o">=</span><span class="n">x</span><span class="p">[</span><span class="n">idx</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">hue</span><span class="o">=</span><span class="n">key</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+                <span class="n">plot</span><span class="p">(</span><span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">slice</span><span class="p">(</span><span class="kc">None</span><span class="p">))</span>
+                <span class="k">for</span> <span class="n">ax_row</span><span class="p">,</span> <span class="p">(</span><span class="n">repli</span><span class="p">,</span> <span class="n">df</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">dataset</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">reset_index</span><span class="p">()</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;replicate&#39;</span><span class="p">)):</span>
+                    <span class="n">plot</span><span class="p">(</span><span class="n">ax_row</span><span class="p">,</span> <span class="n">df</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
+                <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+                <span class="n">plt</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="evaluate_prediction_wrapper"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.evaluate_prediction_wrapper">[docs]</a><span class="k">def</span> <span class="nf">evaluate_prediction_wrapper</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">key_truth</span><span class="o">=</span><span class="s1">&#39;cell type encoded&#39;</span><span class="p">,</span> <span class="n">display_fn</span><span class="o">=</span><span class="nb">print</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">X_all</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">([</span><span class="n">X</span> <span class="k">for</span> <span class="n">X</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">Xs</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">obj</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s1">&#39;label SpiceMixPlus predictor&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">phenotype_predictors</span><span class="p">[</span><span class="n">key_truth</span><span class="p">][</span><span class="mi">0</span><span class="p">](</span><span class="n">X_all</span><span class="p">)</span>\
+        <span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+    <span class="n">display_fn</span><span class="p">(</span><span class="n">evaluate_prediction</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">meta</span><span class="p">,</span> <span class="n">key_pred</span><span class="o">=</span><span class="s1">&#39;label SpiceMixPlus predictor&#39;</span><span class="p">,</span> <span class="n">key_truth</span><span class="o">=</span><span class="n">key_truth</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="evaluate_prediction"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.evaluate_prediction">[docs]</a><span class="k">def</span> <span class="nf">evaluate_prediction</span><span class="p">(</span><span class="n">df_meta</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">key_pred</span><span class="o">=</span><span class="s1">&#39;label SpiceMixPlus&#39;</span><span class="p">,</span> <span class="n">key_truth</span><span class="o">=</span><span class="s1">&#39;cell type&#39;</span><span class="p">,</span> <span class="n">key_repli</span><span class="o">=</span><span class="s1">&#39;repli&#39;</span><span class="p">):</span>
+    <span class="n">df_score</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">repli</span><span class="p">,</span> <span class="n">df</span> <span class="ow">in</span> <span class="n">df_meta</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="n">key_repli</span><span class="p">):</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">df</span><span class="p">[[</span><span class="n">key_truth</span><span class="p">,</span> <span class="n">key_pred</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;acc&#39;</span><span class="p">:</span> <span class="n">accuracy_score</span><span class="p">(</span><span class="o">*</span><span class="n">t</span><span class="p">),</span>
+            <span class="s1">&#39;f1 micro&#39;</span><span class="p">:</span> <span class="n">f1_score</span><span class="p">(</span><span class="o">*</span><span class="n">t</span><span class="p">,</span> <span class="n">average</span><span class="o">=</span><span class="s1">&#39;micro&#39;</span><span class="p">),</span>
+            <span class="s1">&#39;f1 macro&#39;</span><span class="p">:</span> <span class="n">f1_score</span><span class="p">(</span><span class="o">*</span><span class="n">t</span><span class="p">,</span> <span class="n">average</span><span class="o">=</span><span class="s1">&#39;macro&#39;</span><span class="p">),</span>
+            <span class="s1">&#39;ari&#39;</span><span class="p">:</span> <span class="n">adjusted_rand_score</span><span class="p">(</span><span class="o">*</span><span class="n">t</span><span class="p">),</span>
+        <span class="p">}</span>
+        <span class="n">df_score</span><span class="p">[</span><span class="n">repli</span><span class="p">]</span> <span class="o">=</span> <span class="n">r</span>
+    <span class="n">df_score</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">df_score</span><span class="p">)</span><span class="o">.</span><span class="n">T</span>
+    <span class="k">return</span> <span class="n">df_score</span></div>
+
+
+<div class="viewcode-block" id="NesterovGD"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.NesterovGD">[docs]</a><span class="k">class</span> <span class="nc">NesterovGD</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Optimizer that implements Nesterov&#39;s Accelerated Gradient Descent.</span>
+
+<span class="sd">    See below for implementation details:</span>
+<span class="sd">    # https://blogs.princeton.edu/imabandit/2013/04/01/acceleratedgradientdescent/</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        parameters: object to optimize with Nesterov</span>
+<span class="sd">        step_size: size of gradient update</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parameters</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">step_size</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Initialize Nesterov optimization.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            parameters: object to optimize with Nesterov</span>
+<span class="sd">            step_size: size of gradient update</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span> <span class="o">=</span> <span class="n">parameters</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">step_size</span> <span class="o">=</span> <span class="n">step_size</span>
+        <span class="c1"># self.y = x.clone()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">parameters</span><span class="p">)</span>
+        <span class="c1"># self.lam = 0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">k</span> <span class="o">=</span> <span class="mi">0</span>
+
+<div class="viewcode-block" id="NesterovGD.set_parameters"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.NesterovGD.set_parameters">[docs]</a>    <span class="k">def</span> <span class="nf">set_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parameters</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Reset parameters.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            parameters: object to optimize with Nesterov</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span> <span class="o">=</span> <span class="n">parameters</span></div>
+
+<div class="viewcode-block" id="NesterovGD.step"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.NesterovGD.step">[docs]</a>    <span class="k">def</span> <span class="nf">step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">grad</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Update parameters according to state and step size.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            grad: naive gradient for updating parameters</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># method 1</span>
+        <span class="c1"># lam_new = (1 + np.sqrt(1 + 4 * self.lam ** 2)) / 2</span>
+        <span class="c1"># gamma = (1 - self.lam) / lam_new</span>
+        <span class="c1"># method 2</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">k</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">gamma</span> <span class="o">=</span> <span class="o">-</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">k</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">k</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="c1"># method 3 - GD</span>
+        <span class="c1"># gamma = 0</span>
+        <span class="c1"># y_new = self.x.sub(grad, alpha=self.step_size)</span>
+        <span class="n">y_new</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span> <span class="o">-</span> <span class="n">grad</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_size</span> <span class="c1"># use addcmul</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">y</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">y</span> <span class="o">*</span> <span class="n">gamma</span><span class="p">)</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">y_new</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">gamma</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">y</span>
+        <span class="c1"># self.lam = lam_new</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">y</span> <span class="o">=</span> <span class="n">y_new</span>
+  
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span></div></div>
+
+
+<div class="viewcode-block" id="print_datetime"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.print_datetime">[docs]</a><span class="k">def</span> <span class="nf">print_datetime</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;[%Y/%m/</span><span class="si">%d</span><span class="s1"> %H:%M:%S]</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="get_datetime"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.get_datetime">[docs]</a><span class="k">def</span> <span class="nf">get_datetime</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;[%Y/%m/</span><span class="si">%d</span><span class="s1"> %H:%M:%S]</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="array2string"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.array2string">[docs]</a><span class="k">def</span> <span class="nf">array2string</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array2string</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">formatter</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;all&#39;</span><span class="p">:</span> <span class="s1">&#39;</span><span class="si">{:.2e}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">})</span></div>
+
+
+<div class="viewcode-block" id="parse_suffix"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.parse_suffix">[docs]</a><span class="k">def</span> <span class="nf">parse_suffix</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="k">return</span> <span class="s1">&#39;&#39;</span> <span class="k">if</span> <span class="n">s</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">s</span> <span class="o">==</span> <span class="s1">&#39;&#39;</span> <span class="k">else</span> <span class="s1">&#39;_&#39;</span> <span class="o">+</span> <span class="n">s</span></div>
+
+
+<div class="viewcode-block" id="openH5File"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.openH5File">[docs]</a><span class="k">def</span> <span class="nf">openH5File</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;a&#39;</span><span class="p">,</span> <span class="n">num_attempts</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_attempts</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">duration</span><span class="p">)</span>
+    <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="encode4h5"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.encode4h5">[docs]</a><span class="k">def</span> <span class="nf">encode4h5</span><span class="p">(</span><span class="n">v</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span> <span class="k">return</span> <span class="n">v</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">v</span></div>
+
+
+<div class="viewcode-block" id="parseIiter"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.parseIiter">[docs]</a><span class="k">def</span> <span class="nf">parseIiter</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">iiter</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">iiter</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span> <span class="n">iiter</span> <span class="o">+=</span> <span class="nb">max</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">g</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">iiter</span></div>
+
+
+<div class="viewcode-block" id="a2i"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.a2i">[docs]</a><span class="k">def</span> <span class="nf">a2i</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">ignores</span><span class="o">=</span><span class="p">()):</span>
+    <span class="k">if</span> <span class="n">order</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">order</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">ignores</span><span class="p">)))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">order</span> <span class="o">=</span> <span class="n">order</span><span class="p">[</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">order</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">ignores</span><span class="p">))]</span>
+    <span class="n">d</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">order</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">order</span><span class="p">))))</span>
+    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">ignores</span><span class="p">:</span> <span class="n">d</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">fromiter</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="n">a</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">a</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">order</span></div>
+
+
+<div class="viewcode-block" id="zipTensors"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.zipTensors">[docs]</a><span class="k">def</span> <span class="nf">zipTensors</span><span class="p">(</span><span class="o">*</span><span class="n">tensors</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">a</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">tensors</span>
+    <span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="unzipTensors"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.unzipTensors">[docs]</a><span class="k">def</span> <span class="nf">unzipTensors</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">shapes</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">prod</span><span class="p">,</span> <span class="n">shapes</span><span class="p">))),))</span>
+    <span class="n">tensors</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">shape</span> <span class="ow">in</span> <span class="n">shapes</span><span class="p">:</span>
+        <span class="n">size</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">shape</span><span class="p">)</span>
+        <span class="n">tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">arr</span><span class="p">[:</span><span class="n">size</span><span class="p">]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">shape</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">())</span>
+        <span class="n">arr</span> <span class="o">=</span> <span class="n">arr</span><span class="p">[</span><span class="n">size</span><span class="p">:]</span>
+    <span class="k">return</span> <span class="n">tensors</span></div>
+
+
+<div class="viewcode-block" id="getRank"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.getRank">[docs]</a><span class="k">def</span> <span class="nf">getRank</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">thr</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+    <span class="n">rank</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">r</span><span class="p">,</span> <span class="n">a</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">rank</span><span class="p">,</span> <span class="n">m</span><span class="p">):</span>
+        <span class="n">r</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">a</span><span class="p">)]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">r</span><span class="p">))</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">thr</span>
+        <span class="n">r</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">rank</span></div>
+
+<div class="viewcode-block" id="project_M"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.project_M">[docs]</a><span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+<span class="k">def</span> <span class="nf">project_M</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">M_constraint</span><span class="p">):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">M</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">M_constraint</span> <span class="o">==</span> <span class="s1">&#39;simplex&#39;</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">project2simplex</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">zero_threshold</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">M_constraint</span> <span class="o">==</span> <span class="s1">&#39;unit sphere&#39;</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">M</span><span class="o">.</span><span class="n">div</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="nb">ord</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+    <span class="k">elif</span> <span class="n">M_constraint</span> <span class="o">==</span> <span class="s1">&#39;nonneg unit sphere&#39;</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">M</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="mf">1e-10</span><span class="p">)</span><span class="o">.</span><span class="n">div</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="nb">ord</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+    <span class="k">return</span> <span class="n">result</span></div>
+
+<div class="viewcode-block" id="project2simplex"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.project2simplex">[docs]</a><span class="k">def</span> <span class="nf">project2simplex</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">zero_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-10</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Projects a matrix such that the columns (or rows) lie on the unit simplex.</span>
+
+<span class="sd">    See https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex</span>
+<span class="sd">    for a reference.</span>
+
+<span class="sd">    The goal is to find a scalar mu such that || (y-mu)_+ ||_1 = 1</span>
+
+<span class="sd">    Currently uses Newton&#39;s method to optimize || y - mu ||^2</span>
+
+<span class="sd">    TODO: try implementing it this way instead: https://arxiv.org/pdf/1101.6081.pdf</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        y: list of vectors to be projected to unit simplex</span>
+<span class="sd">        dim: dimension along which to project</span>
+<span class="sd">        zero_threshold: threshold to treat as zero for numerical stability purposes</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="n">num_components</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span>
+    
+    <span class="n">mu</span> <span class="o">=</span> <span class="p">(</span><span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">num_components</span>
+    <span class="n">previous_derivative</span> <span class="o">=</span> <span class="n">derivative</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_components</span><span class="p">):</span>
+        <span class="n">difference</span> <span class="o">=</span> <span class="n">y</span> <span class="o">-</span> <span class="n">mu</span>
+        <span class="n">derivative</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="n">difference</span> <span class="o">&gt;</span> <span class="n">zero_threshold</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">y</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="o">-</span><span class="n">derivative</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="n">difference</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="nb">min</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">previous_derivative</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="n">derivative</span> <span class="o">==</span> <span class="n">previous_derivative</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+            <span class="k">break</span>
+        <span class="n">objective_value</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">difference</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="n">zero_threshold</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">newton_update</span> <span class="o">=</span> <span class="n">objective_value</span> <span class="o">/</span> <span class="n">derivative</span>
+        <span class="n">mu</span> <span class="o">-=</span> <span class="n">newton_update</span>
+
+        <span class="k">assert</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">mu</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">()</span>
+        <span class="n">previous_derivative</span> <span class="o">=</span> <span class="n">derivative</span>
+    <span class="k">assert</span> <span class="p">(</span><span class="n">derivative</span> <span class="o">==</span> <span class="n">previous_derivative</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+    
+    <span class="k">assert</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(),</span> <span class="n">y</span>
+
+    <span class="n">y</span> <span class="o">=</span> <span class="p">(</span><span class="n">y</span> <span class="o">-</span> <span class="n">mu</span><span class="p">)</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="nb">min</span><span class="o">=</span><span class="n">zero_threshold</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(),</span> <span class="p">(</span><span class="n">mu</span><span class="p">,</span> <span class="n">derivative</span><span class="p">)</span>
+
+    <span class="k">assert</span> <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">sub_</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">abs_</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mf">1e-3</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">sub_</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">abs_</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+    
+    <span class="k">return</span> <span class="n">y</span></div>
+
+<div class="viewcode-block" id="IndependentSet"><a class="viewcode-back" href="../../spicemix.html#spicemix.util.IndependentSet">[docs]</a><span class="k">class</span> <span class="nc">IndependentSet</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Iterator class that yields a list of batch_size independent nodes from a spatial graph.</span>
+
+<span class="sd">    For each iteration, no pair of yielded nodes can be neighbors of each other according to the</span>
+<span class="sd">    adjacency matrix.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        N: number of nodes in graph</span>
+<span class="sd">        adjacency_list: graph neighbor information stored in adjacency list format</span>
+<span class="sd">        batch_size: number of nodes to draw independently every iteration</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">adjacency_list</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">50</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">N</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">adjacency_list</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">adjacency_list</span> <span class="o">=</span> <span class="n">adjacency_list</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span> <span class="o">=</span> <span class="n">batch_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indices_remaining</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return iterator over nodes in graph.</span>
+
+<span class="sd">        Resets indices_remaining before returning the iterator.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indices_remaining</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">N</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="fm">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the indices of batch_size nodes such that none of them are neighbors of each other.</span>
+
+<span class="sd">        Makes sure selected nodes are not adjacent to each other, i.e., finds an independent set of</span>
+<span class="sd">        `valid indices` in a greedy manner</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">indices_remaining</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">StopIteration</span>
+
+        <span class="n">valid_indices</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">excluded_indices</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="n">effective_batch_size</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">indices_remaining</span><span class="p">))</span>
+        <span class="n">candidate_indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">indices_remaining</span><span class="p">),</span>
+            <span class="n">size</span><span class="o">=</span><span class="n">effective_batch_size</span><span class="p">,</span>
+            <span class="n">replace</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">candidate_indices</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">index</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">excluded_indices</span><span class="p">:</span>
+                <span class="n">valid_indices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
+                <span class="n">excluded_indices</span> <span class="o">|=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">adjacency_list</span><span class="p">[</span><span class="n">index</span><span class="p">])</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">indices_remaining</span> <span class="o">-=</span> <span class="nb">set</span><span class="p">(</span><span class="n">valid_indices</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">valid_indices</span></div>
+</pre></div>
+
+              </div>
+              
+            </main>
+            <footer class="footer-article noprint">
+                
+    <!-- Previous / next buttons -->
+<div class='prev-next-area'>
+</div>
+            </footer>
+        </div>
+    </div>
+    <div class="footer-content row">
+        <footer class="col footer"><p>
+  
+    By Shahul Alam<br/>
+  
+      &copy; Copyright 2022, CMU.<br/>
+</p>
+        </footer>
+    </div>
+    
+</div>
+
+
+      </div>
+    </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf"></script>
+
+
+  </body>
+</html>

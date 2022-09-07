@@ -33,13 +33,14 @@ def spicemix_with_neighbors():
 
         
 def test_Sigma_x_inv(spicemix_with_neighbors):
-    Sigma_x_inv = spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.spatial_affinity.get_metagene_affinities().detach().cpu().numpy()
+    Sigma_x_inv = list(spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].detach().cpu().numpy()
     # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy", Sigma_x_inv)
     test_Sigma_x_inv = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
     
 def test_M(spicemix_with_neighbors):
-    M_bar = spicemix_with_neighbors.parameter_optimizer.metagene_state.M_bar.detach().cpu().numpy()
+    first_group_name = list(spicemix_with_neighbors.groups.keys())[0]
+    M_bar = spicemix_with_neighbors.parameter_optimizer.metagene_state.M_bar[first_group_name].detach().cpu().numpy()
     # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy", M_bar)
     test_M = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy")
     assert np.allclose(test_M, M_bar)
