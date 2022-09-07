@@ -38,7 +38,8 @@ class SpiceMixPlus:
         lambda_Sigma_x_inv: float = 1e-4,
         pretrained: bool = False,
         initialization_method: str = "svd",
-        groups: Optional[dict] = None,
+        metagene_groups: Optional[dict] = None,
+        spatial_affinity_groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
         prior_x_modes: Optional[Sequence[float]] = None,
         M_constraint: str = "simplex",
@@ -55,11 +56,16 @@ class SpiceMixPlus:
 
         Args:
             K: number of metagenes to learn
+            replicate_names: names of spatial datasets
             datasets: list of input AnnData spatial datasets for SpiceMix.
             dataset_path: path to AnnData merged dataset on disk. Ignored if `datasets` is specified.
-            replicate_names: names of spatial datasets
             lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: 1e-4
             initialization_method: algorithm to use for initializing metagenes and embeddings. Default: `svd`
+            metagene_groups: defines the mapping from if `metagene_mode == "shared"`, then this defines groups of replicates which will
+                share the same set of metagenes during the optimization. If `metagene_mode == "differential"`,
+                then the 
+            :tabn_groups: if `metagene_mode == "shared"`, then this is a mapping from 
+                
             betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
             prior_x_modes: family of prior distribution for embeddings of each dataset
             M_constraint: constraint on columns of M. Default: `simplex`
@@ -84,16 +90,24 @@ class SpiceMixPlus:
             initial_context = dict(device='cpu', dtype=torch.float32)
 
         self.replicate_names = [f"{replicate_name}" for replicate_name in replicate_names]
-        if not groups:
-            groups = {"default": self.replicate_names}
+        if not metagene_groups:
+            metagene_groups = {"default": self.replicate_names}
 
-        included_replicate_names = sum(groups.values(), [])
+        if not spatial_affinity_groups:
+            spatial_affinity_groups = {"default": self.replicate_names}
+
+        included_replicate_names = sum(metagene_groups.values(), [])
         if set(included_replicate_names) != set(self.replicate_names):
-            raise ValueError("If `groups` argument is used, then every `replicate_name` must appear in a group.")
+            raise ValueError("If `metagene_groups` argument is used, then every `replicate_name` must appear in a group.")
+        
+        included_replicate_names = sum(spatial_affinity_groups.values(), [])
+        if set(included_replicate_names) != set(self.replicate_names):
+            raise ValueError("If `spatial_affinity_groups` argument is used, then every `replicate_name` must appear in a group.")
 
         self.context = torch_context
         self.initial_context = initial_context
-        self.groups = groups
+        self.metagene_groups = metagene_groups
+        self.spatial_affinity_groups = spatial_affinity_groups
 
         self.random_state = random_state
         torch.manual_seed(self.random_state)
@@ -169,7 +183,7 @@ class SpiceMixPlus:
 
         self.prior_x_modes = prior_x_modes
 
-        self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes, self.groups,
+        self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes, self.metagene_groups, self.spatial_affinity_groups,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
                 lambda_M=self.lambda_M,
                 lambda_Sigma_bar=self.lambda_Sigma_bar,
@@ -185,7 +199,7 @@ class SpiceMixPlus:
         self.embedding_optimizer.link(self.parameter_optimizer)
 
         if pretrained:
-            for group_name, group_replicates in self.groups.items():
+            for group_name, group_replicates in self.metagene_groups.items():
                 pass
 
             first_dataset = self.datasets[0]
@@ -232,6 +246,8 @@ class SpiceMixPlus:
                 dataset.uns["spicemixplus_hyperparameters"] = {
                     "metagene_mode": self.metagene_mode,
                     "prior_x": self.parameter_optimizer.prior_xs[dataset_index][0],
+                    "metagene_groups": self.metagene_groups,
+                    "spatial_affinity_groups": self.metagene_groups,
                     "K": self.K,
                     "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
                 }
@@ -242,14 +258,16 @@ class SpiceMixPlus:
                     dataset.uns["spicemixplus_hyperparameters"]["lambda_Sigma_bar"] = self.lambda_Sigma_bar
                 
             if self.metagene_mode == "differential":
-                M_bar = {group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy() for group_name in self.groups}
+                M_bar = {group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy() for group_name in self.metagene_groups}
                 for dataset in self.datasets:
                     dataset.uns["M_bar"] = M_bar
+                    dataset.uns["lambda_Sigma_bar"] = self.lambda_Sigma_bar
             
             if self.spatial_affinity_mode == "differential lookup":
-                spatial_affinity_bar = {group_name: self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].cpu().detach().numpy() for group_name in self.groups}
+                spatial_affinity_bar = {group_name: self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].cpu().detach().numpy() for group_name in self.spatial_affinity_groups}
                 for dataset in self.datasets:
                     dataset.uns["spatial_affinity_bar"] = spatial_affinity_bar
+                    dataset.uns["lambda_M"] = self.lambda_M
 
         self.synchronize_datasets()
     
@@ -263,12 +281,12 @@ class SpiceMixPlus:
                 dataset.uns["Sigma_x_inv"][dataset.name][:] = self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
             
         if self.metagene_mode == "differential":
-            M_bar = {group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy() for group_name in self.groups}
+            M_bar = {group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy() for group_name in self.metagene_groups}
             for dataset in self.datasets:
                 dataset.uns["M_bar"] = M_bar
         
         if self.spatial_affinity_mode == "differential lookup":
-            spatial_affinity_bar = {group_name: self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].cpu().detach().numpy() for group_name in self.groups}
+            spatial_affinity_bar = {group_name: self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].cpu().detach().numpy() for group_name in self.spatial_affinity_groups}
             for dataset in self.datasets:
                 dataset.uns["spatial_affinity_bar"] = spatial_affinity_bar
 
