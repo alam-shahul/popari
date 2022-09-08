@@ -18,18 +18,40 @@ from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
 from spicemix.components import SpiceMixDataset, ParameterOptimizer, EmbeddingOptimizer
 
 class SpiceMixPlus:
-    """SpiceMixPlus optimization model.
+    r"""SpiceMixPlus optimization model.
 
     Models spatial biological data using the NMF-HMRF formulation. Supports multiple
     fields-of-view (FOVs) and multimodal data.
 
     Attributes:
         K: number of metagenes to learn
+        replicate_names: names of spatial datasets
         datasets: list of input AnnData spatial datasets for SpiceMix.
-        embedding_optimizer: object wrapping learned embeddings (i.e. X) and related state
-        parameter_optimizer: object wrapping learned parameters (i.e. M, sigma_yxs, spatial affinities)
-            and related state
+        dataset_path: path to AnnData merged dataset on disk. Ignored if ``datasets`` is specified.
+        lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: 1e-4
+        initialization_method: algorithm to use for initializing metagenes and embeddings. Default: ``svd``
+        metagene_groups: defines a grouping of replicates for the metagene optimization. If
+            ``metagene_mode == "shared"``, then there will be one set of metagenes for each group;
+            if ``metagene_mode == "differential",  then all replicates will have their own set of metagenes,
+            but each group will share an ``M_bar``.
+        spatial_affinity_groups: defines a grouping of replicates for the spatial affinityoptimization.
+            If ``spatial_affinity_mode == "shared"``, then there will be one set of spatial_affinitys for each group;
+            if ``spatial_affinity_mode == "differential"``,  then all replicates will have their own set of spatial
+            affinities, but each group will share a ``spatial_affinity_bar``.
+        betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
+        prior_x_modes: family of prior distribution for embeddings of each dataset
+        M_constraint: constraint on columns of M. Default: ``simplex``
+        sigma_yx_inv_mode: form of sigma_yx_inv parameter. Default: ``separate``
+        torch_context: keyword args to use during initialization of PyTorch tensors.
+        metagene_mode: modality of metagene parameters. Default: ``shared``
+        spatial_affinity_mode: modality of spatial affinity parameters. Default: ``shared lookup``
+        lambda_M: hyperparameter to constrain metagene deviation in differential case. Ignored if
+            ``metagene_mode`` is ``shared``. Default: ``0``
+        lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
+            ``spatial_affinity_mode`` is ``shared lookup``. Default: ``0``
+        random_state: seed for reproducibility of randomized computations. Default: ``0``
     """
+    
     def __init__(self,
         K: int,
         replicate_names: Sequence[str],
@@ -52,33 +74,6 @@ class SpiceMixPlus:
         lambda_Sigma_bar: float = 0.5,
         random_state: int = 0
     ):
-        """Initialize SpiceMixPlus object using ST data.
-
-        Args:
-            K: number of metagenes to learn
-            replicate_names: names of spatial datasets
-            datasets: list of input AnnData spatial datasets for SpiceMix.
-            dataset_path: path to AnnData merged dataset on disk. Ignored if `datasets` is specified.
-            lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: 1e-4
-            initialization_method: algorithm to use for initializing metagenes and embeddings. Default: `svd`
-            metagene_groups: defines the mapping from if `metagene_mode == "shared"`, then this defines groups of replicates which will
-                share the same set of metagenes during the optimization. If `metagene_mode == "differential"`,
-                then the 
-            :tabn_groups: if `metagene_mode == "shared"`, then this is a mapping from 
-                
-            betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
-            prior_x_modes: family of prior distribution for embeddings of each dataset
-            M_constraint: constraint on columns of M. Default: `simplex`
-            sigma_yx_inv_mode: form of sigma_yx_inv parameter. Default: `separate`
-            torch_context: keyword args to use during initialization of PyTorch tensors.
-            metagene_mode: modality of metagene parameters. Default: `shared`
-            spatial_affinity_mode: modality of spatial affinity parameters. Default: `shared lookup`
-            lambda_M: hyperparameter to constrain metagene deviation in differential case. Ignored if
-                `metagene_mode` is `shared`. Default: `0`
-            lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
-                `spatial_affinity_mode` is `shared lookup`. Default: `0`
-            random_state: seed for reproducibility of randomized computations. Default: `0`
-        """
 
         if not any([datasets, dataset_path]):
             raise ValueError("At least one of `datasets`, `dataset_path` must be specified in the SpiceMixPlus constructor.")
@@ -323,6 +318,15 @@ class SpiceMixPlus:
         save_anndata(path2dataset, self.datasets, replicate_names)
 
 def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence[str]):
+    """Load trained SpiceMixPlus model for downstream analysis.
+
+    Args:
+        dataset_path: location of SpiceMixPlus results, stored as a .h5ad file.
+        replicate_names: names of spatial datasets. Must match names stored on disk in ``dataset_path``.
+    """
+
+    # TODO: change this so that replicate_names can rename the datasets in the saved file...?
+
     datasets = load_anndata(dataset_path, replicate_names, context="numpy")
 
     first_dataset = datasets[0]

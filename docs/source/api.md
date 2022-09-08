@@ -43,6 +43,19 @@
     model.load_trained_model
 ```
 
+## Components
+
+```{eval-rst}
+.. module:: spicemix.components
+.. currentmodule:: spicemix
+
+.. autosummary::
+    :toctree: api/
+    :recursive:
+    
+    components.SpiceMixDataset
+```
+
 ## Analysis
 
 ```{eval-rst}
@@ -56,7 +69,6 @@
     analysis.leiden
     analysis.plot_in_situ
     analysis.compute_ari_scores
-    analysis.plot_ari_scores
     analysis.multireplicate_heatmap
     analysis.plot_all_metagene_embeddings
 ```

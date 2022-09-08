@@ -20,14 +20,16 @@ import torch.nn.functional as F
 from torch.nn import MultiheadAttention
 
 class SpiceMixDataset(ad.AnnData):
-    """Wrapper around AnnData object. Allows for preprocessing of dataset for SpiceMix.
+    r"""Wrapper around AnnData object. Allows for preprocessing of dataset for SpiceMix.
 
 
+    Attributes:
+        dataset: AnnData dataset to convert into SpiceMix-compatible object.
+        replicate_name: name of dataset
+        coordinates_key: location in ``.obsm`` dataframe of 2D coordinates for datapoints.
     """
 
-    def __init__(self, dataset, replicate_name, coordinates_key="spatial"):
-        """
-        """
+    def __init__(self, dataset: ad.AnnData, replicate_name: str, coordinates_key: str = "spatial"):
         super().__init__(
             X = dataset.X,
             obs = dataset.obs,
@@ -45,7 +47,9 @@ class SpiceMixDataset(ad.AnnData):
         self.name = f"{replicate_name}"
 
     def compute_spatial_neighbors(self):
-        """Compute neighbor graph based on spatial coordinates.
+        r"""Compute neighbor graph based on spatial coordinates.
+
+        Stores resulting graph in ``self.obs["adjacency_list"]``.
 
         """
 
@@ -63,7 +67,16 @@ class SpiceMixDataset(ad.AnnData):
         self.obs["adjacency_list"] = adjacency_list
 
     @staticmethod
-    def remove_connectivity_artifacts(sparse_distance_matrix, sparse_adjacency_matrix, threshold=94.5):
+    def remove_connectivity_artifacts(sparse_distance_matrix: csr_matrix, sparse_adjacency_matrix: csr_matrix, threshold: float = 94.5):
+        """Remove artifacts in adjacency matrices produced by heuristic algorithms.
+
+        For example, when Delaunay triangulation is used to produce the adjacency matrix, some spots which are
+        connected as a result may actually be far apart in Euclidean space.
+        
+        Args:
+            sparse_distance_matrix:
+
+        """
         dense_distances = sparse_distance_matrix.toarray()
         distances = sparse_distance_matrix.data
         cutoff = np.percentile(distances, threshold)
@@ -74,7 +87,13 @@ class SpiceMixDataset(ad.AnnData):
         
         return sparse_adjacency_matrix
 
-    def plot_metagene_embedding(metagene_index, **scatterplot_kwargs):
+    def plot_metagene_embedding(metagene_index: int, **scatterplot_kwargs):
+        r"""Plot the embedding values for a metagene in-situ.
+
+        Args:
+            metagene_index: index of the metagene to plot.
+            **scatterplot_kwargs: keyword args to pass to ``sns.scatterplot``.
+        """
         points = self.obsm["spatial"]
         x, y = points.T
         metagene = self.obsm["X"][:, metagene_index]
