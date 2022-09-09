@@ -21,7 +21,8 @@ def spicemix_with_neighbors():
         torch_context=dict(device='cuda:0', dtype=torch.float32),
         initial_context=dict(device='cuda:0', dtype=torch.float32),
         dataset_path=path2dataset / "all_data.h5",
-        replicate_names=replicate_names
+        replicate_names=replicate_names,
+        verbose=1
     )   
 
     for iteration in range(1, 5):

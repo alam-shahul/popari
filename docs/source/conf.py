@@ -36,9 +36,8 @@ extensions = [
     'sphinx.ext.autodoc.typehints',
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
-    'myst_parser',
-    'nbsphinx',
-    'sphinx_gallery.load_style',
+    'myst_nb',
+    'sphinx_copybutton',
     'sphinx_remove_toctrees'
 ]
 
@@ -69,7 +68,9 @@ html_static_path = ['_static']
 # -- Options for included extensions -----------------------------------------
 
 autosummary_generate=True
-nbsphinx_execute = 'never'
+# nbsphinx_execute = 'never'
+# nbsphinx_allow_directives = True
+nb_execution_mode = "off"
 autodoc_typehints = "description"
 remove_from_toctrees = ["api/*"]
 

@@ -1,7 +1,7 @@
 import pytest
 from spicemix.io import load_anndata, save_anndata
 from spicemix.model import SpiceMixPlus, load_trained_model
-from spicemix.analysis import plot_metagene_embedding, leiden, plot_in_situ, multireplicate_heatmap, compute_ari_scores, plot_all_metagene_embeddings
+from spicemix.analysis import plot_metagene_embedding, leiden, plot_in_situ, multireplicate_heatmap, compute_ari_scores, plot_all_metagene_embeddings, compute_empirical_correlations
 from pathlib import Path
 
 @pytest.fixture(scope="module")
@@ -29,3 +29,5 @@ def test_analysis_functions(trained_model):
     compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
     multireplicate_heatmap(trained_model, uns="Sigma_x_inv")
     plot_all_metagene_embeddings(trained_model, embedding_key="normalized_X")
+    compute_empirical_correlations(trained_model, output="empirical_correlation")
+    multireplicate_heatmap(trained_model, uns="empirical_correlation")
