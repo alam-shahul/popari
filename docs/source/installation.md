@@ -1,10 +1,10 @@
 # Installation
 
-SpiceMixPlus requires Python version >=3.7.
+`popari` requires Python version >=3.7.
 
-Install SpiceMixPlus with pip.
+Install `popari` with pip.
 
 ```
-python -m pip install --index-url https://test.pypi.org/simple/ --no-deps spicemix
-pip install spicemix
+python -m pip install --index-url https://test.pypi.org/simple/ --no-deps popari
+pip install popari
 ```

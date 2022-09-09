@@ -25,7 +25,7 @@ def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, ax
     """
     datasets = trained_model.datasets
 
-    if axes == None:
+    if axes is None:
         height = int(np.sqrt(len(datasets)))
         width = len(datasets) // width
         height += (width * height != len(datasets))
@@ -53,7 +53,7 @@ def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", resolution: floa
         sc.pp.neighbors(dataset, use_rep=use_rep)
         sc.tl.leiden(dataset, resolution=resolution)
 
-def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes: Optional[Sequence[Axes]] = None):
+def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes = None, **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
@@ -64,17 +64,23 @@ def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes: Optional[Seq
         axes: A predefined set of matplotlib axes to plot on.
     """
     datasets = trained_model.datasets
-    
+        
     fig = None
-    if axes == None:
+    if axes is None:
         height = int(np.sqrt(len(datasets)))
         width = len(datasets) // height
         height += (width * height != len(datasets))
-        fig, axes = plt.subplots(height, width, dpi=300)
+        fig, axes = plt.subplots(height, width, constrained_layout=True, dpi=600)
 
+    edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
+    spot_size = 0.04 if "spot_size" not in spatial_kwargs else spatial_kwargs.pop("spot_size")
+    edges = True if "edges" not in spatial_kwargs else spatial_kwargs.pop("edges")
+    palette = sc.pl.palettes.godsnot_102 if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
+    legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
     for dataset, ax in zip(datasets, axes.flat):
-        sc.pl.spatial(dataset, spot_size=0.02, neighbors_key="spatial_neighbors",
-            color=color, edges=True,  edges_width=0.5, ax=ax)
+        sc.pl.spatial(dataset, spot_size=spot_size, neighbors_key="spatial_neighbors",
+            color=color, edges=True,  edges_width=edges_width, legend_fontsize=legend_fontsize,
+            ax=ax, show=False, palette=palette, **spatial_kwargs)
 
 def multireplicate_heatmap(trained_model: SpiceMixPlus,
     axes: Optional[Sequence[Axes]] = None,
@@ -94,18 +100,19 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
         obsm: the key in the ``.obsm`` dataframe to plot.
         obsp: the key in the ``.obsp`` dataframe to plot.
         uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
-        **heatmap_kwargs: arguments to pass to the 
+        **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
     """
     datasets = trained_model.datasets
     
 
     fig = None
-    if axes == None:
+    if axes is None:
         height = int(np.sqrt(len(datasets)))
         width = len(datasets) // height
         height += (width * height != len(datasets))
         fig, axes = plt.subplots(height, width)
 
+    aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")
     for dataset_index, ax in enumerate(axes.flat):
         if dataset_index > len(datasets):
             ax.set_visible(False)
@@ -119,12 +126,8 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
             image = dataset.obsp[obsp][dataset.name]
         if uns:
             image = dataset.uns[uns][dataset.name]
-
-        aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")
        
         ax.imshow(image, cmap='hot', interpolation='nearest', aspect=aspect, **heatmap_kwargs)
-
-    return fig
 
 def compute_ari_scores(trained_model: SpiceMixPlus, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth labels and an unsupervised clustering.
@@ -167,3 +170,53 @@ def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str
             wspace=0.2,
             ncols=2,
         )
+
+def compute_empirical_correlations(trained_model: SpiceMixPlus, feature: str = "X", output: str = "empirical_correlation"):
+    """Compute the empirical spatial correlation for a feature set across all datasets.
+
+    Args:
+        trained_model: the trained SpiceMixPlus model.
+        feature: key in `.obsm` of feature set for which spatial correlation should be computed.
+        output: key in `.uns` where output correlation matrices should be stored.
+    """
+
+    datasets = trained_model.datasets
+    num_replicates = len(datasets)
+    K = trained_model.K
+    scaling = trained_model.parameter_optimizer.spatial_affinity_state.scaling
+    empirical_correlations = np.zeros([num_replicates, K, K])
+    for replicate, dataset in enumerate(datasets):
+        adjacency_list = dataset.obs["adjacency_list"]
+        X = dataset.obsm[feature]
+        Z = X / np.linalg.norm(X, axis=1, keepdims=True, ord=1)
+        edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
+
+        x = Z[edges[:, 0]]
+        y = Z[edges[:, 1]]
+        x = x - x.mean(axis=0, keepdims=True)
+        y = y - y.mean(axis=0, keepdims=True)
+        y_std = y.std(axis=0, keepdims=True)
+        x_std = x.std(axis=0, keepdims=True)
+        corr = (y / y_std).T @ (x / x_std) / len(x)
+        empirical_correlations[replicate] = - corr
+
+    # Symmetrizing and zero-centering empirical_correlation
+    empirical_correlations = (empirical_correlations + np.transpose(empirical_correlations, (0, 2, 1))) / 2
+    empirical_correlations -= empirical_correlations.mean(axis=(1, 2), keepdims=True)
+    empirical_correlations *= scaling
+
+    for dataset, empirical_correlation in zip(datasets, empirical_correlations):
+        all_correlations = {dataset.name: empirical_correlation}
+        dataset.uns[output] = all_correlations
+
+def plot_differential_heatmap(trained_model: SpiceMixPlus, parameter_set="metagenes"):
+    fig, axes = plt.subplots(len(empirical_correlations), 2, figsize=(10, 10))
+    for group_name, group_replicates in differential_spatial_affinity.spatial_affinity_groups.items():
+        for replicate in group_replicates:
+            for index, dataset in enumerate(differential_spatial_affinity.datasets):
+                if dataset.name == replicate:
+                    correlation_matrix = empirical_correlations[index] - differential_spatial_affinity.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].cpu().detach().numpy()
+                    print(correlation_matrix.sum())
+                    image = axes[index, 0].imshow(correlation_matrix)
+                    fig.colorbar(image, cax=axes[index, 1], orientation='vertical') 
+

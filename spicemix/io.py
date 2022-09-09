@@ -7,7 +7,7 @@ import torch
 
 from spicemix.components import SpiceMixDataset
 
-def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str], replicate_mask: Optional[Sequence[bool]] = None, context: str = "numpy"):
+def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str], context: str = "numpy"):
     """Load AnnData object from h5ad file and reformat for SpiceMixPlus.
 
     """                                     
@@ -17,13 +17,10 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str], rep
     indices = merged_dataset.obs.groupby("batch").indices.values()
     datasets = [merged_dataset[index] for index in indices]
     
-    if replicate_mask is None:
-        replicate_mask = [True] * len(datasets)
-   
     if len(replicate_names) != len(datasets):
         raise ValueError(f"List of replicates '{replicate_names}' does not match number of datasets ({len(datasets)}) stored in AnnData object.")
         
-    for replicate, dataset, load_replicate in zip(replicate_names, datasets, replicate_mask):
+    for replicate, dataset in zip(replicate_names, datasets):
         if "Sigma_x_inv" in dataset.uns:
             # Keep only Sigma_x_inv corresponding to a particular replicate
             replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][f"{replicate}"]
@@ -155,7 +152,8 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset]
             del dataset_copy.obs["adjacency_list"]
 
 
-    merged_dataset = ad.concat(dataset_copies, label="batch", merge="unique", uns_merge="unique", pairwise=True)
+    dataset_names = [dataset.name for dataset in datasets]
+    merged_dataset = ad.concat(dataset_copies, label="batch", keys=dataset_names, merge="unique", uns_merge="unique", pairwise=True)
     merged_dataset.write(filepath)
    
     reloaded_dataset = ad.read_h5ad(filepath)

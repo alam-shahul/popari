@@ -9,7 +9,7 @@ import pandas as pd
 import torch
 import anndata as ad
 
-from spicemix.util import print_datetime
+from spicemix.util import get_datetime
 from spicemix.io import load_anndata, save_anndata
 
 from spicemix.initialization import initialize_kmeans, initialize_svd
@@ -72,8 +72,11 @@ class SpiceMixPlus:
         spatial_affinity_mode: str ="shared lookup",
         lambda_M: float = 0.5,
         lambda_Sigma_bar: float = 0.5,
-        random_state: int = 0
+        random_state: int = 0,
+        verbose: int = 0
     ):
+
+        self.verbose = verbose
 
         if not any([datasets, dataset_path]):
             raise ValueError("At least one of `datasets`, `dataset_path` must be specified in the SpiceMixPlus constructor.")
@@ -178,6 +181,9 @@ class SpiceMixPlus:
 
         self.prior_x_modes = prior_x_modes
 
+        if self.verbose:
+            print(f"{get_datetime()} Initializing ParameterOptimizer")
+
         self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes, self.metagene_groups, self.spatial_affinity_groups,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
                 lambda_M=self.lambda_M,
@@ -186,9 +192,13 @@ class SpiceMixPlus:
                 spatial_affinity_mode=self.spatial_affinity_mode,
                 M_constraint=self.M_constraint,
                 initial_context=self.initial_context,
-                context=self.context
+                context=self.context,
+                verbose=self.verbose
             )
-        self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets, initial_context=self.initial_context, context=self.context)
+        
+        if self.verbose:
+            print(f"{get_datetime()} Initializing EmbeddingOptimizer")
+        self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets, initial_context=self.initial_context, context=self.context, verbose=self.verbose)
         
         self.parameter_optimizer.link(self.embedding_optimizer)
         self.embedding_optimizer.link(self.parameter_optimizer)
@@ -208,6 +218,8 @@ class SpiceMixPlus:
         
             self.parameter_optimizer.update_sigma_yx()
         else:
+            if self.verbose:
+                print(f"{get_datetime()} Initializing metagenes and hidden states")
             if method == 'kmeans':
                 self.M, self.Xs = initialize_kmeans(self.datasets, self.K, self.initial_context, kwargs_kmeans=dict(random_state=self.random_state))
             elif method == 'svd':
@@ -287,7 +299,8 @@ class SpiceMixPlus:
 
     def estimate_weights(self, use_neighbors=True):
         """Update embeddings (latent states) for each replicate."""
-        logging.info(f'{print_datetime()}Updating latent states')
+        if self.verbose:
+            print(f"{get_datetime()} Updating latent states")
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
         self.synchronize_datasets()
 
@@ -298,12 +311,18 @@ class SpiceMixPlus:
             update_spatial_affinities: If specified, spatial affinities will be updated during this iteration.
                 Default: True.
         """
-        logging.info(f'{print_datetime()}Updating model parameters')
+        logging.info(f'{get_datetime()}Updating model parameters')
 
         if update_spatial_affinities:
+            if self.verbose:
+                print(f"{get_datetime()} Updating spatial affinities")
             self.parameter_optimizer.update_spatial_affinity()
 
+        if self.verbose:
+            print(f"{get_datetime()} Updating metagenes")
         self.parameter_optimizer.update_metagenes()
+        if self.verbose:
+            print(f"{get_datetime()} Updating sigma_yx")
         self.parameter_optimizer.update_sigma_yx()
         self.synchronize_datasets()
 

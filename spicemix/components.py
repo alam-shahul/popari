@@ -106,13 +106,16 @@ class EmbeddingOptimizer():
 
     """
 
-    def __init__(self, K, Ys, datasets, initial_context=None, context=None):
+    def __init__(self, K, Ys, datasets, initial_context=None, context=None, verbose=0):
+        self.verbose = verbose
         self.datasets = datasets
         self.K = K
         self.Ys = Ys
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        
+       
+        if self.verbose:
+            print(f"{get_datetime()} Initializing EmbeddingState") 
         self.embedding_state = EmbeddingState(K, self.datasets, context=self.context)
 
     def link(self, parameter_optimizer):
@@ -522,8 +525,11 @@ class ParameterOptimizer():
             M_constraint="simplex",
             sigma_yx_inv_mode="separate",
             initial_context=None,
-            context=None
+            context=None,
+            verbose=0
     ):
+        self.verbose = verbose
+
         self.datasets = datasets
         self.spatial_affinity_mode = spatial_affinity_mode
         self.K = K
@@ -541,8 +547,13 @@ class ParameterOptimizer():
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
-        
+       
+        if self.verbose:
+            print(f"{get_datetime()} Initializing MetageneState") 
         self.metagene_state = MetageneState(self.K, self.datasets, self.metagene_groups, mode=self.metagene_mode, M_constraint=self.M_constraint, initial_context=self.initial_context, context=self.context)
+        
+        if self.verbose:
+            print(f"{get_datetime()} Initializing SpatialAffinityState") 
         self.spatial_affinity_state = SpatialAffinityState(self.K, self.metagene_state, self.datasets, self.spatial_affinity_groups, self.betas, scaling=spatial_affinity_scaling, mode=self.spatial_affinity_mode, initial_context=self.initial_context, context=self.context)
         
         if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
