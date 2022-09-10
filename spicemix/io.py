@@ -7,16 +7,21 @@ import torch
 
 from spicemix.components import SpiceMixDataset
 
-def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str], context: str = "numpy"):
+def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = None, context: str = "numpy"):
     """Load AnnData object from h5ad file and reformat for SpiceMixPlus.
 
     """                                     
+
+    # TODO: make it so that replicate_names can rename the datasets
 
     merged_dataset = ad.read_h5ad(filepath)
 
     indices = merged_dataset.obs.groupby("batch").indices.values()
     datasets = [merged_dataset[index] for index in indices]
-    
+   
+    if replicate_names == None:
+        replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
+
     if len(replicate_names) != len(datasets):
         raise ValueError(f"List of replicates '{replicate_names}' does not match number of datasets ({len(datasets)}) stored in AnnData object.")
         
