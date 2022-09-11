@@ -336,7 +336,7 @@ class SpiceMixPlus:
         replicate_names = [dataset.name for dataset in self.datasets]
         save_anndata(path2dataset, self.datasets, replicate_names)
 
-def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence[str]):
+def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence[str] = None):
     """Load trained SpiceMixPlus model for downstream analysis.
 
     Args:
@@ -347,6 +347,8 @@ def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence
     # TODO: change this so that replicate_names can rename the datasets in the saved file...?
 
     datasets = load_anndata(dataset_path, replicate_names, context="numpy")
+
+    replicate_names = [dataset.name for dataset in datasets]
 
     first_dataset = datasets[0]
     metagene_mode = first_dataset.uns["spicemixplus_hyperparameters"]["metagene_mode"]

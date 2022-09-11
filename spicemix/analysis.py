@@ -2,6 +2,7 @@ from typing import Optional, Sequence
 
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import numpy as np
 import scanpy as sc
@@ -107,13 +108,17 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
 
     fig = None
     if axes is None:
-        height = int(np.sqrt(len(datasets)))
+            height = int(np.sqrt(len(datasets)))
         width = len(datasets) // height
         height += (width * height != len(datasets))
-        fig, axes = plt.subplots(height, width)
+        fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=True)
 
-    aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")
+    aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")    
+    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")    
+
     for dataset_index, ax in enumerate(axes.flat):
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes('right', size='5%', pad=0.05)
         if dataset_index > len(datasets):
             ax.set_visible(False)
             continue
@@ -127,7 +132,8 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
         if uns:
             image = dataset.uns[uns][dataset.name]
        
-        ax.imshow(image, cmap='hot', interpolation='nearest', aspect=aspect, **heatmap_kwargs)
+        im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
+        fig.colorbar(im, cax=cax, orientation='vertical')
 
 def compute_ari_scores(trained_model: SpiceMixPlus, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth labels and an unsupervised clustering.
@@ -146,7 +152,7 @@ def compute_ari_scores(trained_model: SpiceMixPlus, labels: str, predictions: st
         ari = adjusted_rand_score(dataset.obs[labels], dataset.obs[predictions])
         dataset.uns[ari_key] = ari
 
-def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str = "X", column_names: Optional[str] = None):
+def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str = "X", column_names: Optional[str] = None, **spatial_kwargs):
     r"""Plot all laerned metagenes in-situ across all replicates.
 
     Each replicate's metagenes are contained in a separate plot.
@@ -162,11 +168,13 @@ def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str
         column_names = [f"{embedding_key}_{index}" for index in range(trained_model.K)]
 
     datasets = trained_model.datasets
+    spot_size = 0.1 if "spot_size" not in spatial_kwargs else spatial_kwargs.pop("spot_size")
+    palette = sc.pl.palettes.godsnot_102 if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
     for dataset in datasets:
         axes = sc.pl.spatial(
             sq.pl.extract(dataset, embedding_key, prefix=f"{embedding_key}"),
             color=column_names,
-            spot_size=2,
+            spot_size=spot_size,
             wspace=0.2,
             ncols=2,
         )

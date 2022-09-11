@@ -21,6 +21,8 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
    
     if replicate_names == None:
         replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
+    
+    datasets = [SpiceMixDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
 
     if len(replicate_names) != len(datasets):
         raise ValueError(f"List of replicates '{replicate_names}' does not match number of datasets ({len(datasets)}) stored in AnnData object.")
@@ -86,7 +88,6 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
             dataset.obsp["adjacency_matrix"] = convert_numpy_to_pytorch_sparse_coo(adjacency_matrix, context)
 
     return datasets
-
 
 def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset], replicate_names: Sequence[str]):
     """Save SpiceMixPlus state as AnnData object.
