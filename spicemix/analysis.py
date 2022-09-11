@@ -37,16 +37,16 @@ def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, ax
 
     return fig
 
-def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", resolution: float = 1.0):
+def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, resolution: float = 1.0):
     r"""Compute Leiden clustering for all datasets.
-
-    Uses ``use_rep`` as the basis for 
 
     Args:
         trained_model: the trained SpiceMixPlus model.
-        use_rep: the key in the ``.obsm`` dataframe to use as input to the Leiden clustering algorithm.
+        joint: if `True`, jointly cluster the spots
+        use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
         resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
     """
+    # TODO: implement joint clustering
     
     datasets = trained_model.datasets
 
@@ -108,7 +108,7 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
 
     fig = None
     if axes is None:
-            height = int(np.sqrt(len(datasets)))
+        height = int(np.sqrt(len(datasets)))
         width = len(datasets) // height
         height += (width * height != len(datasets))
         fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=True)
