@@ -7,6 +7,7 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.decomposition import TruncatedSVD, PCA
 
+import itertools
 from spicemix.components import SpiceMixDataset
 
 def initialize_kmeans(datasets: Sequence[SpiceMixDataset], K: int, context: dict, kwargs_kmeans:dict) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
@@ -26,10 +27,8 @@ def initialize_kmeans(datasets: Sequence[SpiceMixDataset], K: int, context: dict
     """
     assert 'random_state' in kwargs_kmeans
     Ns, Gs = zip(*[dataset.X.shape for dataset in datasets])
-    GG = max(Gs)
-    repli_valid = np.array(Gs) == GG
     Ys = [dataset.X for dataset in datasets]
-    Y_cat = np.concatenate(list(itertools.compress(Ys, repli_valid)), axis=0)
+    Y_cat = np.concatenate(Ys, axis=0)
     pca = PCA(n_components=20)
     # pca = None
     Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
@@ -38,14 +37,12 @@ def initialize_kmeans(datasets: Sequence[SpiceMixDataset], K: int, context: dict
     M = np.stack([Y_cat[label == l].mean(0) for l in np.unique(label)]).T
     # M = kmeans.cluster_centers_.T
     Xs = []
-    for is_valid, N, Y in zip(repli_valid, Ns, Ys):
-        if is_valid:
-            Y_reduced = Y if pca is None else pca.transform(Y)
-            label = kmeans.predict(Y_reduced)
-            X = np.full([N, K], 1e-10)
-            X[(range(N), label)] = 1
-        else:
-            X = np.full([N, K], 1/K)
+    for N, Y in zip(Ns, Ys):
+        Y_reduced = Y if pca is None else pca.transform(Y)
+        label = kmeans.predict(Y_reduced)
+        X = np.full([N, K], 1e-10)
+        X[(range(N), label)] = 1
+
         Xs.append(X)
     M = torch.tensor(M, **context)
     Xs = [torch.tensor(X, **context) for X in Xs]

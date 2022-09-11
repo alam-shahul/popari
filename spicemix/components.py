@@ -789,7 +789,7 @@ class ParameterOptimizer():
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         Ys = [Y for (use_replicate, Y) in zip(replicate_mask, self.Ys) if use_replicate]
-        sigma_yxs = np.array([dataset.uns["sigma_yx"] for dataset in datasets])
+        sigma_yxs = self.sigma_yxs
         scaled_betas = self.betas[replicate_mask] / (sigma_yxs**2)
         
         # ||Y||_2^2

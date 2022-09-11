@@ -59,7 +59,7 @@ class SpiceMixPlus:
         dataset_path: Optional[Union[str, Path ]] = None,
         lambda_Sigma_x_inv: float = 1e-4,
         pretrained: bool = False,
-        initialization_method: str = "svd",
+        initialization_method: str = "kmeans",
         metagene_groups: Optional[dict] = None,
         spatial_affinity_groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
@@ -228,14 +228,23 @@ class SpiceMixPlus:
                 raise NotImplementedError
             
             for dataset_index, dataset in enumerate(self.datasets):
-                print(self.parameter_optimizer.metagene_state.keys())
                 self.parameter_optimizer.metagene_state[dataset.name][:] = self.M
                 self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
 
             self.parameter_optimizer.scale_metagenes()
+
+            # # Ensure initial embeddings do not have too large magnitudes
+            # for dataset_index, dataset in enumerate(self.datasets):
+            #     initial_X = self.embedding_optimizer.embedding_state[dataset.name]
+            #     cell_normalized_X = initial_X / torch.linalg.norm(initial_X, dim=0, keepdim=True)
+            #     self.embedding_optimizer.embedding_state[dataset.name][:] = cell_normalized_X
+
             self.Sigma_x_inv_bar = None
 
             self.parameter_optimizer.update_sigma_yx()
+            
+            # # Update metagenes to ensure that they lie on simplex after normalizign embeddings
+            # self.parameter_optimizer.update_metagenes()
 
             initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
             self.parameter_optimizer.spatial_affinity_state.initialize(initial_embeddings)
