@@ -59,7 +59,7 @@ class SpiceMixPlus:
         dataset_path: Optional[Union[str, Path ]] = None,
         lambda_Sigma_x_inv: float = 1e-4,
         pretrained: bool = False,
-        initialization_method: str = "kmeans",
+        initialization_method: str = "svd",
         metagene_groups: Optional[dict] = None,
         spatial_affinity_groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
@@ -88,24 +88,9 @@ class SpiceMixPlus:
             initial_context = dict(device='cpu', dtype=torch.float32)
 
         self.replicate_names = [f"{replicate_name}" for replicate_name in replicate_names]
-        if not metagene_groups:
-            metagene_groups = {"default": self.replicate_names}
-
-        if not spatial_affinity_groups:
-            spatial_affinity_groups = {"default": self.replicate_names}
-
-        included_replicate_names = sum(metagene_groups.values(), [])
-        if set(included_replicate_names) != set(self.replicate_names):
-            raise ValueError("If `metagene_groups` argument is used, then every `replicate_name` must appear in a group.")
-        
-        included_replicate_names = sum(spatial_affinity_groups.values(), [])
-        if set(included_replicate_names) != set(self.replicate_names):
-            raise ValueError("If `spatial_affinity_groups` argument is used, then every `replicate_name` must appear in a group.")
 
         self.context = torch_context
         self.initial_context = initial_context
-        self.metagene_groups = metagene_groups
-        self.spatial_affinity_groups = spatial_affinity_groups
 
         self.random_state = random_state
         torch.manual_seed(self.random_state)
@@ -120,6 +105,27 @@ class SpiceMixPlus:
 
         self.metagene_mode = metagene_mode 
         self.lambda_M = lambda_M
+        
+        def fill_groups(groups, are_exclusive=False):
+            if not groups:
+                groups = {"_default": self.replicate_names}
+
+            included_replicate_names = sum(groups.values(), [])
+            difference = set(self.replicate_names) - set(included_replicate_names)
+            if difference:
+                groups["_default"] = list(difference)
+            
+            tags = {replicate_name: [] for replicate_name in self.replicate_names}
+            for group, group_replicates in groups.items():
+                for replicate in group_replicates:
+                    if are_exclusive and len(tags[replicate]) > 0:
+                        ValueError("If in shared mode, each replicate can only appear in one group.")
+                    tags[replicate].append(group)
+
+            return groups, tags
+        
+        self.metagene_groups, self.metagene_tags = fill_groups(metagene_groups, are_exclusive=(self.metagene_mode=="shared"))
+        self.spatial_affinity_groups, self.spatial_affinity_tags = fill_groups(spatial_affinity_groups, are_exclusive=(self.spatial_affinity_mode=="shared lookup"))
 
         if datasets:
             self.load_anndata_datasets(datasets, self.replicate_names)
@@ -184,7 +190,11 @@ class SpiceMixPlus:
         if self.verbose:
             print(f"{get_datetime()} Initializing ParameterOptimizer")
 
-        self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes, self.metagene_groups, self.spatial_affinity_groups,
+        self.parameter_optimizer = ParameterOptimizer(self.K, self.Ys, self.datasets, self.betas, prior_x_modes,
+                self.metagene_groups,
+                self.metagene_tags,
+                self.spatial_affinity_groups,
+                self.spatial_affinity_tags,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
                 lambda_M=self.lambda_M,
                 lambda_Sigma_bar=self.lambda_Sigma_bar,
@@ -204,9 +214,6 @@ class SpiceMixPlus:
         self.embedding_optimizer.link(self.parameter_optimizer)
 
         if pretrained:
-            for group_name, group_replicates in self.metagene_groups.items():
-                pass
-
             first_dataset = self.datasets[0]
             if self.metagene_mode == "differential":
                 self.parameter_optimizer.metagene_state.M_bar = torch.from_numpy(first_dataset.uns["M_bar"][first_dataset.name]).to(**self.initial_context)
@@ -263,7 +270,9 @@ class SpiceMixPlus:
                     "metagene_mode": self.metagene_mode,
                     "prior_x": self.parameter_optimizer.prior_xs[dataset_index][0],
                     "metagene_groups": self.metagene_groups,
+                    "metagene_tags": self.metagene_tags,
                     "spatial_affinity_groups": self.metagene_groups,
+                    "spatial_affinity_tags": self.metagene_tags,
                     "K": self.K,
                     "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
                 }

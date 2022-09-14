@@ -15,6 +15,16 @@ import seaborn as sns
 
 from spicemix.model import SpiceMixPlus
 
+def setup_squarish_axes(num_axes):
+    """Create matplotlib subplots as squarely as possible."""
+
+    height = int(np.sqrt(num_axes))
+    width = num_axes // height
+    height += (width * height != num_axes)
+    fig, axes = plt.subplots(height, width, constrained_layout=True, dpi=600)
+
+    return fig, axes
+    
 def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, axes: Optional[Sequence[Axes]] = None):
     r"""Plot a single metagene in-situ across all datasets.
 
@@ -27,10 +37,7 @@ def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, ax
     datasets = trained_model.datasets
 
     if axes is None:
-        height = int(np.sqrt(len(datasets)))
-        width = len(datasets) // width
-        height += (width * height != len(datasets))
-        fig, axes = plt.subplots(height, width)
+        fig, axes = setup_squarish_axes(len(datasets))
 
     for dataset, ax in zip(datasets, axes.flat):
         dataset.plot_metagene_embedding(metagene_index, ax=ax)
@@ -48,11 +55,27 @@ def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = Fa
     """
     # TODO: implement joint clustering
     
+    cluster(trained_model, use_rep=use_rep, joint=joint, resolution=resolution)
+
+def cluster(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, method: str = "leiden", resolution: float = 1.0):
+    r"""Compute clustering for all datasets.
+
+    Args:
+        trained_model: the trained SpiceMixPlus model.
+        joint: if `True`, jointly cluster the spots
+        use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
+        resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
+    """
+    # TODO: implement joint clustering
+    
     datasets = trained_model.datasets
 
     for dataset in datasets:
         sc.pp.neighbors(dataset, use_rep=use_rep)
-        sc.tl.leiden(dataset, resolution=resolution)
+        if method == "leiden":
+            sc.tl.leiden(dataset, resolution=resolution)
+        elif method == "louvain":
+            sc.tl.louvain(dataset, resolution=resolution)
 
 def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes = None, **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
@@ -68,10 +91,33 @@ def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes = None, **spa
         
     fig = None
     if axes is None:
-        height = int(np.sqrt(len(datasets)))
-        width = len(datasets) // height
-        height += (width * height != len(datasets))
-        fig, axes = plt.subplots(height, width, constrained_layout=True, dpi=600)
+        fig, axes = setup_squarish_axes(len(datasets))
+
+    edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
+    spot_size = 0.04 if "spot_size" not in spatial_kwargs else spatial_kwargs.pop("spot_size")
+    edges = True if "edges" not in spatial_kwargs else spatial_kwargs.pop("edges")
+    palette = sc.pl.palettes.godsnot_102 if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
+    legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
+    for dataset, ax in zip(datasets, axes.flat):
+        sc.pl.spatial(dataset, spot_size=spot_size, neighbors_key="spatial_neighbors",
+            color=color, edges=True,  edges_width=edges_width, legend_fontsize=legend_fontsize,
+            ax=ax, show=False, palette=palette, **spatial_kwargs)
+
+def plot_umap(trained_model: SpiceMixPlus, color="leiden", axes = None, **_kwargs):
+    r"""Plot a categorical label across all datasets in-situ.
+
+    Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
+
+    Args:
+        trained_model: the trained SpiceMixPlus model.
+        color: the key in the ``.obs`` dataframe to plot.
+        axes: A predefined set of matplotlib axes to plot on.
+    """
+    datasets = trained_model.datasets
+        
+    fig = None
+    if axes is None:
+        fig, axes = setup_squarish_axes(len(datasets))
 
     edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
     spot_size = 0.04 if "spot_size" not in spatial_kwargs else spatial_kwargs.pop("spot_size")
@@ -108,10 +154,7 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
 
     fig = None
     if axes is None:
-        height = int(np.sqrt(len(datasets)))
-        width = len(datasets) // height
-        height += (width * height != len(datasets))
-        fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=True)
+        fig, axes = setup_squarish_axes(len(datasets))
 
     aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")    
     cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")    

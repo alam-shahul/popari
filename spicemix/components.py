@@ -514,7 +514,11 @@ class ParameterOptimizer():
 
     """
 
-    def __init__(self, K, Ys, datasets, betas, prior_x_modes, metagene_groups, spatial_affinity_groups,
+    def __init__(self, K, Ys, datasets, betas, prior_x_modes,
+            metagene_groups,
+            metagene_tags,
+            spatial_affinity_groups,
+            spatial_affinity_tags,
             spatial_affinity_regularization_power=2,
             spatial_affinity_scaling=10,
             lambda_Sigma_x_inv=1e-2,
@@ -535,7 +539,9 @@ class ParameterOptimizer():
         self.K = K
         self.Ys = Ys
         self.metagene_groups = metagene_groups
+        self.metagene_tags = metagene_tags
         self.spatial_affinity_groups = spatial_affinity_groups
+        self.spatial_affinity_tags = spatial_affinity_tags
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.lambda_Sigma_bar = lambda_Sigma_bar
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
@@ -550,11 +556,33 @@ class ParameterOptimizer():
        
         if self.verbose:
             print(f"{get_datetime()} Initializing MetageneState") 
-        self.metagene_state = MetageneState(self.K, self.datasets, self.metagene_groups, mode=self.metagene_mode, M_constraint=self.M_constraint, initial_context=self.initial_context, context=self.context)
+        
+        self.metagene_state = MetageneState(
+            self.K,
+            self.datasets,
+            self.metagene_groups,
+            self.metagene_tags,
+            mode=self.metagene_mode,
+            M_constraint=self.M_constraint,
+            initial_context=self.initial_context,
+            context=self.context
+        )
         
         if self.verbose:
             print(f"{get_datetime()} Initializing SpatialAffinityState") 
-        self.spatial_affinity_state = SpatialAffinityState(self.K, self.metagene_state, self.datasets, self.spatial_affinity_groups, self.betas, scaling=spatial_affinity_scaling, mode=self.spatial_affinity_mode, initial_context=self.initial_context, context=self.context)
+        
+        self.spatial_affinity_state = SpatialAffinityState(
+            self.K,
+            self.metagene_state,
+            self.datasets,
+            self.spatial_affinity_groups,
+            self.spatial_affinity_tags,
+            self.betas,
+            scaling=spatial_affinity_scaling,
+            mode=self.spatial_affinity_mode,
+            initial_context=self.initial_context,
+            context=self.context
+        )
         
         if all(prior_x_mode == 'exponential shared fixed' for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
@@ -646,10 +674,11 @@ class ParameterOptimizer():
     
             # Compute loss 
             linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1)
+            regularization = torch.zeros(1, **self.context)
             if Sigma_x_inv_bar is not None:
-                regularization = self.lambda_Sigma_bar * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
-            else:
-                regularization = torch.zeros(1, **self.context)
+                group_weighting = 1 / len(Sigma_x_inv_bar)
+                for group_Sigma_x_inv_bar in Sigma_x_inv_bar:
+                    regularization += group_weighting * self.lambda_Sigma_bar * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
 
             regularization += self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
             
@@ -719,21 +748,21 @@ class ParameterOptimizer():
                 replicate_mask =  [dataset.name in group_replicates for dataset in self.datasets]
                 first_dataset_name = group_replicates[0]
                 Sigma_x_inv = self.spatial_affinity_state[first_dataset_name].to(self.context["device"])
-                optimizer = self.spatial_affinity_state.optimizers[first_dataset_name]
+                optimizer = self.spatial_affinity_state.optimizers[group_name]
                 Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer)
                 with torch.no_grad():
                    self.spatial_affinity_state[first_dataset_name][:] = Sigma_x_inv
 
         elif self.spatial_affinity_mode == "differential lookup":
-            for group_name, group_replicates in self.spatial_affinity_groups.items():
-                spatial_affinity_bar = self.spatial_affinity_state.spatial_affinity_bar[group_name].detach()
-                for dataset_name in group_replicates:
-                    replicate_mask =  [dataset.name == dataset_name for dataset in self.datasets]
-                    Sigma_x_inv = self.spatial_affinity_state[dataset_name].to(self.context["device"])
-                    optimizer = self.spatial_affinity_state.optimizers[dataset_name]
-                    Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bar)
-                    with torch.no_grad():
-                        self.spatial_affinity_state[dataset_name][:] = Sigma_x_inv
+            for dataset_index, dataset in enumerate(self.datasets):
+                spatial_affinity_bars = [self.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in self.spatial_affinity_tags[dataset.name]]
+                replicate_mask = [False] * len(self.datasets)
+                replicate_mask[dataset_index] = True
+                Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
+                optimizer = self.spatial_affinity_state.optimizers[dataset.name]
+                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bars)
+                with torch.no_grad():
+                    self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
             
             self.spatial_affinity_state.reaverage()
 
@@ -748,12 +777,12 @@ class ParameterOptimizer():
                     self.metagene_state[dataset_name] = updated_M
 
         elif self.metagene_mode == "differential":
-            for group_name, group_replicates in self.metagene_groups.items():
-                M_bar = self.metagene_state.M_bar[group_name]
-                for dataset_name in group_replicates:
-                    M = self.metagene_state[dataset_name]
-                    replicate_mask =  [dataset.name == dataset_name for dataset in self.datasets]
-                    self.metagene_state[dataset_name]= self.estimate_M(M, replicate_mask, M_bar=M_bar)
+            for dataset_index, dataset in enumerate(self.datasets):
+                M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.name]]
+                M = self.metagene_state[dataset.name]
+                replicate_mask = [False] * len(self.datasets)
+                replicate_mask[dataset_index] = True
+                self.metagene_state[dataset.name]= self.estimate_M(M, replicate_mask, M_bar=M_bars)
 
             self.metagene_state.reaverage()
 
@@ -810,7 +839,10 @@ class ParameterOptimizer():
         differential_regularization_linear_term = torch.zeros(1, **self.context)
         if self.lambda_M > 0 and M_bar is not None:
             differential_regularization_quadratic_factor = self.lambda_M * torch.eye(K, **self.context)
-            differential_regularization_linear_term = self.lambda_M * M_bar
+
+            group_weighting = 1 / len(M_bar)
+            for group_M_bar in M_bar:
+                differential_regularization_linear_term += group_weighting * self.lambda_M * group_M_bar
         #     quadratic_factor.diagonal().add_(self.lambda_M)
         #     linear_term += self.lambda_M * M_bar
 
@@ -995,9 +1027,10 @@ class MetageneState(dict):
         context: Parameters to define the context for PyTorch tensor instantiation.
         metagenes: A PyTorch tensor containing all metagene parameters.
     """
-    def __init__(self, K, datasets, groups, mode="shared", M_constraint="simplex", initial_context=None, context=None):
+    def __init__(self, K, datasets, groups, tags, mode="shared", M_constraint="simplex", initial_context=None, context=None):
         self.datasets = datasets
         self.groups = groups
+        self.tags = tags
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.M_constraint = M_constraint
@@ -1031,9 +1064,10 @@ class MetageneState(dict):
             self.M_bar[group_name][:] = project_M(self.M_bar[group_name], self.M_constraint)
 
 class SpatialAffinityState(dict):
-    def __init__(self, K, metagene_state, datasets, groups, betas, scaling=10, mode="shared lookup", initial_context=None, context=None):
+    def __init__(self, K, metagene_state, datasets, groups, tags, betas, scaling=10, mode="shared lookup", initial_context=None, context=None):
         self.datasets = datasets
         self.groups = groups
+        self.tags = tags
         self.metagene_state = metagene_state
         self.K = K
         self.mode = mode
@@ -1064,7 +1098,7 @@ class SpatialAffinityState(dict):
             for dataset_index, dataset in enumerate(self.datasets):
                 self.__setitem__(dataset.name, metagene_affinities[dataset_index])
 
-    def initialize(self, initial_embeddings, scaling=10):
+    def initialize(self, initial_embeddings):
         use_spatial_info = ["adjacency_list" in dataset.obs for dataset in self.datasets]
 
         if not any(use_spatial_info):
@@ -1109,9 +1143,7 @@ class SpatialAffinityState(dict):
                     lr=1e-3,
                     betas=(.5, .9),
                 )
-                for dataset in self.datasets:
-                    if dataset.name in group_replicates:
-                        self.optimizers[dataset.name] = optimizer
+                self.optimizers[group_name] = optimizer
                 
                 # # This optimizer retains its state throughout the optimization
                 # self.optimizer = 
