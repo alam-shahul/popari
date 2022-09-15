@@ -322,7 +322,7 @@ class SpiceMixPlus:
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
         self.synchronize_datasets()
 
-    def estimate_parameters(self, update_spatial_affinities: bool = True):
+    def estimate_parameters(self, update_spatial_affinities: bool = True, differentiate_spatial_affinities: bool = True, differentiate_metagenes: bool = True):
         """Update parameters for each replicate.
 
         Args:
@@ -334,11 +334,11 @@ class SpiceMixPlus:
         if update_spatial_affinities:
             if self.verbose:
                 print(f"{get_datetime()} Updating spatial affinities")
-            self.parameter_optimizer.update_spatial_affinity()
+            self.parameter_optimizer.update_spatial_affinity(differentiate_spatial_affinities=differentiate_spatial_affinities)
 
         if self.verbose:
             print(f"{get_datetime()} Updating metagenes")
-        self.parameter_optimizer.update_metagenes()
+        self.parameter_optimizer.update_metagenes(differentiate_metagenes=differentiate_metagenes)
         if self.verbose:
             print(f"{get_datetime()} Updating sigma_yx")
         self.parameter_optimizer.update_sigma_yx()

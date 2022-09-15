@@ -21,7 +21,7 @@ def setup_squarish_axes(num_axes):
     height = int(np.sqrt(num_axes))
     width = num_axes // height
     height += (width * height != num_axes)
-    fig, axes = plt.subplots(height, width, constrained_layout=True, dpi=600)
+    fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=True, dpi=600)
 
     return fig, axes
     

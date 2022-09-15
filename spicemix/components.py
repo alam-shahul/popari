@@ -742,7 +742,7 @@ class ParameterOptimizer():
        
         return Sigma_x_inv, loss * weighted_total_cells
 
-    def update_spatial_affinity(self):
+    def update_spatial_affinity(self, differentiate_spatial_affinities=True):
         if self.spatial_affinity_mode == "shared lookup":
             for group_name, group_replicates in self.spatial_affinity_groups.items():
                 replicate_mask =  [dataset.name in group_replicates for dataset in self.datasets]
@@ -755,7 +755,11 @@ class ParameterOptimizer():
 
         elif self.spatial_affinity_mode == "differential lookup":
             for dataset_index, dataset in enumerate(self.datasets):
-                spatial_affinity_bars = [self.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in self.spatial_affinity_tags[dataset.name]]
+                if differentiate_spatial_affinities:
+                    spatial_affinity_bars = [self.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in self.spatial_affinity_tags[dataset.name]]
+                else:
+                    spatial_affinity_bars = None
+
                 replicate_mask = [False] * len(self.datasets)
                 replicate_mask[dataset_index] = True
                 Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
@@ -766,7 +770,7 @@ class ParameterOptimizer():
             
             self.spatial_affinity_state.reaverage()
 
-    def update_metagenes(self):
+    def update_metagenes(self, differentiate_metagenes=True):
         if self.metagene_mode == "shared":
             for group_name, group_replicates in self.metagene_groups.items():
                 first_dataset_name = group_replicates[0]
@@ -778,7 +782,11 @@ class ParameterOptimizer():
 
         elif self.metagene_mode == "differential":
             for dataset_index, dataset in enumerate(self.datasets):
-                M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.name]]
+                if differentiate_metagenes:
+                    M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.name]]
+                else:
+                    M_bars = None
+
                 M = self.metagene_state[dataset.name]
                 replicate_mask = [False] * len(self.datasets)
                 replicate_mask[dataset_index] = True
@@ -839,7 +847,9 @@ class ParameterOptimizer():
         differential_regularization_linear_term = torch.zeros(1, **self.context)
         if self.lambda_M > 0 and M_bar is not None:
             differential_regularization_quadratic_factor = self.lambda_M * torch.eye(K, **self.context)
-
+        
+            
+            differential_regularization_linear_term = torch.zeros_like(M, **self.context)
             group_weighting = 1 / len(M_bar)
             for group_M_bar in M_bar:
                 differential_regularization_linear_term += group_weighting * self.lambda_M * group_M_bar
@@ -873,7 +883,10 @@ class ParameterOptimizer():
             loss += constant
 
             if self.metagene_mode == "differential":
-                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum() + self.lambda_M * (M_bar * M_bar).sum()
+                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum()
+                group_weighting = 1 / len(M_bar)
+                for group_M_bar in M_bar:
+                    differential_regularization_term += group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
             # regularization_term = torch.sum(torch.Tensor([(regularizer[0] * X).sum() for regularizer, X in zip(regularization, Xs)]))
             # loss += regularization_term
             if verbose:
