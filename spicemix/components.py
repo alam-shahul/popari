@@ -13,7 +13,7 @@ from scipy.stats import zscore
 import seaborn as sns
 
 from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
-from spicemix.util import NesterovGD, IndependentSet, project2simplex, project_M, get_datetime
+from spicemix.util import NesterovGD, IndependentSet, project2simplex, project2simplex_, project_M, project_M_, get_datetime
 
 import torch
 import torch.nn.functional as F
@@ -106,8 +106,9 @@ class EmbeddingOptimizer():
 
     """
 
-    def __init__(self, K, Ys, datasets, initial_context=None, context=None, verbose=0):
+    def __init__(self, K, Ys, datasets, initial_context=None, context=None, use_inplace_ops=False, verbose=0):
         self.verbose = verbose
+        self.use_inplace_ops = use_inplace_ops
         self.datasets = datasets
         self.K = K
         self.Ys = Ys
@@ -242,12 +243,11 @@ class EmbeddingOptimizer():
     
             dX = torch.abs((X_prev - X) / torch.linalg.norm(X, dim=1, ord=1, keepdim=True)).max().item()
             do_stop = dX < tol
-            if epoch % 1000 == 0 or do_stop:
-                progress_bar.set_description(
-                    f'Updating weight w/o nbrs: loss = {loss:.1e} '
-                    f'%δloss = {(loss_prev - loss) / loss:.1e} '
-                    f'%δX = {dX:.1e}'
-                )
+            progress_bar.set_description(
+                f'Updating weight w/o nbrs: loss = {loss:.1e} '
+                f'%δloss = {(loss_prev - loss) / loss:.1e} '
+                f'%δX = {dX:.1e}'
+            )
             loss_prev = loss
             if do_stop:
                 break
@@ -345,9 +345,10 @@ class EmbeddingOptimizer():
                 func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
                 while True:
                     Z_batch_new = Z_batch - step_size_batch * step_size_scale * grad
-                    result = project2simplex(Z_batch_new, dim=1)
-                    Z_batch_new = 0
-                    Z_batch_new = result
+                    if self.use_inplace_ops:
+                        Z_batch_new = project2simplex_(Z_batch_new, dim=1)
+                    else:
+                        Z_batch_new = project2simplex(Z_batch_new, dim=1)
                     dZ = Z_batch_new.sub(Z_batch).abs().max().item()
                     func_new, grad_new = calc_func_grad(Z_batch_new, S_batch, quad_batch, linear_batch)
                     if func_new < func:
@@ -393,7 +394,7 @@ class EmbeddingOptimizer():
                     # grad.clamp_(min=-grad_limit, max=grad_limit)
                     # max_after = torch.max(torch.abs(grad))
                     Z_batch_prev = Z_batch.clone()
-                    Z_batch_copy = optimizer.step(grad)
+                    Z_batch = optimizer.step(grad)
                     # if max(torch.linalg.norm(Z_batch_copy, ord=1, axis=1)) > 1000:
                     #     print(f"L1 norm of Z_batch_copy: {torch.linalg.norm(Z_batch_copy, ord=1, axis=1)}")
                     #     print(f"Max L1 norm of Z_batch_copy: {max(torch.linalg.norm(Z_batch_copy, ord=1, axis=1))}")
@@ -403,8 +404,14 @@ class EmbeddingOptimizer():
                     #     print(f"Grad max before: {max_before}")
                     #     print(f"grad limit:{grad_limit}")
                     #     print(f"Grad max after: {max_after}")
-                    Z_batch = project2simplex(Z_batch_copy, dim=1)
+                   
+                    if self.use_inplace_ops:
+                        Z_batch = project2simplex_(Z_batch, dim=1)
+                    else:
+                        Z_batch = project2simplex(Z_batch, dim=1)
+
                     optimizer.set_parameters(Z_batch)
+
                     dZ = (Z_batch_prev - Z_batch).abs().max().item()
                     Z[idx] = Z_batch
                     ppbar.set_description(f'func={func:.1e}, dZ={dZ:.1e}')
@@ -530,9 +537,11 @@ class ParameterOptimizer():
             sigma_yx_inv_mode="separate",
             initial_context=None,
             context=None,
+            use_inplace_ops=False,
             verbose=0
     ):
         self.verbose = verbose
+        self.use_inplace_ops = use_inplace_ops
 
         self.datasets = datasets
         self.spatial_affinity_mode = spatial_affinity_mode
@@ -925,7 +934,10 @@ class ParameterOptimizer():
                 loss, grad = compute_loss_and_gradient(M)
                 M = optimizer.step(grad)
                 if not disable_simplex_projection:
-                    M = project_M(M, self.M_constraint)
+                    if self.use_inplace_ops:
+                        M = project_M_(M, self.M_constraint)
+                    else:
+                        M = project_M(M, self.M_constraint)
                 optimizer.set_parameters(M)
     
                 dloss = loss_prev - loss
@@ -960,7 +972,10 @@ class ParameterOptimizer():
                 # multiplicative_factor.clip_(max=10)
                 M *= multiplicative_factor
                 if not disable_simplex_projection:
-                    M = project_M(M, self.M_constraint)
+                    if self.use_inplace_ops:
+                        M = project_M_(M, self.M_constraint)
+                    else:
+                        M = project_M(M, self.M_constraint)
                 dM = M_prev.sub(M).abs_().max().item()
     
                 stop_criterion = dM < tol and epoch > 5
@@ -981,7 +996,10 @@ class ParameterOptimizer():
             for epoch in progress_bar:
                 M_new = M.sub(grad, alpha=step_size * step_size_scale)
                 if not disable_simplex_projection:
-                    M_new = project_M(M_new, self.M_constraint)
+                    if self.use_inplace_ops:
+                        M = project_M_(M_new, self.M_constraint)
+                    else:
+                        M = project_M(M_new, self.M_constraint)
                 loss_new, grad_new = compute_loss_and_gradient(M_new)
                 if loss_new < loss or step_size_scale == 1:
                     dM = (M_new - M).abs().max().item()

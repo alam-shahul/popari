@@ -366,6 +366,18 @@ def project_M(M, M_constraint):
         raise NotImplementedError
     return result
 
+def project_M_(M, M_constraint):
+    result = M.clone()
+    if M_constraint == 'simplex':
+        result = project2simplex_(result, dim=0, zero_threshold=1e-5)
+    elif M_constraint == 'unit sphere':
+        result = M.div(torch.linalg.norm(result, ord=2, dim=0, keepdim=True))
+    elif M_constraint == 'nonneg unit sphere':
+        result = M.clip(1e-10).div(torch.linalg.norm(result, ord=2, dim=0, keepdim=True))
+    else:
+        raise NotImplementedError
+    return result
+
 def project2simplex(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Tensor:
     """Projects a matrix such that the columns (or rows) lie on the unit simplex.
 
@@ -398,7 +410,6 @@ def project2simplex(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Ten
         newton_update = objective_value / derivative
         mu -= newton_update
 
-        assert not torch.isnan(mu).any()
         previous_derivative = derivative
     assert (derivative == previous_derivative).all()
     
@@ -408,8 +419,46 @@ def project2simplex(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Ten
     assert not torch.isnan(y).any(), (mu, derivative)
 
     assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-3, y.sum(dim=dim).sub_(1).abs_().max()
-    
+   
     return y
+
+def project2simplex_(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Tensor:
+    """(In-place) Projects a matrix such that the columns (or rows) lie on the unit simplex.
+
+    See https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex
+    for a reference.
+
+    The goal is to find a scalar mu such that || (y-mu)_+ ||_1 = 1
+
+    Currently uses Newton's method to optimize || y - mu ||^2
+
+    TODO: try implementing it this way instead: https://arxiv.org/pdf/1101.6081.pdf
+
+    Args:
+        y: list of vectors to be projected to unit simplex
+        dim: dimension along which to project
+        zero_threshold: threshold to treat as zero for numerical stability purposes
+    """
+    y_copy = y.clone()
+    num_components = y.shape[dim]
+
+    y_copy.sub_(y_copy.sum(dim=dim, keepdim=True).sub_(1), alpha=1/num_components)
+    mu = y_copy.max(dim=dim, keepdim=True)[0].div_(2)
+    derivative_prev, derivative = None, None
+    for _ in range(num_components):
+        difference = y_copy.sub(mu)
+        objective_value = difference.clip_(min=zero_threshold).sum(dim, keepdim=True).sub_(1)
+        derivative = difference.gt_(zero_threshold).sum(dim, keepdim=True)
+
+        if derivative_prev is not None and (derivative == derivative_prev).all():
+            break
+
+        mu.addcdiv_(objective_value, derivative)
+        derivative_prev = derivative
+
+    y_copy.sub_(mu).clip_(min=zero_threshold)
+    assert y_copy.sum(dim=dim).sub_(1).abs_().max() < 1e-4, y_copy.sum(dim=dim).sub_(1).abs_().max()
+    return y_copy
 
 class IndependentSet:
     """Iterator class that yields a list of batch_size independent nodes from a spatial graph.

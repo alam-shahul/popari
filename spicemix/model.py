@@ -49,6 +49,7 @@ class SpiceMixPlus:
             ``metagene_mode`` is ``shared``. Default: ``0``
         lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
             ``spatial_affinity_mode`` is ``shared lookup``. Default: ``0``
+        use_inplace_ops: if set, inplace PyTorch operations will be used to speed up computation
         random_state: seed for reproducibility of randomized computations. Default: ``0``
     """
     
@@ -72,10 +73,12 @@ class SpiceMixPlus:
         spatial_affinity_mode: str ="shared lookup",
         lambda_M: float = 0.5,
         lambda_Sigma_bar: float = 0.5,
+        use_inplace_ops: bool = False,
         random_state: int = 0,
         verbose: int = 0
     ):
 
+        self.use_inplace_ops = use_inplace_ops
         self.verbose = verbose
 
         if not any([datasets, dataset_path]):
@@ -203,12 +206,13 @@ class SpiceMixPlus:
                 M_constraint=self.M_constraint,
                 initial_context=self.initial_context,
                 context=self.context,
+                use_inplace_ops=self.use_inplace_ops,
                 verbose=self.verbose
             )
         
         if self.verbose:
             print(f"{get_datetime()} Initializing EmbeddingOptimizer")
-        self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets, initial_context=self.initial_context, context=self.context, verbose=self.verbose)
+        self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets, initial_context=self.initial_context, context=self.context, use_inplace_ops=self.use_inplace_ops, verbose=self.verbose)
         
         self.parameter_optimizer.link(self.embedding_optimizer)
         self.embedding_optimizer.link(self.parameter_optimizer)
