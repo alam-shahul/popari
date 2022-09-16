@@ -146,7 +146,7 @@ class EmbeddingOptimizer():
             loss_list.append(loss)
 
     @torch.no_grad()
-    def estimate_weight_wonbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, n_epochs=1000, tol=1e-6, update_alg='gd', verbose=True):
+    def estimate_weight_wonbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, n_epochs=1000, tol=1e-6, update_alg='gd'):
         """Estimate weights without spatial information - equivalent to vanilla NMF.
    
         Optimizes the follwing objective with respect to hidden state X:
@@ -211,7 +211,7 @@ class EmbeddingOptimizer():
             
             return X, loss
             
-        progress_bar = trange(n_epochs, leave=True, disable=not verbose, miniters=1000)
+        progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, miniters=1000)
         for epoch in progress_bar:
             X_prev = X.clone()
             if update_alg == 'mu':
@@ -367,7 +367,7 @@ class EmbeddingOptimizer():
     
             return Z
     
-        def update_z_gd_nesterov(Z, verbose=False):
+        def update_z_gd_nesterov(Z):
             pbar = trange(N, leave=False, disable=True, desc='Updating Z w/ nbrs via Nesterov GD')
            
             func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
@@ -415,12 +415,12 @@ class EmbeddingOptimizer():
                 Z[idx] = Z_batch
                 func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
                 func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv /2 )
-                if verbose:
+                if self.verbose > 1:
                     print(f"Z loss: {func}")
                 pbar.update(len(idx))
             pbar.close()
             func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
-            if verbose:
+            if self.verbose > 1:
                 print(f"Z final loss: {func}")
     
             return Z
@@ -445,7 +445,7 @@ class EmbeddingOptimizer():
         # TM: the above idea is not practical if we update only a subset of nodes each time
     
         loss = np.inf
-        pbar = trange(n_epochs, desc='Updating weight w/ neighbors')
+        pbar = trange(n_epochs, disable=not self.verbose, desc='Updating weight w/ neighbors')
     
         for epoch in pbar:
             update_s()
@@ -665,7 +665,7 @@ class ParameterOptimizer():
         Sigma_x_inv.requires_grad_(True)
    
         loss_prev, loss = np.inf, np.nan
-        progress_bar = trange(n_epochs, desc='Updating Σx-1')
+        progress_bar = trange(n_epochs, disable=not self.verbose, desc='Updating Σx-1')
         Sigma_x_inv_best, loss_best, epoch_best = None, np.inf, -1
         dSigma_x_inv = np.inf
         early_stop_epoch_count = 0
@@ -770,13 +770,13 @@ class ParameterOptimizer():
             
             self.spatial_affinity_state.reaverage()
 
-    def update_metagenes(self, differentiate_metagenes=True):
+    def update_metagenes(self, differentiate_metagenes=True, disable_simplex_projection=False):
         if self.metagene_mode == "shared":
             for group_name, group_replicates in self.metagene_groups.items():
                 first_dataset_name = group_replicates[0]
                 replicate_mask =  [dataset.name in group_replicates for dataset in self.datasets]
                 M = self.metagene_state[first_dataset_name]
-                updated_M = self.estimate_M(M, replicate_mask)
+                updated_M = self.estimate_M(M, replicate_mask, disable_simplex_projection=disable_simplex_projection)
                 for dataset_name in group_replicates:
                     self.metagene_state[dataset_name] = updated_M
 
@@ -790,12 +790,12 @@ class ParameterOptimizer():
                 M = self.metagene_state[dataset.name]
                 replicate_mask = [False] * len(self.datasets)
                 replicate_mask[dataset_index] = True
-                self.metagene_state[dataset.name]= self.estimate_M(M, replicate_mask, M_bar=M_bars)
+                self.metagene_state[dataset.name]= self.estimate_M(M, replicate_mask, M_bar=M_bars, disable_simplex_projection=disable_simplex_projection)
 
             self.metagene_state.reaverage()
 
     def estimate_M(self, M, replicate_mask,
-            M_bar=None, n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', verbose=False):
+            M_bar=None, n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', disable_simplex_projection=False):
         """Optimize metagene parameters.
     
         M is shared across all replicates.
@@ -856,7 +856,7 @@ class ParameterOptimizer():
         #     quadratic_factor.diagonal().add_(self.lambda_M)
         #     linear_term += self.lambda_M * M_bar
 
-        if verbose:
+        if self.verbose > 1:
             print(f"DTYPE: {quadratic_factor.dtype}")
             print(f"Max eigenvalue before : {torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
             print(f"Eigenvalue before : {(torch.linalg.eigvals(quadratic_factor).abs())}")
@@ -868,12 +868,12 @@ class ParameterOptimizer():
             print(f"Regularization linear term: {torch.linalg.norm(differential_regularization_linear_term)}")
             print(f"Linear regularization term ratio: {torch.linalg.norm(differential_regularization_linear_term) / torch.linalg.norm(linear_term)}")
         loss_prev, loss = np.inf, np.nan
-        progress_bar = trange(n_epochs, leave=True, disable=not verbose, desc='Updating M', miniters=1000)
+        progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, desc='Updating M', miniters=1000)
     
-        def compute_loss_and_gradient(M, verbose=False):
+        def compute_loss_and_gradient(M):
             quadratic_factor_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
             loss = (quadratic_factor_grad * M).sum()
-            if verbose:
+            if self.verbose > 2:
                 print(f"M quadratic term: {loss}")
             grad = quadratic_factor_grad
             linear_term_grad = linear_term + differential_regularization_linear_term
@@ -889,7 +889,7 @@ class ParameterOptimizer():
                     differential_regularization_term += group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
             # regularization_term = torch.sum(torch.Tensor([(regularizer[0] * X).sum() for regularizer, X in zip(regularization, Xs)]))
             # loss += regularization_term
-            if verbose:
+            if self.verbose > 2:
                 # print(f"M regularization term: {regularization_term}")
                 if self.metagene_mode == "differential":
                     print(f"M differential regularization term: {differential_regularization_term}")
@@ -903,14 +903,14 @@ class ParameterOptimizer():
     
             return loss.item(), grad
         
-        def estimate_M_nag(M, verbose=False):
+        def estimate_M_nag(M):
             """Estimate M using Nesterov accelerated gradient descent.
     
             Args:
                 M (torch.Tensor) : current estimate of meteagene parameters
             """
-            loss, grad = compute_loss_and_gradient(M, verbose=verbose)
-            if verbose:
+            loss, grad = compute_loss_and_gradient(M)
+            if self.verbose > 1:
                 print(f"M NAG Initial Loss: {loss}")
     
             step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
@@ -924,14 +924,15 @@ class ParameterOptimizer():
                 # Update M
                 loss, grad = compute_loss_and_gradient(M)
                 M = optimizer.step(grad)
-                M = project_M(M, self.M_constraint)
+                if not disable_simplex_projection:
+                    M = project_M(M, self.M_constraint)
                 optimizer.set_parameters(M)
     
                 dloss = loss_prev - loss
                 dM = (M_prev - M).abs().max().item()
                 stop_criterion = dM < tol and epoch > 5
                 assert not np.isnan(loss)
-                if epoch % 1000 == 0 or stop_criterion:
+                if epoch % 5 == 0 or stop_criterion:
                     progress_bar.set_description(
                         f'Updating M: loss = {loss:.1e}, '
                         f'%δloss = {dloss / loss:.1e}, '
@@ -941,8 +942,8 @@ class ParameterOptimizer():
                 if stop_criterion:
                     break
             
-            loss, grad = compute_loss_and_gradient(M, verbose=verbose)
-            if verbose:
+            loss, grad = compute_loss_and_gradient(M)
+            if self.verbose > 1:
                 print(f"M NAG Final Loss: {loss}")
     
             return M
@@ -958,7 +959,8 @@ class ParameterOptimizer():
                 M_prev = M.clone()
                 # multiplicative_factor.clip_(max=10)
                 M *= multiplicative_factor
-                M = project_M(M, self.M_constraint)
+                if not disable_simplex_projection:
+                    M = project_M(M, self.M_constraint)
                 dM = M_prev.sub(M).abs_().max().item()
     
                 stop_criterion = dM < tol and epoch > 5
@@ -978,7 +980,8 @@ class ParameterOptimizer():
             dM = dloss = np.inf
             for epoch in progress_bar:
                 M_new = M.sub(grad, alpha=step_size * step_size_scale)
-                M_new = project_M(M_new, self.M_constraint)
+                if not disable_simplex_projection:
+                    M_new = project_M(M_new, self.M_constraint)
                 loss_new, grad_new = compute_loss_and_gradient(M_new)
                 if loss_new < loss or step_size_scale == 1:
                     dM = (M_new - M).abs().max().item()
@@ -1003,7 +1006,7 @@ class ParameterOptimizer():
                     break
     
         elif backend_algorithm == 'gd Nesterov':
-            M = estimate_M_nag(M, verbose=verbose)
+            M = estimate_M_nag(M)
         else:
             raise NotImplementedError
        
