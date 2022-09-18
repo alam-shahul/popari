@@ -27,7 +27,7 @@ def spicemix_with_neighbors():
     )   
 
     for iteration in range(1, 5):
-        obj.estimate_parameters()
+        obj.estimate_parameters(edge_subsample_rate=0.1)
         obj.estimate_weights()
     
     # obj.save_results(path2dataset / 'trained_4_iterations.h5ad')
@@ -35,28 +35,28 @@ def spicemix_with_neighbors():
 
 def test_Sigma_x_inv(spicemix_with_neighbors):
     Sigma_x_inv = list(spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].cpu().detach().numpy()
-    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_shared_inplace.npy", Sigma_x_inv)
-    test_Sigma_x_inv = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_shared_inplace.npy")
+    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_shared_optimized.npy", Sigma_x_inv)
+    test_Sigma_x_inv = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_shared_optimized.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
 
 def test_M(spicemix_with_neighbors):
     M_bar = spicemix_with_neighbors.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
-    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_shared_inplace.npy", M_bar)
-    test_M = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_shared_inplace.npy")
+    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_shared_optimized.npy", M_bar)
+    test_M = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_shared_optimized.npy")
     assert np.allclose(test_M, M_bar)
 
 def test_X_0(spicemix_with_neighbors):
     X_0 = spicemix_with_neighbors.embedding_optimizer.embedding_state["0"].detach().cpu().numpy()
-    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_shared_inplace.npy", X_0)
-    test_X_0 = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_shared_inplace.npy")
+    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_shared_optimized.npy", X_0)
+    test_X_0 = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_shared_optimized.npy")
     assert np.allclose(test_X_0, X_0)
 
 def test_louvain_clustering(spicemix_with_neighbors):
     df_meta = []
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
-    expected_aris = [0.8301386502167558, 0.8722812909322087]
-    expected_silhouettes = [0.2878062129020691, 0.31513386964797974]
+    expected_aris = [0.8665789020114354, 0.8741090345818264]
+    expected_silhouettes = [0.2896296977996826, 0.3178369998931885]
     
     for index, (r, X) in enumerate(spicemix_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')

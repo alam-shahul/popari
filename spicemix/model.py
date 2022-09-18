@@ -326,7 +326,7 @@ class SpiceMixPlus:
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
         self.synchronize_datasets()
 
-    def estimate_parameters(self, update_spatial_affinities: bool = True, differentiate_spatial_affinities: bool = True, differentiate_metagenes: bool = True, disable_simplex_projection: bool = False):
+    def estimate_parameters(self, update_spatial_affinities: bool = True, differentiate_spatial_affinities: bool = True, differentiate_metagenes: bool = True, simplex_projection_mode: bool = "exact", edge_subsample_rate: Optional[float] = None):
         """Update parameters for each replicate.
 
         Args:
@@ -338,11 +338,11 @@ class SpiceMixPlus:
         if update_spatial_affinities:
             if self.verbose:
                 print(f"{get_datetime()} Updating spatial affinities")
-            self.parameter_optimizer.update_spatial_affinity(differentiate_spatial_affinities=differentiate_spatial_affinities)
+            self.parameter_optimizer.update_spatial_affinity(differentiate_spatial_affinities=differentiate_spatial_affinities, subsample_rate=edge_subsample_rate)
 
         if self.verbose:
             print(f"{get_datetime()} Updating metagenes")
-        self.parameter_optimizer.update_metagenes(differentiate_metagenes=differentiate_metagenes, disable_simplex_projection=disable_simplex_projection)
+        self.parameter_optimizer.update_metagenes(differentiate_metagenes=differentiate_metagenes, simplex_projection_mode=simplex_projection_mode)
         if self.verbose:
             print(f"{get_datetime()} Updating sigma_yx")
         self.parameter_optimizer.update_sigma_yx()

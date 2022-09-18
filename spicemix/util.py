@@ -472,11 +472,12 @@ class IndependentSet:
         batch_size: number of nodes to draw independently every iteration
     """
 
-    def __init__(self, adjacency_list, batch_size=50):
+    def __init__(self, adjacency_list, device, batch_size=50):
         self.N = len(adjacency_list)
         self.adjacency_list = adjacency_list
         self.batch_size = batch_size
         self.indices_remaining = None
+        self.device = device
 
     def __iter__(self):
         """Return iterator over nodes in graph.
@@ -495,18 +496,22 @@ class IndependentSet:
         if len(self.indices_remaining) == 0:
             raise StopIteration
 
-        valid_indices = []
-        excluded_indices = set()
-        effective_batch_size = min(self.batch_size, len(self.indices_remaining))
-        candidate_indices = np.random.choice(list(self.indices_remaining),
-            size=effective_batch_size,
-            replace=False,
-        )
-        for index in candidate_indices:
-            if index not in excluded_indices:
-                valid_indices.append(index)
-                excluded_indices |= set(self.adjacency_list[index])
-
+        valid_indices = sample_graph_iid(self.adjacency_list, self.indices_remaining, self.batch_size)
         self.indices_remaining -= set(valid_indices)
 
-        return valid_indices
+        return torch.tensor(valid_indices, device=self.device, dtype=torch.long)
+
+def sample_graph_iid(adjacency_list, indices_remaining, sample_size):
+    valid_indices = []
+    excluded_indices = set()
+    effective_batch_size = min(sample_size, len(indices_remaining))
+    candidate_indices = np.random.choice(list(indices_remaining),
+        size=effective_batch_size,
+        replace=False,
+    )
+    for index in candidate_indices:
+        if index not in excluded_indices:
+            valid_indices.append(index)
+            excluded_indices |= set(adjacency_list[index])
+
+    return valid_indices

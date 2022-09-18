@@ -39,7 +39,7 @@ def test_Sigma_x_inv(spicemix_with_neighbors):
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
     
 def test_M(spicemix_with_neighbors):
-    first_group_name = list(spicemix_with_neighbors.groups.keys())[0]
+    first_group_name = list(spicemix_with_neighbors.metagene_groups.keys())[0]
     M_bar = spicemix_with_neighbors.parameter_optimizer.metagene_state.M_bar[first_group_name].detach().cpu().numpy()
     # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy", M_bar)
     test_M = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy")
@@ -56,7 +56,7 @@ def test_louvain_clustering(spicemix_with_neighbors):
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
     expected_aris = [0.7453796245473255, 0.6823626228214905]
-    expected_silhouettes = [0.2559359512252682, 0.2516828074072696]
+    expected_silhouettes = [0.2559295209608336, 0.2516836609404466]
     
     for index, (r, X) in enumerate(spicemix_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')

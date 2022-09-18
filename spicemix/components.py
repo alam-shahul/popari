@@ -13,7 +13,7 @@ from scipy.stats import zscore
 import seaborn as sns
 
 from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
-from spicemix.util import NesterovGD, IndependentSet, project2simplex, project2simplex_, project_M, project_M_, get_datetime
+from spicemix.util import NesterovGD, IndependentSet, sample_graph_iid, project2simplex, project2simplex_, project_M, project_M_, get_datetime
 
 import torch
 import torch.nn.functional as F
@@ -114,6 +114,8 @@ class EmbeddingOptimizer():
         self.Ys = Ys
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
+        self.adjacency_lists = {dataset.name: dataset.obs["adjacency_list"] for dataset in self.datasets}
+        self.adjacency_matrices = {dataset.name: dataset.obsp["adjacency_matrix"] for dataset in self.datasets}
        
         if self.verbose:
             print(f"{get_datetime()} Initializing EmbeddingState") 
@@ -281,14 +283,9 @@ class EmbeddingOptimizer():
         Z = X / S
         N = len(Z)
         
-        E_adjacency_list = dataset.obs["adjacency_list"]
-        adjacency_matrix = dataset.obsp["adjacency_matrix"].to(self.context["device"])
+        E_adjacency_list = self.adjacency_lists[dataset.name]
+        adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
-    
-        def get_adjacency_matrix(adjacency_list):
-            edges = [(i, j) for i, e in enumerate(adjacency_list) for j in e]
-            adjacency_matrix = torch.sparse_coo_tensor(np.array(edges).T, np.ones(len(edges)), size=[len(adjacency_list), N], **self.context)
-            return adjacency_matrix
     
         def update_s():
             S[:] = (YM * Z).sum(axis=1, keepdim=True)
@@ -335,10 +332,10 @@ class EmbeddingOptimizer():
         def update_z_gd(Z):
             step_size = base_step_size / S.square()
             pbar = tqdm(range(N), leave=False, disable=True)
-            for idx in IndependentSet(E_adjacency_list, batch_size=128):
+            for idx in IndependentSet(E_adjacency_list, device=self.context["device"], batch_size=128):
                 step_size_scale = 1
                 quad_batch = MTM
-                linear_batch = YM[idx] * S[idx] - get_adjacency_matrix(E_adjacency_list[idx]) @ Z @ Sigma_x_inv
+                linear_batch = YM[idx] * S[idx] - torch.index_select(adjacency_matrix, 0, idx) @ Z @ Sigma_x_inv
                 Z_batch = Z[idx].contiguous()
                 S_batch = S[idx].contiguous()
                 step_size_batch = step_size[idx].contiguous()
@@ -371,10 +368,10 @@ class EmbeddingOptimizer():
         def update_z_gd_nesterov(Z):
             pbar = trange(N, leave=False, disable=True, desc='Updating Z w/ nbrs via Nesterov GD')
            
-            func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
-            for idx in IndependentSet(E_adjacency_list, batch_size=256):
+            func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
+            for idx in IndependentSet(E_adjacency_list, device=self.context["device"], batch_size=256):
                 quad_batch = MTM
-                linear_batch_spatial = - get_adjacency_matrix(E_adjacency_list[idx]) @ Z @ Sigma_x_inv
+                linear_batch_spatial = - torch.index_select(adjacency_matrix, 0, idx) @ Z @ Sigma_x_inv
                 Z_batch = Z[idx].contiguous()
                 S_batch = S[idx].contiguous()
                     
@@ -386,7 +383,7 @@ class EmbeddingOptimizer():
                     linear_batch = linear_batch_spatial + YM[idx] * S_batch
                     if i_iter == 0:
                         func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-                        func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
+                        func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
                     NesterovGD.step_size = base_step_size / S_batch.square() # TM: I think this converges as s converges
                     func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
                     # grad_limit = torch.quantile(torch.abs(grad), 0.9)
@@ -421,12 +418,12 @@ class EmbeddingOptimizer():
                 
                 Z[idx] = Z_batch
                 func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-                func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv /2 )
+                func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv /2 )
                 if self.verbose > 1:
                     print(f"Z loss: {func}")
                 pbar.update(len(idx))
             pbar.close()
-            func, grad = calc_func_grad(Z, S, MTM, YM * S - get_adjacency_matrix(E_adjacency_list) @ Z @ Sigma_x_inv / 2)
+            func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
             if self.verbose > 1:
                 print(f"Z final loss: {func}")
     
@@ -562,6 +559,8 @@ class ParameterOptimizer():
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
+        self.adjacency_lists = {dataset.name: dataset.obs["adjacency_list"] for dataset in self.datasets}
+        self.adjacency_matrices = {dataset.name: dataset.obsp["adjacency_matrix"] for dataset in self.datasets}
        
         if self.verbose:
             print(f"{get_datetime()} Initializing MetageneState") 
@@ -629,7 +628,7 @@ class ParameterOptimizer():
                     group_scale_factor = scale_factor[group_index]
                     replicate_embedding.mul_(group_scale_factor)
 
-    def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=None, constraint="clamp", n_epochs=1000):
+    def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=None, subsample_rate=None, constraint="clamp", n_epochs=1000):
         """Optimize Sigma_x_inv parameters.
     
        
@@ -656,8 +655,18 @@ class ParameterOptimizer():
         nus = [] # sum of neighbors' z
         weighted_total_cells = 0
         for Z, dataset, use_spatial, beta in zip(Zs, datasets, spatial_flags, self.betas):
-            adjacency_matrix = dataset.obsp["adjacency_matrix"].to(self.context["device"])
-            adjacency_list = dataset.obs["adjacency_list"]
+            adjacency_list = self.adjacency_lists[dataset.name]
+
+            if subsample_rate is None:
+                subsample_index = np.arange(len(dataset))
+            else:
+                node_limit = int(subsample_rate * len(dataset))
+                subsample_index = np.sort(sample_graph_iid(adjacency_list, range(len(dataset)), node_limit))
+
+            adjacency_matrix = torch.index_select(self.adjacency_matrices[dataset.name], 0, torch.tensor(subsample_index, device=self.context["device"]))
+            adjacency_matrix = torch.index_select(adjacency_matrix, 1, torch.tensor(subsample_index, device=self.context["device"])).to(self.context["device"])
+            adjacency_list = adjacency_list[subsample_index]
+            Z = Z[subsample_index]
 
             if use_spatial:
                 nu = adjacency_matrix @ Z
@@ -692,7 +701,7 @@ class ParameterOptimizer():
             regularization += self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
             
             log_partition_function = 0
-            for Z, nu, beta in zip(Zs, nus, self.betas):
+            for nu, beta in zip(nus, self.betas):
                 if nu is None:
                     continue
                 assert torch.isfinite(nu).all()
@@ -751,14 +760,14 @@ class ParameterOptimizer():
        
         return Sigma_x_inv, loss * weighted_total_cells
 
-    def update_spatial_affinity(self, differentiate_spatial_affinities=True):
+    def update_spatial_affinity(self, differentiate_spatial_affinities=True, subsample_rate=None):
         if self.spatial_affinity_mode == "shared lookup":
             for group_name, group_replicates in self.spatial_affinity_groups.items():
                 replicate_mask =  [dataset.name in group_replicates for dataset in self.datasets]
                 first_dataset_name = group_replicates[0]
                 Sigma_x_inv = self.spatial_affinity_state[first_dataset_name].to(self.context["device"])
                 optimizer = self.spatial_affinity_state.optimizers[group_name]
-                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer)
+                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, subsample_rate=subsample_rate)
                 with torch.no_grad():
                    self.spatial_affinity_state[first_dataset_name][:] = Sigma_x_inv
 
@@ -773,19 +782,19 @@ class ParameterOptimizer():
                 replicate_mask[dataset_index] = True
                 Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
                 optimizer = self.spatial_affinity_state.optimizers[dataset.name]
-                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bars)
+                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bars, subsample_rate=subsample_rate)
                 with torch.no_grad():
                     self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
             
             self.spatial_affinity_state.reaverage()
 
-    def update_metagenes(self, differentiate_metagenes=True, disable_simplex_projection=False):
+    def update_metagenes(self, differentiate_metagenes=True, simplex_projection_mode="exact"):
         if self.metagene_mode == "shared":
             for group_name, group_replicates in self.metagene_groups.items():
                 first_dataset_name = group_replicates[0]
                 replicate_mask =  [dataset.name in group_replicates for dataset in self.datasets]
                 M = self.metagene_state[first_dataset_name]
-                updated_M = self.estimate_M(M, replicate_mask, disable_simplex_projection=disable_simplex_projection)
+                updated_M = self.estimate_M(M, replicate_mask, simplex_projection_mode=simplex_projection_mode)
                 for dataset_name in group_replicates:
                     self.metagene_state[dataset_name] = updated_M
 
@@ -799,12 +808,12 @@ class ParameterOptimizer():
                 M = self.metagene_state[dataset.name]
                 replicate_mask = [False] * len(self.datasets)
                 replicate_mask[dataset_index] = True
-                self.metagene_state[dataset.name]= self.estimate_M(M, replicate_mask, M_bar=M_bars, disable_simplex_projection=disable_simplex_projection)
+                self.metagene_state[dataset.name]= self.estimate_M(M, replicate_mask, M_bar=M_bars, simplex_projection_mode=simplex_projection_mode)
 
             self.metagene_state.reaverage()
 
     def estimate_M(self, M, replicate_mask,
-            M_bar=None, n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', disable_simplex_projection=False):
+            M_bar=None, n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', simplex_projection_mode=False):
         """Optimize metagene parameters.
     
         M is shared across all replicates.
@@ -933,11 +942,14 @@ class ParameterOptimizer():
                 # Update M
                 loss, grad = compute_loss_and_gradient(M)
                 M = optimizer.step(grad)
-                if not disable_simplex_projection:
+                if simplex_projection_mode == "exact":
                     if self.use_inplace_ops:
                         M = project_M_(M, self.M_constraint)
                     else:
                         M = project_M(M, self.M_constraint)
+                elif simplex_projection_mode == "approximate":
+                    pass
+
                 optimizer.set_parameters(M)
     
                 dloss = loss_prev - loss
@@ -971,11 +983,13 @@ class ParameterOptimizer():
                 M_prev = M.clone()
                 # multiplicative_factor.clip_(max=10)
                 M *= multiplicative_factor
-                if not disable_simplex_projection:
+                if simplex_projection_mode == "exact":
                     if self.use_inplace_ops:
                         M = project_M_(M, self.M_constraint)
                     else:
                         M = project_M(M, self.M_constraint)
+                elif simplex_projection_mode == "approximate":
+                    pass
                 dM = M_prev.sub(M).abs_().max().item()
     
                 stop_criterion = dM < tol and epoch > 5
@@ -995,11 +1009,13 @@ class ParameterOptimizer():
             dM = dloss = np.inf
             for epoch in progress_bar:
                 M_new = M.sub(grad, alpha=step_size * step_size_scale)
-                if not disable_simplex_projection:
+                if simplex_projection_mode == "exact":
                     if self.use_inplace_ops:
                         M = project_M_(M_new, self.M_constraint)
                     else:
                         M = project_M(M_new, self.M_constraint)
+                elif simplex_projection_mode == "approximate":
+                    pass
                 loss_new, grad_new = compute_loss_and_gradient(M_new)
                 if loss_new < loss or step_size_scale == 1:
                     dM = (M_new - M).abs().max().item()

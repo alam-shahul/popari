@@ -29,7 +29,7 @@ def spicemix_with_neighbors():
         obj.estimate_parameters()
         obj.estimate_weights()
     
-    obj.save_results(path2dataset / 'trained_4_iterations.h5ad')
+    # obj.save_results(path2dataset / 'trained_4_iterations.h5ad')
     return obj
 
 def test_Sigma_x_inv(spicemix_with_neighbors):

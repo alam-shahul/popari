@@ -98,8 +98,10 @@ def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes = None, **spa
     edges = True if "edges" not in spatial_kwargs else spatial_kwargs.pop("edges")
     palette = sc.pl.palettes.godsnot_102 if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
     legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
+
+    neighbors_key = "spatial_neighbors" if "spatial_neighbors" not in spatial_kwargs else spatial_kwargs.pop("neighbors_key")
     for dataset, ax in zip(datasets, axes.flat):
-        sc.pl.spatial(dataset, spot_size=spot_size, neighbors_key="spatial_neighbors",
+        sc.pl.spatial(dataset, spot_size=spot_size, neighbors_key=neighbors_key,
             color=color, edges=True,  edges_width=edges_width, legend_fontsize=legend_fontsize,
             ax=ax, show=False, palette=palette, **spatial_kwargs)
 
