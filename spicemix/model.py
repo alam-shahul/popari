@@ -49,8 +49,13 @@ class SpiceMixPlus:
             ``metagene_mode`` is ``shared``. Default: ``0``
         lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
             ``spatial_affinity_mode`` is ``shared lookup``. Default: ``0``
+        spatial_affinity_lr: learning rate for optimization of ``Sigma_x_inv``
+        spatial_affinity_constraint: method to ensure that spatial affinities lie within an appropriate range
+        spatial_affinity_centering: if set, spatial affinities are zero-centered after every optimization step
+        spatial_affinity_scaling: method to ensure that spatial affinities lie within an appropriate range. Default: ``"clamp"``
         use_inplace_ops: if set, inplace PyTorch operations will be used to speed up computation
         random_state: seed for reproducibility of randomized computations. Default: ``0``
+        verbose: level of verbosity to use during optimization. Default: ``0`` (no print statements)
     """
     
     def __init__(self,
@@ -70,11 +75,13 @@ class SpiceMixPlus:
         torch_context: Optional[dict] = None,
         initial_context: Optional[dict] = None,
         metagene_mode: str = "shared",
-        spatial_affinity_mode: str ="shared lookup",
+        spatial_affinity_mode: str = "shared lookup",
         lambda_M: float = 0.5,
         lambda_Sigma_bar: float = 0.5,
         spatial_affinity_lr: float = 1e-3,
         spatial_affinity_constraint: str = "clamp",
+        spatial_affinity_centering: bool = False,
+        spatial_affinity_scaling: int = 10,
         use_inplace_ops: bool = False,
         random_state: int = 0,
         verbose: int = 0
@@ -106,6 +113,8 @@ class SpiceMixPlus:
         self.lambda_Sigma_bar = lambda_Sigma_bar
         self.spatial_affinity_lr = spatial_affinity_lr
         self.spatial_affinity_constraint = spatial_affinity_constraint
+        self.spatial_affinity_centering = spatial_affinity_centering
+        self.spatial_affinity_scaling = spatial_affinity_scaling
         self.M_constraint = M_constraint
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.spatial_affinity_mode = spatial_affinity_mode
@@ -203,12 +212,14 @@ class SpiceMixPlus:
                 self.spatial_affinity_groups,
                 self.spatial_affinity_tags,
                 spatial_affinity_constraint=self.spatial_affinity_constraint,
+                spatial_affinity_centering=self.spatial_affinity_centering,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
                 lambda_M=self.lambda_M,
                 lambda_Sigma_bar=self.lambda_Sigma_bar,
                 spatial_affinity_lr=self.spatial_affinity_lr,
                 metagene_mode=self.metagene_mode,
                 spatial_affinity_mode=self.spatial_affinity_mode,
+                spatial_affinity_scaling=self.spatial_affinity_scaling,
                 M_constraint=self.M_constraint,
                 initial_context=self.initial_context,
                 context=self.context,

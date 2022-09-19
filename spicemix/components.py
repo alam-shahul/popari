@@ -524,6 +524,7 @@ class ParameterOptimizer():
             spatial_affinity_tags,
             spatial_affinity_regularization_power=2,
             spatial_affinity_constraint="clamp",
+            spatial_affinity_centering=False,
             spatial_affinity_scaling=10,
             lambda_Sigma_x_inv=1e-2,
             spatial_affinity_mode="shared lookup",
@@ -552,7 +553,9 @@ class ParameterOptimizer():
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.lambda_Sigma_bar = lambda_Sigma_bar
         self.spatial_affinity_constraint = spatial_affinity_constraint
+        self.spatial_affinity_centering = spatial_affinity_centering
         self.spatial_affinity_lr = spatial_affinity_lr
+        self.spatial_affinity_scaling = spatial_affinity_scaling
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
         self.lambda_M = lambda_M
         self.metagene_mode = metagene_mode
@@ -589,7 +592,7 @@ class ParameterOptimizer():
             self.spatial_affinity_groups,
             self.spatial_affinity_tags,
             self.betas,
-            scaling=spatial_affinity_scaling,
+            scaling=self.spatial_affinity_scaling,
             mode=self.spatial_affinity_mode,
             initial_context=self.initial_context,
             lr=self.spatial_affinity_lr,
@@ -645,6 +648,7 @@ class ParameterOptimizer():
     
         """
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
+        betas = [beta for (use_replicate, beta) in zip(replicate_mask, self.betas) if use_replicate]
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         spatial_flags = ["adjacency_list" in dataset.obs for dataset in datasets]
 
@@ -661,17 +665,7 @@ class ParameterOptimizer():
 
         for Z, dataset, use_spatial, beta in zip(Zs, datasets, spatial_flags, self.betas):
             adjacency_list = self.adjacency_lists[dataset.name]
-
-            if subsample_rate is None:
-                subsample_index = np.arange(len(dataset))
-            else:
-                node_limit = int(subsample_rate * len(dataset))
-                subsample_index = np.sort(sample_graph_iid(adjacency_list, range(len(dataset)), node_limit))
-
-            adjacency_matrix = torch.index_select(self.adjacency_matrices[dataset.name], 0, torch.tensor(subsample_index, device=self.context["device"]))
-            adjacency_matrix = torch.index_select(adjacency_matrix, 1, torch.tensor(subsample_index, device=self.context["device"])).to(self.context["device"])
-            adjacency_list = adjacency_list[subsample_index]
-            Z = Z[subsample_index]
+            adjacency_matrix = self.adjacency_matrices[dataset.name]
 
             if use_spatial:
                 nu = adjacency_matrix @ Z
@@ -712,13 +706,22 @@ class ParameterOptimizer():
             
             log_partition_function = 0
             for nu, beta in zip(nus, self.betas):
+                if subsample_rate is None:
+                    subsample_index = np.arange(len(dataset))
+                    subsample_multiplier = 1
+                else:
+                    node_limit = int(subsample_rate * len(dataset))
+                    subsample_index = np.sort(sample_graph_iid(adjacency_list, range(len(dataset)), node_limit))
+                    subsample_multiplier = 1 / subsample_rate
+                    nu = nu[subsample_index]
+
                 if nu is None:
                     continue
                 assert torch.isfinite(nu).all()
                 assert torch.isfinite(Sigma_x_inv).all()
                 eta = nu @ Sigma_x_inv
                 logZ = integrate_of_exponential_over_simplex(eta)
-                log_partition_function += beta * logZ.sum()
+                log_partition_function += subsample_multiplier * beta * logZ.sum()
     
             loss = (linear_term + regularization + log_partition_function) / weighted_total_cells
   
@@ -741,8 +744,9 @@ class ParameterOptimizer():
                 elif self.spatial_affinity_constraint == "scale":
                     Sigma_x_inv.mul_(self.spatial_affinity_state.scaling / Sigma_x_inv.abs().max())
 
-            # with torch.no_grad():
-            #   Sigma_x_inv -= Sigma_x_inv.mean()
+            if self.spatial_affinity_centering:
+                with torch.no_grad():
+                    Sigma_x_inv -= Sigma_x_inv.mean()
     
             loss = loss.item()
             dloss = loss_prev - loss
