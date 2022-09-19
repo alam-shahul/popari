@@ -73,6 +73,8 @@ class SpiceMixPlus:
         spatial_affinity_mode: str ="shared lookup",
         lambda_M: float = 0.5,
         lambda_Sigma_bar: float = 0.5,
+        spatial_affinity_lr: float = 1e-3,
+        spatial_affinity_constraint: str = "clamp",
         use_inplace_ops: bool = False,
         random_state: int = 0,
         verbose: int = 0
@@ -102,6 +104,8 @@ class SpiceMixPlus:
         self.K = K
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
         self.lambda_Sigma_bar = lambda_Sigma_bar
+        self.spatial_affinity_lr = spatial_affinity_lr
+        self.spatial_affinity_constraint = spatial_affinity_constraint
         self.M_constraint = M_constraint
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.spatial_affinity_mode = spatial_affinity_mode
@@ -198,9 +202,11 @@ class SpiceMixPlus:
                 self.metagene_tags,
                 self.spatial_affinity_groups,
                 self.spatial_affinity_tags,
+                spatial_affinity_constraint=self.spatial_affinity_constraint,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
                 lambda_M=self.lambda_M,
                 lambda_Sigma_bar=self.lambda_Sigma_bar,
+                spatial_affinity_lr=self.spatial_affinity_lr,
                 metagene_mode=self.metagene_mode,
                 spatial_affinity_mode=self.spatial_affinity_mode,
                 M_constraint=self.M_constraint,

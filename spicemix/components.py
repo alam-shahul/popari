@@ -376,7 +376,7 @@ class EmbeddingOptimizer():
                 S_batch = S[idx].contiguous()
                     
                 optimizer = NesterovGD(Z_batch, base_step_size / S_batch.square())
-                ppbar = trange(10000, leave=False, disable=True)
+                ppbar = trange(10000, leave=False, disable=not (self.verbose > 3))
                 for i_iter in ppbar:
                     update_s() # TODO: update S_batch directly
                     S_batch = S[idx].contiguous()
@@ -411,7 +411,10 @@ class EmbeddingOptimizer():
 
                     dZ = (Z_batch_prev - Z_batch).abs().max().item()
                     Z[idx] = Z_batch
-                    ppbar.set_description(f'func={func:.1e}, dZ={dZ:.1e}')
+                    description = (
+                        f'func={func:.1e}, dZ={dZ:.1e}'
+                    )
+                    ppbar.set_description(description)
                     if dZ < tol:
                         break
                 ppbar.close()
@@ -419,13 +422,9 @@ class EmbeddingOptimizer():
                 Z[idx] = Z_batch
                 func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
                 func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv /2 )
-                if self.verbose > 1:
-                    print(f"Z loss: {func}")
                 pbar.update(len(idx))
             pbar.close()
             func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
-            if self.verbose > 1:
-                print(f"Z final loss: {func}")
     
             return Z
     
@@ -524,12 +523,14 @@ class ParameterOptimizer():
             spatial_affinity_groups,
             spatial_affinity_tags,
             spatial_affinity_regularization_power=2,
+            spatial_affinity_constraint="clamp",
             spatial_affinity_scaling=10,
             lambda_Sigma_x_inv=1e-2,
             spatial_affinity_mode="shared lookup",
             metagene_mode="shared",
             lambda_M=0.5,
             lambda_Sigma_bar=0.5,
+            spatial_affinity_lr=1e-3,
             M_constraint="simplex",
             sigma_yx_inv_mode="separate",
             initial_context=None,
@@ -550,6 +551,8 @@ class ParameterOptimizer():
         self.spatial_affinity_tags = spatial_affinity_tags
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.lambda_Sigma_bar = lambda_Sigma_bar
+        self.spatial_affinity_constraint = spatial_affinity_constraint
+        self.spatial_affinity_lr = spatial_affinity_lr
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
         self.lambda_M = lambda_M
         self.metagene_mode = metagene_mode
@@ -589,6 +592,7 @@ class ParameterOptimizer():
             scaling=spatial_affinity_scaling,
             mode=self.spatial_affinity_mode,
             initial_context=self.initial_context,
+            lr=self.spatial_affinity_lr,
             context=self.context
         )
         
@@ -654,6 +658,7 @@ class ParameterOptimizer():
         Zs = [X.to(self.context["device"]) / size_factor for X, size_factor in zip(Xs, size_factors)]
         nus = [] # sum of neighbors' z
         weighted_total_cells = 0
+
         for Z, dataset, use_spatial, beta in zip(Zs, datasets, spatial_flags, self.betas):
             adjacency_list = self.adjacency_lists[dataset.name]
 
@@ -678,12 +683,17 @@ class ParameterOptimizer():
             weighted_total_cells += beta * sum(map(len, adjacency_list))
             del Z, adjacency_matrix
         # linear_term_coefficient = (linear_term_coefficient + linear_term_coefficient.T) / 2 # should be unnecessary as long as adjacency_list is symmetric
+        if self.verbose > 2:
+            print(f"spatial affinity linear term coefficient range: {linear_term_coefficient.min().item():.2e} ~ {linear_term_coefficient.max().item():.2e}")
     
         history = []
         Sigma_x_inv.requires_grad_(True)
    
         loss_prev, loss = np.inf, np.nan
+        
+        verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format='{desc}{postfix}')
         progress_bar = trange(n_epochs, disable=not self.verbose, desc='Updating Σx-1')
+
         Sigma_x_inv_best, loss_best, epoch_best = None, np.inf, -1
         dSigma_x_inv = np.inf
         early_stop_epoch_count = 0
@@ -711,11 +721,7 @@ class ParameterOptimizer():
                 log_partition_function += beta * logZ.sum()
     
             loss = (linear_term + regularization + log_partition_function) / weighted_total_cells
-   
-            # print(f"total loss {loss}")
-            # print(f"linear term {linear_term}")
-            # print(f"regularization {regularization}")
-            # print(f"log_partition_function {log_partition_function}")
+  
             if loss < loss_best:
                 Sigma_x_inv_best = Sigma_x_inv.clone().detach()
                 loss_best = loss.item()
@@ -730,8 +736,11 @@ class ParameterOptimizer():
             Sigma_x_inv.grad = (Sigma_x_inv.grad + Sigma_x_inv.grad.T) / 2
             optimizer.step()
             with torch.no_grad():
-                if constraint == "clamp":
+                if self.spatial_affinity_constraint == "clamp":
                     Sigma_x_inv.clamp_(min=-self.spatial_affinity_state.scaling, max=self.spatial_affinity_state.scaling)
+                elif self.spatial_affinity_constraint == "scale":
+                    Sigma_x_inv.mul_(self.spatial_affinity_state.scaling / Sigma_x_inv.abs().max())
+
             # with torch.no_grad():
             #   Sigma_x_inv -= Sigma_x_inv.mean()
     
@@ -741,12 +750,23 @@ class ParameterOptimizer():
     
             with torch.no_grad():
                 dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
-            
-            progress_bar.set_description(
+           
+            description = (
                 f'Updating Σx-1: loss = {dloss:.1e} -> {loss:.1e} '
                 f'δΣx-1 = {dSigma_x_inv:.1e} '
                 f'Σx-1 range = {Sigma_x_inv.min().item():.1e} ~ {Sigma_x_inv.max().item():.1e}'
             )
+
+            verbose_description = (
+                    f"Spatial affinity average: {Sigma_x_inv.mean().item():.1e} "
+                    f"Total spatial affinity loss: {loss:.1e} "
+                    f"spatial affinity linear term {linear_term:.6e} "
+                    f"spatial affinity regularization {regularization.item():.1e} "
+                    f"spatial affinity log_partition_function {log_partition_function:.1e} "
+                )
+
+            verbose_bar.set_description_str(verbose_description)
+            progress_bar.set_description(description)
     
             if Sigma_x_inv.grad.abs().max() < 1e-4 and dSigma_x_inv < 1e-4:
                 early_stop_epoch_count += 1
@@ -754,7 +774,10 @@ class ParameterOptimizer():
                 early_stop_epoch_count = 0
             if early_stop_epoch_count >= 10 or epoch > epoch_best + 100:
                 break
-    
+   
+        verbose_bar.close()
+        progress_bar.close()
+
         Sigma_x_inv = Sigma_x_inv_best
         Sigma_x_inv.requires_grad_(False)
        
@@ -851,6 +874,10 @@ class ParameterOptimizer():
         constant_magnitude = np.array([torch.linalg.norm(Y).item()**2 for Y in Ys]).sum()
     
         constant = (np.array([torch.linalg.norm(self.embedding_optimizer.embedding_state[dataset.name]).item()**2 for dataset in datasets]) * scaled_betas).sum()
+        if self.verbose > 1:
+            print(f"M constant term: {constant: .1e}")
+            print(f"M constant magnitude: {constant_magnitude:.1e}")
+
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
         for dataset, X, Y, sigma_yx, scaled_beta in zip(datasets, Xs, Ys, sigma_yxs, scaled_betas):
             # X_c^TX_c
@@ -875,24 +902,21 @@ class ParameterOptimizer():
         #     linear_term += self.lambda_M * M_bar
 
         if self.verbose > 1:
-            print(f"DTYPE: {quadratic_factor.dtype}")
-            print(f"Max eigenvalue before : {torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
-            print(f"Eigenvalue before : {(torch.linalg.eigvals(quadratic_factor).abs())}")
-            print(f"Max eigenvalue after : {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs())}")
-            print(f"Eigenvalue after : {(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs())}")
-            print(f"Difference: {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
-            print(f"All differences: {(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - (torch.linalg.eigvals(quadratic_factor).abs())}")
-            print(f"Linear term: {torch.linalg.norm(linear_term)}")
-            print(f"Regularization linear term: {torch.linalg.norm(differential_regularization_linear_term)}")
-            print(f"Linear regularization term ratio: {torch.linalg.norm(differential_regularization_linear_term) / torch.linalg.norm(linear_term)}")
+            print(f"{get_datetime()} Eigenvalue difference: {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
+            print(f"M linear term: {torch.linalg.norm(linear_term)}")
+            print(f"M regularization linear term: {torch.linalg.norm(differential_regularization_linear_term)}")
+            print(f"M linear regularization term ratio: {torch.linalg.norm(differential_regularization_linear_term) / torch.linalg.norm(linear_term)}")
         loss_prev, loss = np.inf, np.nan
+
+        verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format='{desc}{postfix}')
         progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, desc='Updating M', miniters=1000)
     
         def compute_loss_and_gradient(M):
             quadratic_factor_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
             loss = (quadratic_factor_grad * M).sum()
+            verbose_description = ""
             if self.verbose > 2:
-                print(f"M quadratic term: {loss}")
+                verbose_description += f"M quadratic term: {loss:.1e}"
             grad = quadratic_factor_grad
             linear_term_grad = linear_term + differential_regularization_linear_term
             loss -= 2 * (linear_term_grad * M).sum()
@@ -910,9 +934,10 @@ class ParameterOptimizer():
             if self.verbose > 2:
                 # print(f"M regularization term: {regularization_term}")
                 if self.metagene_mode == "differential":
-                    print(f"M differential regularization term: {differential_regularization_term}")
-                print(f"M constant term: {constant}")
-                print(f"M constant magnitude: {constant_magnitude}")
+                    verbose_description += f"M differential regularization term: {differential_regularization_term}"
+
+            verbose_bar.set_description_str(verbose_description)
+
             loss /= 2
     
     
@@ -957,14 +982,18 @@ class ParameterOptimizer():
                 stop_criterion = dM < tol and epoch > 5
                 assert not np.isnan(loss)
                 if epoch % 5 == 0 or stop_criterion:
-                    progress_bar.set_description(
+                    description = (
                         f'Updating M: loss = {loss:.1e}, '
                         f'%δloss = {dloss / loss:.1e}, '
                         f'δM = {dM:.1e}'
                         # f'lr={step_size_scale:.1e}'
                     )
+                    progress_bar.set_description(description)
                 if stop_criterion:
                     break
+            
+            verbose_bar.close()
+            progress_bar.close()
             
             loss, grad = compute_loss_and_gradient(M)
             if self.verbose > 1:
@@ -1114,7 +1143,7 @@ class MetageneState(dict):
             self.M_bar[group_name][:] = project_M(self.M_bar[group_name], self.M_constraint)
 
 class SpatialAffinityState(dict):
-    def __init__(self, K, metagene_state, datasets, groups, tags, betas, scaling=10, mode="shared lookup", initial_context=None, context=None):
+    def __init__(self, K, metagene_state, datasets, groups, tags, betas, scaling=10, lr=1e-3, mode="shared lookup", initial_context=None, context=None):
         self.datasets = datasets
         self.groups = groups
         self.tags = tags
@@ -1125,6 +1154,7 @@ class SpatialAffinityState(dict):
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.betas = betas
         self.scaling = scaling
+        self.lr = lr
         self.optimizers = {}
         super().__init__()
 
@@ -1190,7 +1220,7 @@ class SpatialAffinityState(dict):
                 shared_affinity.div_(len(group_replicates))
                 optimizer = torch.optim.Adam(
                     [shared_affinity],
-                    lr=1e-3,
+                    lr=self.lr,
                     betas=(.5, .9),
                 )
                 self.optimizers[group_name] = optimizer
@@ -1215,7 +1245,7 @@ class SpatialAffinityState(dict):
                 differential_affinity[:] = Sigma_x_invs[dataset_index]
                 optimizer = torch.optim.Adam(
                     [differential_affinity],
-                    lr=1e-3,
+                    lr=self.lr,
                     betas=(.5, .9),
                 )
                 self.optimizers[dataset.name] = optimizer
