@@ -102,7 +102,7 @@ def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes = None, **spa
     neighbors_key = "spatial_neighbors" if "spatial_neighbors" not in spatial_kwargs else spatial_kwargs.pop("neighbors_key")
     for dataset, ax in zip(datasets, axes.flat):
         sc.pl.spatial(dataset, spot_size=spot_size, neighbors_key=neighbors_key,
-            color=color, edges=True,  edges_width=edges_width, legend_fontsize=legend_fontsize,
+            color=color, edges=edges,  edges_width=edges_width, legend_fontsize=legend_fontsize,
             ax=ax, show=False, palette=palette, **spatial_kwargs)
 
 def plot_umap(trained_model: SpiceMixPlus, color="leiden", axes = None, **_kwargs):
@@ -176,6 +176,52 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
             image = dataset.obsp[obsp][dataset.name]
         if uns:
             image = dataset.uns[uns][dataset.name]
+       
+        im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
+        fig.colorbar(im, cax=cax, orientation='vertical')
+
+
+def multigroup_heatmap(trained_model: SpiceMixPlus,
+    group_type: str = "metagene",
+    axes: Optional[Sequence[Axes]] = None,
+    key: Optional[str] = None,
+    **heatmap_kwargs
+  ):
+    r"""Plot 2D heatmap data across all datasets.
+
+    Wrapper function to enable plotting of continuous 2D data across multiple replicates. Only
+    one of ``obsm``, ``obsp`` or ``uns`` should be used.
+
+    Args:
+        trained_model: the trained SpiceMixPlus model.
+        axes: A predefined set of matplotlib axes to plot on.
+        obsm: the key in the ``.obsm`` dataframe to plot.
+        obsp: the key in the ``.obsp`` dataframe to plot.
+        uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
+        **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
+    """
+    datasets = trained_model.datasets
+    groups = trained_model.metagene_groups if group_type == "metagene" else trained_model.spatial_affinity_groups
+    
+
+    fig = None
+    if axes is None:
+        fig, axes = setup_squarish_axes(len(groups))
+
+    aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")    
+    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")    
+
+    for group_index, (ax, group_name) in enumerate(zip(axes.flat, groups)):
+        first_dataset_name = groups[group_name][0]
+        first_dataset = next(filter(lambda dataset: dataset.name == first_dataset_name, datasets))
+
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        if group_index > len(groups):
+            ax.set_visible(False)
+            continue
+        
+        image = first_dataset.uns[key][group_name]
        
         im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
         fig.colorbar(im, cax=cax, orientation='vertical')
@@ -262,8 +308,8 @@ def compute_empirical_correlations(trained_model: SpiceMixPlus, feature: str = "
         all_correlations = {dataset.name: empirical_correlation}
         dataset.uns[output] = all_correlations
 
-def plot_differential_heatmap(trained_model: SpiceMixPlus, parameter_set="metagenes"):
-    fig, axes = plt.subplots(len(empirical_correlations), 2, figsize=(10, 10))
+def plot_across_groups(trained_model: SpiceMixPlus, parameter_set="M"):
+    fig, axes = plt.subplots(len(trained_model.datasets), 2, figsize=(10, 10))
     for group_name, group_replicates in differential_spatial_affinity.spatial_affinity_groups.items():
         for replicate in group_replicates:
             for index, dataset in enumerate(differential_spatial_affinity.datasets):

@@ -87,7 +87,7 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
         if context != "numpy":
             dataset.obsp["adjacency_matrix"] = convert_numpy_to_pytorch_sparse_coo(adjacency_matrix, context)
 
-    return datasets
+    return datasets, replicate_names
 
 def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset], replicate_names: Sequence[str]):
     """Save SpiceMixPlus state as AnnData object.

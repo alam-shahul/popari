@@ -60,7 +60,7 @@ class SpiceMixPlus:
     
     def __init__(self,
         K: int,
-        replicate_names: Sequence[str],
+        replicate_names: Optional[Sequence[str]] = None,
         datasets: Optional[Sequence[ad.AnnData]] = None,
         dataset_path: Optional[Union[str, Path ]] = None,
         lambda_Sigma_x_inv: float = 1e-4,
@@ -99,10 +99,18 @@ class SpiceMixPlus:
         if not initial_context:
             initial_context = dict(device='cpu', dtype=torch.float32)
 
-        self.replicate_names = [f"{replicate_name}" for replicate_name in replicate_names]
-
         self.context = torch_context
         self.initial_context = initial_context
+
+        if datasets:
+            self.load_anndata_datasets(datasets, replicate_names)
+        elif dataset_path:
+            self.load_dataset(dataset_path, replicate_names)
+
+        if replicate_names is None:
+            self.replicate_names = [dataset.name for dataset in self.datasets]
+        else:
+            self.replicate_names = [f"{replicate_name}" for replicate_name in replicate_names]
 
         self.random_state = random_state
         torch.manual_seed(self.random_state)
@@ -143,11 +151,6 @@ class SpiceMixPlus:
         self.metagene_groups, self.metagene_tags = fill_groups(metagene_groups, are_exclusive=(self.metagene_mode=="shared"))
         self.spatial_affinity_groups, self.spatial_affinity_tags = fill_groups(spatial_affinity_groups, are_exclusive=(self.spatial_affinity_mode=="shared lookup"))
 
-        if datasets:
-            self.load_anndata_datasets(datasets, self.replicate_names)
-        elif dataset_path:
-            self.load_dataset(dataset_path, self.replicate_names)
-
         # if self.context["device"] != "cpu":
         #     preinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
         #     print(preinit_memory_usage)
@@ -181,7 +184,7 @@ class SpiceMixPlus:
 
         dataset_path = Path(dataset_path)
         
-        datasets = load_anndata(dataset_path, replicate_names, context=self.initial_context)
+        datasets, replicate_names = load_anndata(dataset_path, replicate_names, context=self.initial_context)
         self.load_anndata_datasets(datasets, replicate_names)
 
     def _initialize(self, pretrained=False, betas: Optional[Sequence[float]] = None, prior_x_modes: Optional[Sequence[str]] = None, method: str = 'svd'):
@@ -237,7 +240,9 @@ class SpiceMixPlus:
         if pretrained:
             first_dataset = self.datasets[0]
             if self.metagene_mode == "differential":
-                self.parameter_optimizer.metagene_state.M_bar = torch.from_numpy(first_dataset.uns["M_bar"][first_dataset.name]).to(**self.initial_context)
+                self.parameter_optimizer.metagene_state.M_bar = {group_name: torch.from_numpy(first_dataset.uns["M_bar"][group_name]).to(**self.initial_context) for group_name in self.metagene_groups}
+            if self.spatial_affinity_mode == "differential lookup":
+                self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar = {group_name: first_dataset.uns["M_bar"][group_name].to(**self.initial_context) for group_name in self.spatial_affinity_groups}
             for dataset_index, dataset  in enumerate(self.datasets):
                 self.parameter_optimizer.metagene_state[dataset.name][:] = torch.from_numpy(dataset.uns["M"][dataset.name]).to(**self.initial_context)
                 self.embedding_optimizer.embedding_state[dataset.name][:] = torch.from_numpy(dataset.obsm["X"]).to(**self.initial_context)
@@ -385,11 +390,17 @@ def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence
 
     # TODO: change this so that replicate_names can rename the datasets in the saved file...?
 
-    datasets = load_anndata(dataset_path, replicate_names, context="numpy")
-
-    replicate_names = [dataset.name for dataset in datasets]
+    datasets, replicate_names = load_anndata(dataset_path, replicate_names, context="numpy")
 
     first_dataset = datasets[0]
+    metagene_groups = first_dataset.uns["spicemixplus_hyperparameters"]["metagene_groups"]
+    for group in metagene_groups:
+        metagene_groups[group] = list(metagene_groups[group])
+
+    spatial_affinity_groups = first_dataset.uns["spicemixplus_hyperparameters"]["spatial_affinity_groups"]
+    for group in spatial_affinity_groups:
+        spatial_affinity_groups[group] = list(spatial_affinity_groups[group])
+
     metagene_mode = first_dataset.uns["spicemixplus_hyperparameters"]["metagene_mode"]
     K = first_dataset.uns["spicemixplus_hyperparameters"]["K"]
     lambda_Sigma_x_inv = first_dataset.uns["spicemixplus_hyperparameters"]["lambda_Sigma_x_inv"]
@@ -397,6 +408,8 @@ def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence
     trained_model = SpiceMixPlus(K=K,
         metagene_mode=metagene_mode,
         datasets=datasets,
+        metagene_groups=metagene_groups,
+        spatial_affinity_groups=spatial_affinity_groups,
         replicate_names=replicate_names,
         lambda_Sigma_x_inv=lambda_Sigma_x_inv,
         pretrained=True

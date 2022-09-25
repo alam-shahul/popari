@@ -28,8 +28,11 @@ def spicemix_with_neighbors():
     for iteration in range(1, 5):
         obj.estimate_parameters()
         obj.estimate_weights()
-    
-    # obj.save_results(path2dataset / 'trained_4_iterations.h5ad')
+
+    for dataset in obj.datasets:
+        dataset.uns["multigroup_heatmap"] = {group_name: np.arange(4).reshape((2, 2)) for group_name in obj.metagene_groups}
+ 
+    obj.save_results(path2dataset / 'trained_4_iterations.h5ad')
     return obj
 
 def test_Sigma_x_inv(spicemix_with_neighbors):

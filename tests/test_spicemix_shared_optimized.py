@@ -23,7 +23,7 @@ def spicemix_with_neighbors():
         dataset_path=path2dataset / "all_data.h5",
         replicate_names=replicate_names,
         use_inplace_ops=True,
-        verbose=1
+        verbose=3
     )   
 
     for iteration in range(1, 5):
