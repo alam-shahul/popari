@@ -5,6 +5,7 @@ from matplotlib.axes import Axes
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import numpy as np
+import anndata as ad
 import scanpy as sc
 import squidpy as sq
 
@@ -21,7 +22,7 @@ def setup_squarish_axes(num_axes):
     height = int(np.sqrt(num_axes))
     width = num_axes // height
     height += (width * height != num_axes)
-    fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=True, dpi=600)
+    fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=True, dpi=600, sharex=True, sharey=True)
 
     return fig, axes
     
@@ -44,7 +45,7 @@ def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, ax
 
     return fig
 
-def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, resolution: float = 1.0):
+def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, resolution: float = 1.0, target_clusters: Optional[int] = None):
     r"""Compute Leiden clustering for all datasets.
 
     Args:
@@ -54,10 +55,10 @@ def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = Fa
         resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
     """
     # TODO: implement joint clustering
-    
-    cluster(trained_model, use_rep=use_rep, joint=joint, resolution=resolution)
+   
+    cluster(trained_model, use_rep=use_rep, joint=joint, resolution=resolution, target_clusters=target_clusters)
 
-def cluster(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, method: str = "leiden", resolution: float = 1.0):
+def cluster(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, method: str = "leiden", resolution: float = 1.0, target_clusters: Optional[int] = None):
     r"""Compute clustering for all datasets.
 
     Args:
@@ -69,13 +70,38 @@ def cluster(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = F
     # TODO: implement joint clustering
     
     datasets = trained_model.datasets
+    if joint:
+        dataset_names = [dataset.name for dataset in datasets]
+        merged_dataset = ad.concat(datasets, label="batch", keys=dataset_names, merge="unique", uns_merge="unique", pairwise=True)
+        datasets = [merged_dataset]
 
+        
+    clustering_function = getattr(sc.tl, method)
     for dataset in datasets:
         sc.pp.neighbors(dataset, use_rep=use_rep)
-        if method == "leiden":
-            sc.tl.leiden(dataset, resolution=resolution)
-        elif method == "louvain":
-            sc.tl.louvain(dataset, resolution=resolution)
+        clustering_function(dataset, resolution=resolution)
+    
+        num_clusters = len(dataset.obs[method].unique())
+        print(num_clusters)
+       
+        lower_bound = 0.25 * resolution 
+        upper_bound = 1.75 * resolution 
+        while target_clusters and num_clusters != target_clusters:
+            effective_resolution = (lower_bound * upper_bound) ** 0.5
+            clustering_function(dataset, resolution=effective_resolution)
+            num_clusters = len(dataset.obs[method].unique())
+            if num_clusters < target_clusters:
+                lower_bound = effective_resolution
+            elif num_clusters >= target_clusters:
+                upper_bound = effective_resolution
+            print(num_clusters)
+
+    if joint:
+        indices = merged_dataset.obs.groupby("batch").indices.values()
+        unmerged_datasets = [merged_dataset[index] for index in indices]
+        for unmerged_dataset, original_dataset in zip(unmerged_datasets, trained_model.datasets):
+            original_dataset.obs[method] = unmerged_dataset.obs[method]
+
 
 def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes = None, **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
@@ -132,6 +158,7 @@ def plot_umap(trained_model: SpiceMixPlus, color="leiden", axes = None, **_kwarg
             ax=ax, show=False, palette=palette, **spatial_kwargs)
 
 def multireplicate_heatmap(trained_model: SpiceMixPlus,
+    title_font_size: Optional[int] = None,
     axes: Optional[Sequence[Axes]] = None,
     obsm: Optional[str] = None,
     obsp: Optional[str] = None,
@@ -162,9 +189,7 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
     cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")    
 
     for dataset_index, ax in enumerate(axes.flat):
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes('right', size='5%', pad=0.05)
-        if dataset_index > len(datasets):
+        if dataset_index >= len(datasets):
             ax.set_visible(False)
             continue
         
@@ -178,10 +203,14 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
             image = dataset.uns[uns][dataset.name]
        
         im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
-        fig.colorbar(im, cax=cax, orientation='vertical')
+        if title_font_size is not None:
+            ax.set_title(dataset.name, fontsize= title_font_size)
+
+        fig.colorbar(im, ax=ax, orientation='vertical')
 
 
 def multigroup_heatmap(trained_model: SpiceMixPlus,
+    title_font_size: Optional[int] = None,
     group_type: str = "metagene",
     axes: Optional[Sequence[Axes]] = None,
     key: Optional[str] = None,
@@ -215,8 +244,6 @@ def multigroup_heatmap(trained_model: SpiceMixPlus,
         first_dataset_name = groups[group_name][0]
         first_dataset = next(filter(lambda dataset: dataset.name == first_dataset_name, datasets))
 
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes('right', size='5%', pad=0.05)
         if group_index > len(groups):
             ax.set_visible(False)
             continue
@@ -224,7 +251,9 @@ def multigroup_heatmap(trained_model: SpiceMixPlus,
         image = first_dataset.uns[key][group_name]
        
         im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
-        fig.colorbar(im, cax=cax, orientation='vertical')
+        if title_font_size is not None:
+            ax.set_title(group_name, fontsize= title_font_size)
+        fig.colorbar(im, ax=ax, orientation='vertical')
 
 def compute_ari_scores(trained_model: SpiceMixPlus, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth labels and an unsupervised clustering.
@@ -307,15 +336,4 @@ def compute_empirical_correlations(trained_model: SpiceMixPlus, feature: str = "
     for dataset, empirical_correlation in zip(datasets, empirical_correlations):
         all_correlations = {dataset.name: empirical_correlation}
         dataset.uns[output] = all_correlations
-
-def plot_across_groups(trained_model: SpiceMixPlus, parameter_set="M"):
-    fig, axes = plt.subplots(len(trained_model.datasets), 2, figsize=(10, 10))
-    for group_name, group_replicates in differential_spatial_affinity.spatial_affinity_groups.items():
-        for replicate in group_replicates:
-            for index, dataset in enumerate(differential_spatial_affinity.datasets):
-                if dataset.name == replicate:
-                    correlation_matrix = empirical_correlations[index] - differential_spatial_affinity.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].cpu().detach().numpy()
-                    print(correlation_matrix.sum())
-                    image = axes[index, 0].imshow(correlation_matrix)
-                    fig.colorbar(image, cax=axes[index, 1], orientation='vertical') 
 

@@ -32,17 +32,22 @@ def test_load_anndata(trained_model):
 def test_analysis_functions(trained_model):
     trained_model.embedding_optimizer.embedding_state.normalize()
 
-    leiden(trained_model)
-    for dataset in trained_model.datasets:
+    expected_aris = [0.8719074554517243, 0.8732437089486653]
+    leiden(trained_model, joint=True, target_clusters=8)
+    compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
+
+    for expected_ari, dataset in zip(expected_aris, trained_model.datasets):
+        print(f"ARI score: {dataset.uns['ari']}")
         dataset.uns["spatial_neighbors"] = {
             "connectivities_key": "adjacency_matrix",
             "distances_key": "spatial_distances"
         }
+        assert expected_ari == pytest.approx(dataset.uns["ari"])
         sq.gr.spatial_neighbors(dataset, key_added="spatial")
 
     plot_in_situ(trained_model)
     
-    compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
+
     multireplicate_heatmap(trained_model, uns="Sigma_x_inv")
     plot_all_metagene_embeddings(trained_model, embedding_key="normalized_X")
     compute_empirical_correlations(trained_model, output="empirical_correlation")

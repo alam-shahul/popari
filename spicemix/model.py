@@ -69,7 +69,7 @@ class SpiceMixPlus:
         metagene_groups: Optional[dict] = None,
         spatial_affinity_groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
-        prior_x_modes: Optional[Sequence[float]] = None,
+        prior_x_modes: Optional[Sequence[str]] = None,
         M_constraint: str = "simplex",
         sigma_yx_inv_mode: str = "separate",
         torch_context: Optional[dict] = None,
@@ -102,16 +102,6 @@ class SpiceMixPlus:
         self.context = torch_context
         self.initial_context = initial_context
 
-        if datasets:
-            self.load_anndata_datasets(datasets, replicate_names)
-        elif dataset_path:
-            self.load_dataset(dataset_path, replicate_names)
-
-        if replicate_names is None:
-            self.replicate_names = [dataset.name for dataset in self.datasets]
-        else:
-            self.replicate_names = [f"{replicate_name}" for replicate_name in replicate_names]
-
         self.random_state = random_state
         torch.manual_seed(self.random_state)
         np.random.seed(self.random_state)
@@ -129,6 +119,16 @@ class SpiceMixPlus:
 
         self.metagene_mode = metagene_mode 
         self.lambda_M = lambda_M
+
+        if datasets:
+            self.load_anndata_datasets(datasets, replicate_names)
+        elif dataset_path:
+            self.load_dataset(dataset_path, replicate_names)
+
+        if replicate_names is None:
+            self.replicate_names = [dataset.name for dataset in self.datasets]
+        else:
+            self.replicate_names = [f"{replicate_name}" for replicate_name in replicate_names]
         
         def fill_groups(groups, are_exclusive=False):
             if not groups:
@@ -170,6 +170,7 @@ class SpiceMixPlus:
         self.Ys = []
         for dataset in self.datasets:
             Y = torch.tensor(dataset.X, **self.context)
+            Y *= (self.K * 1) / Y.sum(axis=1, keepdim=True).mean()
             self.Ys.append(Y)
         
         self.num_replicates = len(self.datasets)
