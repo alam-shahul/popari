@@ -16,13 +16,17 @@ import seaborn as sns
 
 from spicemix.model import SpiceMixPlus
 
-def setup_squarish_axes(num_axes):
+def setup_squarish_axes(num_axes, **subplots_kwargs):
     """Create matplotlib subplots as squarely as possible."""
 
     height = int(np.sqrt(num_axes))
     width = num_axes // height
     height += (width * height != num_axes)
-    fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=True, dpi=600, sharex=True, sharey=True)
+
+    constrained_layout = True if "constrained_layout" not in subplots_kwargs else subplots_kwargs.pop("constrained_layout")
+    dpi = 300 if "dpi" not in subplots_kwargs else subplots_kwargs.pop("dpi")
+
+    fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=constrained_layout, dpi=dpi, sharex=True, sharey=True, **subplots_kwargs)
 
     return fig, axes
     
@@ -45,7 +49,7 @@ def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, ax
 
     return fig
 
-def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, resolution: float = 1.0, target_clusters: Optional[int] = None):
+def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.05):
     r"""Compute Leiden clustering for all datasets.
 
     Args:
@@ -56,9 +60,9 @@ def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = Fa
     """
     # TODO: implement joint clustering
    
-    cluster(trained_model, use_rep=use_rep, joint=joint, resolution=resolution, target_clusters=target_clusters)
+    cluster(trained_model, use_rep=use_rep, joint=joint, resolution=resolution, target_clusters=target_clusters, tolerance=tolerance)
 
-def cluster(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, method: str = "leiden", resolution: float = 1.0, target_clusters: Optional[int] = None):
+def cluster(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, method: str = "leiden", resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.05):
     r"""Compute clustering for all datasets.
 
     Args:
@@ -82,11 +86,10 @@ def cluster(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = F
         clustering_function(dataset, resolution=resolution)
     
         num_clusters = len(dataset.obs[method].unique())
-        print(num_clusters)
        
         lower_bound = 0.25 * resolution 
         upper_bound = 1.75 * resolution 
-        while target_clusters and num_clusters != target_clusters:
+        while target_clusters and num_clusters != target_clusters and np.abs(lower_bound - upper_bound) > tolerance:
             effective_resolution = (lower_bound * upper_bound) ** 0.5
             clustering_function(dataset, resolution=effective_resolution)
             num_clusters = len(dataset.obs[method].unique())
@@ -337,3 +340,88 @@ def compute_empirical_correlations(trained_model: SpiceMixPlus, feature: str = "
         all_correlations = {dataset.name: empirical_correlation}
         dataset.uns[output] = all_correlations
 
+def find_differential_genes(trained_model: SpiceMixPlus, top_gene_limit: int = 1):
+    """Identify genes/features that distinguish differential metagenes within a group.
+
+    This type of analysis is only valid for runs of Popari in which ``metagene_mode="differential"``
+    was used.
+
+    Args:
+        trained_model: the trained SpiceMixPlus model.
+        top_gene_limit: the number of top genes to mark as differential for each metagene in a dataset.
+
+    Returns:
+        The names of genes that are differentially expressed with respect to their group.
+
+    """
+
+    datasets = trained_model.datasets
+    for dataset in datasets:
+        if "M_bar" not in dataset.uns:
+            raise ValueError("This model was not trained in differential metagene mode.")
+
+    genes_of_interest = set()
+    for dataset in datasets:
+        for group_name in trained_model.metagene_tags[dataset.name]:
+            image = dataset.uns["M"][dataset.name] - dataset.uns["M_bar"][group_name]
+            top_genes_per_metagene = np.argpartition(np.abs(image), -top_gene_limit, axis=0)[-top_gene_limit:]
+            dataset_top_genes = dataset.var_names[top_genes_per_metagene.flatten()] 
+            genes_of_interest.update(dataset_top_genes)
+        
+    return genes_of_interest
+
+def plot_gene_activations(trained_model: SpiceMixPlus, gene_subset: Sequence[str]):
+    """Plot metagene activation heatmaps for target genes across all groups.
+    
+    This type of analysis is only valid for runs of Popari in which ``metagene_mode="differential"``
+    was used.
+
+    Args:
+        trained_model: the trained SpiceMixPlus model.
+        gene_subset: names of genes to plot for.
+
+    Returns:
+        The names of genes that are differentially expressed with respect to their group.
+    """
+    gene_indices = trained_model.datasets[0].var_names.get_indexer(gene_subset)
+    images = np.zeros((len(gene_indices), trained_model.K, len(trained_model.metagene_groups)))
+    for group_index, group_name in enumerate(trained_model.metagene_groups):
+        M_bar_subset = trained_model.parameter_optimizer.metagene_state.M_bar[group_name][gene_indices]
+        images[:, :, group_index] = M_bar_subset
+    
+    fig, axes = setup_squarish_axes(len(gene_indices), figsize=(10, 10))
+    for ax, image, gene in zip(axes.flat, images, gene_subset):
+        aspect = 0.1
+        im = ax.imshow(image, interpolation='nearest', aspect=aspect)
+        ax.set_title(gene)
+        colorbar = fig.colorbar(im, ax=ax, orientation='vertical')
+
+def plot_gene_trajectories(trained_model: SpiceMixPlus, gene_subset: Sequence[str], covariate_values: Sequence[float], **subplots_kwargs):
+    """Plot metagene activation lineplots for target genes across all groups.
+
+    
+    This type of analysis is only valid for runs of Popari in which ``metagene_mode="differential"``
+    was used.
+    
+    Args:
+        trained_model: the trained SpiceMixPlus model.
+        gene_subset: names of genes to plot for.
+        covariate_values: dependent vairable values against which gene trajectories will be plotted.
+
+    Returns:
+        The names of genes that are differentially expressed with respect to their group.
+
+    """
+    gene_indices = trained_model.datasets[0].var_names.get_indexer(gene_subset)
+    images = np.zeros((len(gene_indices), trained_model.K, len(trained_model.metagene_groups)))
+    for group_index, group_name in enumerate(trained_model.metagene_groups):
+        M_bar_subset = trained_model.parameter_optimizer.metagene_state.M_bar[group_name][gene_indices]
+        images[:, :, group_index] = M_bar_subset
+    
+    summed_weights = images.sum(axis=1)
+    fig, axes = setup_squarish_axes(len(gene_indices), figsize=(10, 10))
+    for ax, trend, gene in zip(axes.flat, summed_weights, gene_subset):
+        aspect = 0.1
+        r = np.corrcoef(covariate_values, y=trend)[0, 1]
+        im = ax.plot(covariate_values, trend)
+        ax.set_title(f"{gene}, R = {r:.2f}")

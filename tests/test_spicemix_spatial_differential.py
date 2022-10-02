@@ -19,8 +19,8 @@ def spicemix_with_neighbors():
         K=10, lambda_Sigma_x_inv=1e-5,
         metagene_mode="shared",
         spatial_affinity_mode="differential lookup",
-        torch_context=dict(device='cuda:0', dtype=torch.float32),
-        initial_context=dict(device='cuda:0', dtype=torch.float32),
+        torch_context=dict(device='cuda:0', dtype=torch.float64),
+        initial_context=dict(device='cuda:0', dtype=torch.float64),
         dataset_path=path2dataset / "all_data.h5",
         replicate_names=replicate_names
     )   
@@ -53,9 +53,9 @@ def test_louvain_clustering(spicemix_with_neighbors):
     df_meta = []
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
-    expected_aris = [0.8226416387772343, 0.8784561996357411]
-    expected_silhouettes = [0.28547316789627075, 0.31491050124168396]
-    
+    expected_aris = [0.7971891723797047, 0.8811414533720596]
+    expected_silhouettes = [0.28914024356869583, 0.31786524619926054]
+
     for index, (r, X) in enumerate(spicemix_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')
         df = pd.read_csv(path2dataset / 'files' / f'celltypes_{r}.txt', header=None)

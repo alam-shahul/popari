@@ -739,18 +739,21 @@ class ParameterOptimizer():
             Sigma_x_inv.grad = (Sigma_x_inv.grad + Sigma_x_inv.grad.T) / 2
             optimizer.step()
             with torch.no_grad():
+                if self.spatial_affinity_centering:
+                    Sigma_x_inv -= Sigma_x_inv.mean()
+
                 if self.spatial_affinity_constraint == "clamp":
                     Sigma_x_inv.clamp_(min=-self.spatial_affinity_state.scaling, max=self.spatial_affinity_state.scaling)
                 elif self.spatial_affinity_constraint == "scale":
                     Sigma_x_inv.mul_(self.spatial_affinity_state.scaling / Sigma_x_inv.abs().max())
 
-            if self.spatial_affinity_centering:
-                with torch.no_grad():
-                    Sigma_x_inv -= Sigma_x_inv.mean()
     
             loss = loss.item()
             dloss = loss_prev - loss
             loss_prev = loss
+            regularization_prev = regularization.item()
+            log_partition_function_prev = log_partition_function.item()
+            linear_term_prev = linear_term.item()
     
             with torch.no_grad():
                 dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
@@ -781,6 +784,45 @@ class ParameterOptimizer():
    
         verbose_bar.close()
         progress_bar.close()
+
+        # with torch.no_grad():
+        #     offset = -Sigma_x_inv.mean()
+        #     Sigma_x_inv += offset
+        #     print(f"Offset = {offset}")
+        #     # Compute loss 
+        #     linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1)
+        #     regularization = torch.zeros(1, **self.context)
+        #     if Sigma_x_inv_bar is not None:
+        #         group_weighting = 1 / len(Sigma_x_inv_bar)
+        #         for group_Sigma_x_inv_bar in Sigma_x_inv_bar:
+        #             regularization += group_weighting * self.lambda_Sigma_bar * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
+
+        #     regularization += self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
+        #     
+        #     log_partition_function = 0
+        #     for nu, beta in zip(nus, self.betas):
+        #         if subsample_rate is None:
+        #             subsample_index = np.arange(len(dataset))
+        #             subsample_multiplier = 1
+        #         else:
+        #             node_limit = int(subsample_rate * len(dataset))
+        #             subsample_index = np.sort(sample_graph_iid(adjacency_list, range(len(dataset)), node_limit))
+        #             subsample_multiplier = 1 / subsample_rate
+        #             nu = nu[subsample_index]
+
+        #         if nu is None:
+        #             continue
+        #         assert torch.isfinite(nu).all()
+        #         assert torch.isfinite(Sigma_x_inv).all()
+        #         eta = nu @ Sigma_x_inv
+        #         logZ = integrate_of_exponential_over_simplex(eta)
+        #         log_partition_function += subsample_multiplier * beta * logZ.sum()
+    
+        #     loss = (linear_term + regularization + log_partition_function) / weighted_total_cells
+
+        #     print(f"Previous loss: total-{loss_prev}, regularization-{regularization_prev}, linear_term-{linear_term_prev}, log_partition_function-{log_partition_function_prev}")
+        #     print(f"Loss after adding large offset: total-{loss.item()}, regularization-{regularization.item()}, linear_term-{linear_term.item()}, log_partition_function-{log_partition_function.item()}")
+        #     2/0
 
         Sigma_x_inv = Sigma_x_inv_best
         Sigma_x_inv.requires_grad_(False)
@@ -933,8 +975,7 @@ class ParameterOptimizer():
                 group_weighting = 1 / len(M_bar)
                 for group_M_bar in M_bar:
                     differential_regularization_term += group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
-            # regularization_term = torch.sum(torch.Tensor([(regularizer[0] * X).sum() for regularizer, X in zip(regularization, Xs)]))
-            # loss += regularization_term
+            
             if self.verbose > 2:
                 # print(f"M regularization term: {regularization_term}")
                 if self.metagene_mode == "differential":
@@ -977,7 +1018,7 @@ class ParameterOptimizer():
                     else:
                         M = project_M(M, self.M_constraint)
                 elif simplex_projection_mode == "approximate":
-                    pass
+                    raise NotImplementedError()
 
                 optimizer.set_parameters(M)
     

@@ -58,31 +58,36 @@ def test_project2simplex_basic():
     assert x.allclose(project2simplex(x.clone(), dim=0))
 
 def integrate_of_exponential_over_simplex(eta, eps=1e-15):
-	assert torch.isfinite(eta).all()
-	N, K = eta.shape
-	A = torch.empty_like(eta)
-	signs = torch.empty_like(A)
-	for k in range(K):
-		t = eta - eta[:, [k]]
-		assert torch.isfinite(t).all()
-		t[:, k] = 1
-		tsign = t.sign()
-		signs[:, k] = tsign.prod(-1)
-		# t = t.abs().clip(min=1e-10).log()
-		t = t.abs().add(eps).log()
-		assert torch.isfinite(t).all()
-		t[:, k] = -eta[:, k]
-		A[:, k] = t.sum(-1).neg()
-	assert torch.isfinite(A).all()
-	# signed logsumexp
-	o = A.max(-1, keepdim=True)[0]
-	ret = A.sub(o).exp()
-	assert torch.isfinite(ret).all()
-	ret = ret.mul(signs).sum(-1)
-	ret = ret.clip(min=eps)
-	assert (ret > 0).all(), ret.min().item()
-	ret = ret.log().add(o.squeeze(-1))
-	return ret
+    assert torch.isfinite(eta).all()
+    N, K = eta.shape
+    log_abs = torch.empty_like(eta)
+    signs = torch.empty_like(log_abs)
+    for k in range(K):
+        difference = eta - eta[:, [k]]
+        difference[:, k] = 1
+        difference_sign = difference.sign()
+        signs[:, k] = difference_sign.prod(axis=1)
+        # t = t.abs().clip(min=1e10).log()
+        difference = difference.abs().add(eps).log()
+        difference[:, k] = eta[:, k]
+
+        log_abs[:, k] = difference.sum(axis=1)
+    assert torch.isfinite(log_abs).all()
+    log_abs.neg_()
+   
+    # signed logsumexp
+    maxes, _ = log_abs.max(axis=1, keepdim=True)
+    ret = log_abs.sub(maxes).exp()
+    assert torch.isfinite(ret).all()
+
+    ret = ret.mul(signs).sum(axis=-1)
+    ret = ret.clip(min=eps)
+    assert (ret > 0).all(), ret.min().item()
+
+    squeezed_maxes = maxes.squeeze(axis=-1)
+    ret = ret.log().add(squeezed_maxes)
+
+    return ret
 
 if __name__ == "__main__":
     test_project2simplex_basic()

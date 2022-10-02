@@ -3,7 +3,10 @@ import squidpy as sq
 
 from spicemix.io import load_anndata, save_anndata
 from spicemix.model import SpiceMixPlus, load_trained_model
-from spicemix.analysis import plot_metagene_embedding, leiden, plot_in_situ, multireplicate_heatmap, multigroup_heatmap, compute_ari_scores, plot_all_metagene_embeddings, compute_empirical_correlations
+from spicemix.analysis import plot_metagene_embedding, leiden, plot_in_situ, multireplicate_heatmap, \
+     multigroup_heatmap, compute_ari_scores, plot_all_metagene_embeddings, compute_empirical_correlations, \
+     find_differential_genes, plot_gene_activations, plot_gene_trajectories
+
 from pathlib import Path
 
 @pytest.fixture(scope="module")
@@ -12,6 +15,15 @@ def trained_model():
     replicate_names=[0, 1]
     trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad", replicate_names)
     trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad")
+
+    return trained_model
+
+@pytest.fixture(scope="module")
+def trained_differential_model():
+    path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    replicate_names=[0, 1]
+    trained_model = load_trained_model(path2dataset / "trained_differential_metagenes_4_iterations.h5ad", replicate_names)
+    trained_model = load_trained_model(path2dataset / "trained_differential_metagenes_4_iterations.h5ad")
 
     return trained_model
 
@@ -29,8 +41,15 @@ def test_load_anndata(trained_model):
     load_anndata(path2dataset/ "trained_4_iterations.h5ad", replicate_names)
     load_anndata(path2dataset/ "trained_4_iterations.h5ad")
 
-def test_analysis_functions(trained_model):
+def test_analysis_functions(trained_model, trained_differential_model):
     trained_model.embedding_optimizer.embedding_state.normalize()
+
+    differential_genes = find_differential_genes(trained_differential_model)
+    print(differential_genes)
+
+    covariate_values = [0]
+    plot_gene_trajectories(trained_differential_model, differential_genes, covariate_values)
+    plot_gene_activations(trained_differential_model, differential_genes)
 
     expected_aris = [0.8719074554517243, 0.8732437089486653]
     leiden(trained_model, joint=True, target_clusters=8)
@@ -46,7 +65,6 @@ def test_analysis_functions(trained_model):
         sq.gr.spatial_neighbors(dataset, key_added="spatial")
 
     plot_in_situ(trained_model)
-    
 
     multireplicate_heatmap(trained_model, uns="Sigma_x_inv")
     plot_all_metagene_embeddings(trained_model, embedding_key="normalized_X")
