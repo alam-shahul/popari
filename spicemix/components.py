@@ -106,7 +106,7 @@ class EmbeddingOptimizer():
 
     """
 
-    def __init__(self, K, Ys, datasets, initial_context=None, context=None, use_inplace_ops=False, verbose=0):
+    def __init__(self, K, Ys, datasets, initial_context=None, context=None, use_inplace_ops=False, embedding_step_size_multiplier=1, verbose=0):
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
         self.datasets = datasets
@@ -116,6 +116,7 @@ class EmbeddingOptimizer():
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.adjacency_lists = {dataset.name: dataset.obs["adjacency_list"] for dataset in self.datasets}
         self.adjacency_matrices = {dataset.name: dataset.obsp["adjacency_matrix"] for dataset in self.datasets}
+        self.embedding_step_size_multiplier = embedding_step_size_multiplier
        
         if self.verbose:
             print(f"{get_datetime()} Initializing EmbeddingState") 
@@ -278,8 +279,13 @@ class EmbeddingOptimizer():
         MTM = M.T @ M / (sigma_yx ** 2)
         YM = Y.to(M.device) @ M / (sigma_yx ** 2)
         Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx ** 2)
-        base_step_size = 1 / torch.linalg.eigvalsh(MTM).max().item()
+        base_step_size = self.embedding_step_size_multiplier / torch.linalg.eigvalsh(MTM).max().item()
         S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
+
+        if self.verbose > 3:
+            print(f"S max: {S.max()}")
+            print(f"S min: {S.min()}")
+
         Z = X / S
         N = len(Z)
         
@@ -301,23 +307,6 @@ class EmbeddingOptimizer():
             S.div_(denominator)
             S.clip_(min=1e-5)
     
-        # Debugging for loss of M
-        def compute_loss_and_gradient(M):
-            quadratic_factor_grad = M @ quadratic_factor
-            loss = (quadratic_factor_grad * M).sum()
-            grad = quadratic_factor_grad
-            linear_term_grad = linear_term
-            loss -= 2 * (linear_term_grad * M).sum()
-            grad -= linear_term_grad
-            
-            loss += constant
-            loss /= 2
-    
-            if M_constraint == 'simplex':
-                grad.sub_(grad.sum(0, keepdim=True))
-    
-            return loss.item(), grad
-        
         def calc_func_grad(Z_batch, S_batch, quad, linear):
             t = (Z_batch @ quad).mul_(S_batch ** 2)
             f = (t * Z_batch).sum() / 2
@@ -649,6 +638,8 @@ class ParameterOptimizer():
         """
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
         betas = [beta for (use_replicate, beta) in zip(replicate_mask, self.betas) if use_replicate]
+        betas = np.array(betas) / np.sum(betas)
+        
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         spatial_flags = ["adjacency_list" in dataset.obs for dataset in datasets]
 
@@ -669,7 +660,7 @@ class ParameterOptimizer():
 
             if use_spatial:
                 nu = adjacency_matrix @ Z
-                linear_term_coefficient = linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
+                linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
             else:
                 nu = None
 
@@ -779,6 +770,7 @@ class ParameterOptimizer():
                 early_stop_epoch_count += 1
             else:
                 early_stop_epoch_count = 0
+
             if early_stop_epoch_count >= 10 or epoch > epoch_best + 100:
                 break
    

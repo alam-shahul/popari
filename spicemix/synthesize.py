@@ -7,7 +7,7 @@ from scipy.spatial import Delaunay
 from scipy.spatial.distance import pdist, cdist, squareform
 from scipy.stats import gaussian_kde, gamma, truncnorm, truncexpon, expon, bernoulli, dirichlet
 
-import emcee
+# import emcee
 from numpy.linalg import inv
 from numpy.random import multivariate_normal
 
@@ -69,44 +69,44 @@ def sample_gaussian(sigma, m, N=1):
     
     
     
-def sample_truncated_gaussian(covariance_matrix, means, num_walkers, num_steps=10000):
-    """Sample gene expression vectors from a multivariate truncated Gaussian distribution.
-    
-    See https://stackoverflow.com/a/20188431/13952002 for details
-    
-    Args:
-        covariance_matrix:
-        means:
-        num_walkers:
-    Return:
-    
-    Todo:
-        Finish docstring
-    """
-    num_genes = len(covariance_matrix)
-    bounds = np.tile([0, np.inf], (1, num_genes))
-    
-    def lnprob_trunc_norm(x, means, bounds, covariance_matrix):
-        if np.any(x < bounds[:,0]) or np.any(x > bounds[:,1]):
-            return -np.inf
-        else:
-            return -0.5*(x-means).dot(inv(covariance_matrix)).dot(x-means)
-    
-    sampler = emcee.EnsembleSampler(num_walkers, num_genes, lnprob_trunc_norm, args = (means, bounds, covariance_matrix), moves=[(emcee.moves.StretchMove(live_dangerously=True), 1)])
-    position = multivariate_normal(means, covariance_matrix, size=num_walkers)
-
-#     plt.figure()
-#     plt.scatter(position[:, 0], position[:, 1])
-    
-    position, prob, state = sampler.run_mcmc(position, num_steps, skip_initial_state_check=True)
-   
-    # Some data may still be negative if the number of steps in the simulation is too low;
-    # in this case, simply make them positive
-    position = np.abs(position)
-#     plt.scatter(position[:, 0], position[:, 1])
-#     plt.show()
-    
-    return position
+# def sample_truncated_gaussian(covariance_matrix, means, num_walkers, num_steps=10000):
+#     """Sample gene expression vectors from a multivariate truncated Gaussian distribution.
+#     
+#     See https://stackoverflow.com/a/20188431/13952002 for details
+#     
+#     Args:
+#         covariance_matrix:
+#         means:
+#         num_walkers:
+#     Return:
+#     
+#     Todo:
+#         Finish docstring
+#     """
+#     num_genes = len(covariance_matrix)
+#     bounds = np.tile([0, np.inf], (1, num_genes))
+#     
+#     def lnprob_trunc_norm(x, means, bounds, covariance_matrix):
+#         if np.any(x < bounds[:,0]) or np.any(x > bounds[:,1]):
+#             return -np.inf
+#         else:
+#             return -0.5*(x-means).dot(inv(covariance_matrix)).dot(x-means)
+#     
+#     sampler = emcee.EnsembleSampler(num_walkers, num_genes, lnprob_trunc_norm, args = (means, bounds, covariance_matrix), moves=[(emcee.moves.StretchMove(live_dangerously=True), 1)])
+#     position = multivariate_normal(means, covariance_matrix, size=num_walkers)
+# 
+# #     plt.figure()
+# #     plt.scatter(position[:, 0], position[:, 1])
+#     
+#     position, prob, state = sampler.run_mcmc(position, num_steps, skip_initial_state_check=True)
+#    
+#     # Some data may still be negative if the number of steps in the simulation is too low;
+#     # in this case, simply make them positive
+#     position = np.abs(position)
+# #     plt.scatter(position[:, 0], position[:, 1])
+# #     plt.show()
+#     
+#     return position
     
 def sample_2D_points(num_points, minimum_distance):
     """Generate 2D samples that are at least minimum_distance apart from each other.
@@ -181,20 +181,22 @@ def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_
     
     num_metagenes = num_real_metagenes + n_noise_metagenes 
     metagenes = np.zeros((num_metagenes, num_genes))
-    
+
+#     last_index = None
     for index in range(num_real_metagenes):
         variation_probability = metagene_variation_probabilities[index]
 
         if variation_probability == 0 and not replicate_variability:
             metagene = gamma.rvs(real_metagene_parameter, size=num_genes)
             metagenes[index] = metagene
+#             last_index = index
         else:
             if variation_probability == 0:
                 metagene = original_metagenes[index].copy()
                 variation_probability = replicate_variability
                 
             mask = bernoulli.rvs(variation_probability, size=num_genes).astype('bool')
-            perturbed_metagene = metagene
+            perturbed_metagene = metagene.copy()
 
             perturbations = gamma.rvs(real_metagene_parameter, size=np.sum(mask))
             if original_metagenes is not None:
@@ -203,6 +205,8 @@ def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_
             perturbed_metagene[mask] = perturbations
         
             metagenes[index] = perturbed_metagene
+            
+#         print(f"Difference between last_index and current index: {((metagenes[index] - metagenes[last_index]) == 0).sum() / num_genes}")
             
     for index in range(num_real_metagenes, num_metagenes):
         metagenes[index] = gamma.rvs(noise_metagene_parameter, size=num_genes)
@@ -274,259 +278,3 @@ def perturb_genes(gene_expression, num_metagenes, first_threshold=.2, second_thr
     gene_expression[indices, :] = (gamma.rvs(shape, size=(random_sample_size*num_samples)) / float(genes)).reshape((random_sample_size, num_samples))
 
     return gene_expression
-
-class SyntheticDataset:
-    """Synthetic mouse brain cortex dataset.
-    
-    This class provides methods for initializing a semi-random mouse cortex spatial
-    transcriptomics dataset, as well as methods to visualize aspects of the dataset.
-    
-    """
-    
-    def __init__(self, distributions, cell_type_definitions, mask_conditions, metagene_variation_probabilities,
-                 parameters, parent_directory, shared_metagenes=None, key=''):
-        self.num_metagenes = parameters["num_real_metagenes"] + parameters['num_noise_metagenes']
-        self.num_cells = parameters['num_cells']
-        self.num_genes = parameters["num_genes"]
-        
-        # TODO: make color work for variable number of colors
-        self.colors = {0: 'darkkhaki', 1: 'mediumspringgreen', 2: 'greenyellow', 3: '#95bfa6',
-                       4: 'violet', 5: 'firebrick',
-                       6: 'deepskyblue', 7: 'darkslateblue'}
-        
-        print('Synthesizing X, A, and p...')
-        self.num_replicates = parameters['num_replicates']
-        self.sig_y = parameters['sigY_scale']
-        if isinstance(self.sig_y, float):
-            self.sig_y *= np.identity(self.num_genes) / self.num_genes
-            self.variance_y = (self.sig_y**2)
-        elif isinstance(self.sig_y, dict):
-            self.sig_y = {cell_type: cell_specific_sig_y / self.num_genes for cell_type, cell_specific_sig_y in self.sig_y.items()}
-            random_key = next(iter(self.sig_y))
-            if isinstance(self.sig_y[random_key], float):
-                self.sig_y = {cell_type: cell_specific_sig_y * np.identity(self.num_genes) for cell_type, cell_specific_sig_y in self.sig_y.items()}
-            
-            self.variance_y = {cell_type: cell_specific_sig_y ** 2 for cell_type, cell_specific_sig_y in self.sig_y.items()}
-        
-        # self.sig_y = float(parameters['sigY_scale']) / self.num_genes
-        self.metagenes = np.zeros((self.num_replicates, self.num_genes, self.num_metagenes))
-        self.Y = np.zeros((self.num_replicates, self.num_genes, self.num_cells))
-        self.cell_embeddings = np.zeros((self.num_replicates, self.num_metagenes, self.num_cells))
-        self.points = np.zeros((self.num_replicates, self.num_cells, 2))
-        self.affinity_matrices = np.zeros((self.num_replicates, self.num_cells, self.num_cells))
-        self.cell_types = np.zeros((self.num_replicates, self.num_cells))
-        
-        minimum_distance = 0.75 / np.sqrt(self.num_cells)
-        tau = minimum_distance * 2.2
-        for replicate in range(self.num_replicates):
-            print('Synthesizing M...')
-            if replicate == 0:
-                self.metagenes[replicate] = synthesize_metagenes(self.num_genes, parameters["num_real_metagenes"],
-                                                  parameters['num_noise_metagenes'],
-                                                  parameters["real_metagene_parameter"], parameters["noise_metagene_parameter"],
-                                                  metagene_variation_probabilities=metagene_variation_probabilities)
-            else:
-                self.metagenes[replicate] = synthesize_metagenes(self.num_genes, parameters["num_real_metagenes"],
-                                                  parameters['num_noise_metagenes'],
-                                                  parameters["real_metagene_parameter"], parameters["noise_metagene_parameter"],
-                                                  metagene_variation_probabilities=metagene_variation_probabilities,
-                                                  original_metagenes=self.metagenes[replicate-1].T,
-                                                  replicate_variability=parameters["replicate_variability"])
-        
-            p_i = sample_2D_points(self.num_cells, minimum_distance)
-            A_i = generate_affinity_matrix(p_i, tau)
-            X_i, C_i = synthesize_cell_embeddings(p_i, distributions, cell_type_definitions, mask_conditions, self.num_cells, n_noise_metagenes=parameters["num_noise_metagenes"])
-
-            self.S = gamma.rvs(self.num_metagenes, scale=parameters['lambda_s'], size=self.num_cells)
-            self.affinity_matrices[replicate] = A_i
-            self.points[replicate] = p_i
-            self.cell_embeddings[replicate] = X_i * self.S
-            self.cell_types[replicate] = C_i
-
-        print(self.metagenes.sum(axis=1))
-        print('Synthesizing Y...')
-        for replicate in range(self.num_replicates):
-            Y_i = np.matmul(self.metagenes[replicate], self.cell_embeddings[replicate])
-            self.Y[replicate] = Y_i
-#             variance_y = (self.sig_y**2) * np.identity(self.num_genes)
-            
-            for cell, cell_type in zip(range(self.num_cells), self.cell_types[replicate]):
-                if isinstance(self.variance_y, dict):
-                    cell_type_variance_y = self.variance_y[int(cell_type)]
-                else:
-                    cell_type_variance_y = self.variance_y
-                    
-                self.Y[replicate][:, cell] = np.abs(sample_gaussian(cell_type_variance_y, Y_i[:, cell]))
-                
-            if parameters['gene_replace_prob'] > 0 and parameters['element_replace_prob'] > 0:
-                self.Y[replicate] = perturb_genes(Y_i, self.num_metagenes, first_threshold=parameters['gene_replace_prob'],
-                                        second_threshold=parameters['element_replace_prob'],
-                                        shape=self.num_metagenes)
-                
-        # gene_ind variable is just all genes -- we don't remove any
-        # TODO: remove this field
-        self.gene_ind = range(self.num_genes)
-        
-        # create empty Sig_x_inverse, since it is not used in this data generation
-        self.sigma_x_inverse = np.zeros((self.num_metagenes, self.num_metagenes))
-
-#         data_subdirectory = 'synthetic_{}_{}_{}_{:.0f}_{}'
-#         data_subdirectory = data_subdirectory.format(self.num_cells, self.num_genes, "covariance",
-#                                                          parameters['gene_replace_prob']*100, key)
-#         
-#         self.data_directory = Path(parent_directory) / data_subdirectory
-#         self.initialize_data_directory()
-        
-        print('Finished')
-
-    def initialize_data_directory(self):
-        """Initialize data directory structure on user file system.
-        
-        """
-        (self.data_directory / "files").mkdir(parents=True, exist_ok=True)
-        (self.data_directory / "logs").mkdir(parents=True, exist_ok=True)
-        (self.data_directory / "scripts").mkdir(parents=True, exist_ok=True)
-        (self.data_directory / "plots").mkdir(parents=True, exist_ok=True)
-
-    def plot_cells_UMAP(self, replicate=0, latent_space=False, cell_types=None,colors=None,save_figure=False, normalize=True, annotate=False):
-        """Plot synthesized cells using UMAP.
-        """
-        # TODO: fix colors to be more compatible with variable cell types..
-        
-        if latent_space:
-            gene_expression = self.cell_embeddings[replicate].T
-        else:
-            gene_expression = self.Y[replicate].T
-            
-        num_cells, num_features = gene_expression.shape
-        C_i = self.cell_types[replicate]
-        
-        if not colors:
-            colors = {0: 'darkkhaki', 1: 'mediumspringgreen', 2: 'greenyellow', 3: '#95bfa6',
-                      4: 'violet', 5: 'firebrick', 6: 'gold',
-                      7: 'deepskyblue', 8: 'darkslateblue', 9: 'gainsboro'}
-            
-       
-        cell_type_names, cell_type_index = np.unique(C_i, return_index=True)
-        sort_index = np.argsort(cell_type_names)
-        unique_cell_types, cell_type_index = cell_type_names[sort_index], cell_type_index[sort_index]
-        palette = sns.color_palette("husl", len(unique_cell_types))
-        sns.set_palette(palette)
-        
-        colormap = ListedColormap(palette)
-
-        if normalize:
-            gene_expression = (gene_expression - np.average(gene_expression, axis=0))
-            gene_expression_std = gene_expression.std(axis=0)
-            for feature in range(num_features):
-                if gene_expression_std[feature] != 0:
-                    gene_expression[:, feature] = np.divide(gene_expression[:, feature], gene_expression_std[feature])
-
-        # TODO: cleanup unnecessary lines
-        gene_expression_reduced = umap.UMAP(
-                        n_components=2,
-                        #         spread=1,
-                        n_neighbors=10,
-                        min_dist=0.3,
-                        #         learning_rate=100,
-                        #         metric='euclidean',
-                        #         metric='manhattan',
-                        #         metric='canberra',
-                        #         metric='braycurtis',
-                        #         metric='mahalanobis',
-                        #         metric='cosine',
-                        #         metric='correlation',
-                        ).fit_transform(gene_expression)
-
-        fig = plt.figure(figsize=(7, 5))
-        ax = fig.add_axes([0.1, 0.1, .8, .8])
-        for color, cell_type in np.ndenumerate(unique_cell_types):
-            index = (C_i == cell_type)
-            ax.scatter(gene_expression_reduced[index, 0], gene_expression_reduced[index, 1], alpha=.7, c=colormap(color), label=cell_type)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.yaxis.set_label_position("right")
-        plt.legend(bbox_to_anchor=(1.04,0), loc="lower left", borderaxespad=0)
-        
-        if annotate:
-            for label, index in zip(unique_cell_types, cell_type_index):
-                ax.annotate(label, (gene_expression_reduced[index, 0], gene_expression_reduced[index, 1]))
-
-        plt.show()
-        
-        if save_figure:
-            plt.savefig(self.data_directory / "plots" / 'synthesized_data_umap.png')
-
-    def plot_metagenes(self, order_genes=True):
-        """Plot density map of metagenes in terms of constituent genes.
-        
-        """
-        
-        if order_genes:
-            mclust = scipy.cluster.hierarchy.linkage(self.metagenes, 'ward')
-            mdendro = scipy.cluster.hierarchy.dendrogram(mclust, no_plot=True)
-            plt.imshow(self.metagenes[mdendro['leaves']], aspect='auto')
-        else:
-            plt.imshow(self.metagenes, aspect='auto')
-            
-        plt.xlabel('Metagene ID')
-        plt.ylabel('Gene ID')
-        plt.show()
-
-    def plot_cell_types(self, replicate=0, save_figure=False, colors=None):
-        """Plot cells in situ using cell type labels.
-        
-        """
-        
-        points = self.points[replicate]
-        affinity_matrix = self.affinity_matrices[replicate]
-        cell_types = self.cell_types[replicate]
-        if not colors:
-            colors = {0: 'sandybrown', 1: 'lightskyblue',
-                      2: 'mediumspringgreen', 3: 'palegreen',
-                      4: 'greenyellow', 5: 'darkseagreen',
-                      6: 'burlywood', 7: 'orangered', 8: 'firebrick',
-                      9: 'gold', 10: 'mediumorchid', 11: 'magenta',
-                      12: 'palegoldenrod', 13: 'gainsboro', 14: 'teal',
-                      15: 'darkslateblue'}
-        df = pd.DataFrame({'X': points[:, 0], 'Y': points[:, 1], 'cell_type': cell_types})
-        fig = plt.figure(figsize=(12, 6))
-        ax = fig.add_axes([0, 0, 1, 1])
-        
-        for (source, destination) in zip(*np.where(affinity_matrix == 1)):
-            plt.plot([points[source, 0], points[destination, 0]],
-                [points[source, 1], points[destination, 1]], color="gray", linewidth=1)
-        
-        sns.scatterplot(data=df, x='X', y='Y', hue='cell_type', ax=ax, palette=colors,
-                        legend=False, hue_order=list(set(cell_types)), size_norm=10.0)
-        plt.show()
-
-    def plot_metagenes_in_situ(self, replicate=0, save_figure=False):
-        """Plot metagene values per cell in-situ.
-        
-        """
-        
-        points = self.points[replicate]
-        cell_embeddings = self.cell_embeddings[replicate]
-        for metagene in range(self.num_metagenes):
-            fig = plt.figure(figsize=(5, 3))
-            ax = fig.add_axes([.1, .1, .8, .8])
-            ax.set_ylabel('Metagene {}'.format(metagene))
-            sca = ax.scatter(points[:, 0], points[:, 1], c=cell_embeddings[metagene], s=23, cmap=plt.get_cmap('Blues'), vmin=0)
-            fig.colorbar(sca)
-            ax.set_yticks([])
-            ax.set_xticks([])
-            plt.show()
-            if save_figure:
-                plt.savefig(self.data_directory / "plots" / ('synthetic_metagene_{}.png'.format(metagene)))
-
-    def plot_hidden_states(self, replicate=0, save_figure=False):
-        """Plot synthetic cell embeddings.
-        
-        """
-        cell_embeddings = self.cell_embeddings[replicate]
-        image = plt.imshow(cell_embeddings, aspect='auto')
-        plt.xlabel('Cell ID')
-        plt.ylabel('Metagene ID')
-        plt.colorbar(image)
-        plt.show()

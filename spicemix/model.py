@@ -82,6 +82,7 @@ class SpiceMixPlus:
         spatial_affinity_constraint: str = "clamp",
         spatial_affinity_centering: bool = False,
         spatial_affinity_scaling: int = 10,
+        embedding_step_size_multiplier: float = 1.0,
         use_inplace_ops: bool = False,
         random_state: int = 0,
         verbose: int = 0
@@ -116,6 +117,8 @@ class SpiceMixPlus:
         self.M_constraint = M_constraint
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.spatial_affinity_mode = spatial_affinity_mode
+            
+        self.embedding_step_size_multiplier=embedding_step_size_multiplier
 
         self.metagene_mode = metagene_mode 
         self.lambda_M = lambda_M
@@ -233,7 +236,13 @@ class SpiceMixPlus:
         
         if self.verbose:
             print(f"{get_datetime()} Initializing EmbeddingOptimizer")
-        self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets, initial_context=self.initial_context, context=self.context, use_inplace_ops=self.use_inplace_ops, verbose=self.verbose)
+        self.embedding_optimizer = EmbeddingOptimizer(self.K, self.Ys, self.datasets,
+            initial_context=self.initial_context,
+            context=self.context,
+            use_inplace_ops=self.use_inplace_ops,
+            verbose=self.verbose,
+            embedding_step_size_multiplier=self.embedding_step_size_multiplier
+        )
         
         self.parameter_optimizer.link(self.embedding_optimizer)
         self.embedding_optimizer.link(self.parameter_optimizer)

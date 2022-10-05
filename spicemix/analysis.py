@@ -300,6 +300,7 @@ def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str
             spot_size=spot_size,
             wspace=0.2,
             ncols=2,
+            **spatial_kwargs
         )
 
 def compute_empirical_correlations(trained_model: SpiceMixPlus, feature: str = "X", output: str = "empirical_correlation"):
@@ -313,7 +314,9 @@ def compute_empirical_correlations(trained_model: SpiceMixPlus, feature: str = "
 
     datasets = trained_model.datasets
     num_replicates = len(datasets)
-    K = trained_model.K
+
+    first_dataset = datasets[0]
+    N, K = first_dataset.obsm[feature].shape
     scaling = trained_model.parameter_optimizer.spatial_affinity_state.scaling
     empirical_correlations = np.zeros([num_replicates, K, K])
     for replicate, dataset in enumerate(datasets):
