@@ -9,7 +9,11 @@ import anndata as ad
 import scanpy as sc
 import squidpy as sq
 
-from sklearn.metrics import adjusted_rand_score
+from sklearn.metrics import adjusted_rand_score, silhouette_score
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import precision_score, accuracy_score
+from sklearn.preprocessing import LabelEncoder
 
 import pandas as pd
 import seaborn as sns
@@ -275,6 +279,23 @@ def compute_ari_scores(trained_model: SpiceMixPlus, labels: str, predictions: st
         ari = adjusted_rand_score(dataset.obs[labels], dataset.obs[predictions])
         dataset.uns[ari_key] = ari
 
+def compute_silhouette_scores(trained_model: SpiceMixPlus, labels: str, embeddings: str, silhouette_key: str = "silhouette"):
+    r"""Compute silhouette score for a clustering based on SpiceMixPlus embeddings.
+
+    Useful for assessing clustering validity. ARI score is computed per dataset.
+
+    Args:
+        trained_model: the trained SpiceMixPlus model.
+        labels: the key in the ``.obs`` dataframe for the label data.
+        predictions: the key in the ``.obs`` dataframe for the predictions data.
+        ari_key: the key in the ``.uns`` dictionary where the ARI score will be stored.
+    """
+    datasets = trained_model.datasets
+
+    for dataset in datasets:
+        silhouette = silhouette_score(dataset.obsm[embeddings], dataset.obs[labels])
+        dataset.uns[silhouette_key] = silhouette
+
 def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str = "X", column_names: Optional[str] = None, **spatial_kwargs):
     r"""Plot all laerned metagenes in-situ across all replicates.
 
@@ -428,3 +449,34 @@ def plot_gene_trajectories(trained_model: SpiceMixPlus, gene_subset: Sequence[st
         r = np.corrcoef(covariate_values, y=trend)[0, 1]
         im = ax.plot(covariate_values, trend)
         ax.set_title(f"{gene}, R = {r:.2f}")
+
+def evaluate_classification_task(trained_model: SpiceMixPlus, embeddings: str, labels: str, joint: bool):
+    datasets = trained_model.datasets
+    if joint:
+        dataset_names = [dataset.name for dataset in datasets]
+        merged_dataset = ad.concat(datasets, label="batch", keys=dataset_names, merge="unique", uns_merge="unique", pairwise=True)
+        datasets = [merged_dataset]
+
+    for dataset in datasets:
+        le = LabelEncoder()
+        encoded_labels = le.fit_transform(dataset.obs[labels].astype(str))
+        dataset_embeddings = dataset.obsm[embeddings]
+
+        X_train, X_valid, y_train, y_valid = train_test_split(dataset_embeddings, encoded_labels, train_size=0.25, random_state=42, stratify=encoded_labels)
+        model = KNeighborsClassifier(n_neighbors=10)
+        model.fit(X_train, y_train)
+
+        df = []
+        for split, X, y in [('train', X_train, y_train), ('validation', X_valid, y_valid)]:
+            y_soft = model.predict_proba(X)
+            y_hat = np.argmax(y_soft, 1)
+            dataset.uns[f'microprecision_{split}'] = precision_score(y, y_hat, average='micro')
+            dataset.uns[f'macroprecision_{split}'] = precision_score(y, y_hat, average='macro')
+        
+    if joint:
+        indices = merged_dataset.obs.groupby("batch").indices.values()
+        unmerged_datasets = [merged_dataset[index] for index in indices]
+        for unmerged_dataset, original_dataset in zip(unmerged_datasets, trained_model.datasets):
+            for split in ("train", "validation"):
+                original_dataset.uns[f'microprecision_{split}'] = unmerged_dataset.uns[f'microprecision_{split}']
+                original_dataset.uns[f'macroprecision_{split}'] = unmerged_dataset.uns[f'macroprecision_{split}']
