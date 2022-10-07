@@ -46,7 +46,7 @@ class SpiceMixDataset(ad.AnnData):
 
         self.name = f"{replicate_name}"
 
-    def compute_spatial_neighbors(self):
+    def compute_spatial_neighbors(self, threshold: float = 94.5):
         r"""Compute neighbor graph based on spatial coordinates.
 
         Stores resulting graph in ``self.obs["adjacency_list"]``.
@@ -55,7 +55,7 @@ class SpiceMixDataset(ad.AnnData):
 
         sq.gr.spatial_neighbors(self, coord_type="generic", delaunay=True)
         distance_matrix, adjacency_matrix = self.obsp["spatial_distances"], self.obsp["spatial_connectivities"]
-        self.obsp["spatial_connectivities"] = SpiceMixDataset.remove_connectivity_artifacts(distance_matrix, adjacency_matrix)
+        self.obsp["spatial_connectivities"] = SpiceMixDataset.remove_connectivity_artifacts(distance_matrix, adjacency_matrix, threshold=threshold)
         self.obsp["adjacency_matrix"] = self.obsp["spatial_connectivities"]
         
         num_cells, _ = self.obsp["adjacency_matrix"].shape
@@ -906,7 +906,11 @@ class ParameterOptimizer():
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         Ys = [Y for (use_replicate, Y) in zip(replicate_mask, self.Ys) if use_replicate]
         sigma_yxs = self.sigma_yxs
-        scaled_betas = self.betas[replicate_mask] / (sigma_yxs**2)
+
+        betas = self.betas[replicate_mask]
+        betas /= betas.sum()
+
+        scaled_betas = betas / (sigma_yxs**2)
         
         # ||Y||_2^2
         constant_magnitude = np.array([torch.linalg.norm(Y).item()**2 for Y in Ys]).sum()
