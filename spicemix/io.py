@@ -52,6 +52,10 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
                 f"{replicate}": replicate_Sigma_x_inv_bar
             }
 
+        # Hacks to load adjacency matrices efficiently
+        if "adjacency_matrix" in dataset.uns:
+            dataset.obsp["adjacency_matrix"] = dataset.uns["adjacency_matrix"][f"{replicate}"]
+
         adjacency_matrix = dataset.obsp["adjacency_matrix"].tocoo()
 
         num_cells, _ = adjacency_matrix.shape
@@ -60,6 +64,9 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
             adjacency_list[x].append(y)
 
         dataset.obs["adjacency_list"] = adjacency_list
+
+        if context != "numpy":
+            dataset.obsp["adjacency_matrix"] = convert_numpy_to_pytorch_sparse_coo(adjacency_matrix, context)
         
         if "M" in dataset.uns:
             if context == "numpy":
@@ -84,9 +91,6 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
                 replicate_X = make_hdf5_compatible(dataset.obsm["X"])
                 dataset.obsm["X"] = replicate_X
 
-        if context != "numpy":
-            dataset.obsp["adjacency_matrix"] = convert_numpy_to_pytorch_sparse_coo(adjacency_matrix, context)
-
     return datasets, replicate_names
 
 def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset], replicate_names: Sequence[str]):
@@ -101,10 +105,12 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset]
                 var=dataset.var,
                 uns=dataset.uns,
                 obsm=dataset.obsm,
-                obsp=dataset.obsp,
         )
 
-        dataset_copy.obsp["adjacency_matrix"] = make_hdf5_compatible(dataset.obsp["adjacency_matrix"])
+        # Hacks to store adjacency matrices efficiently
+        if "adjacency_matrix" in dataset.obsp:
+            adjacency_matrix = make_hdf5_compatible(dataset.obsp["adjacency_matrix"])
+            dataset_copy.uns["adjacency_matrix"] = {f"{replicate}": adjacency_matrix }
        
         if "Sigma_x_inv" in dataset_copy.uns:
             replicate_Sigma_x_inv = dataset_copy.uns["Sigma_x_inv"][f"{replicate}"]
@@ -159,7 +165,7 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset]
 
 
     dataset_names = [dataset.name for dataset in datasets]
-    merged_dataset = ad.concat(dataset_copies, label="batch", keys=dataset_names, merge="unique", uns_merge="unique", pairwise=True)
+    merged_dataset = ad.concat(dataset_copies, label="batch", keys=dataset_names, merge="unique", uns_merge="unique")
     merged_dataset.write(filepath)
    
     reloaded_dataset = ad.read_h5ad(filepath)

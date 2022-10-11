@@ -6,7 +6,7 @@ from spicemix.model import SpiceMixPlus, load_trained_model
 from spicemix.analysis import plot_metagene_embedding, leiden, plot_in_situ, multireplicate_heatmap, \
      multigroup_heatmap, compute_ari_scores, compute_silhouette_scores, plot_all_metagene_embeddings, \
      compute_empirical_correlations, find_differential_genes, plot_gene_activations, plot_gene_trajectories, \
-     evaluate_classification_task
+     evaluate_classification_task, compute_confusion_matrix, plot_confusion_matrix, compute_columnwise_autocorrelation
 
 from pathlib import Path
 
@@ -58,6 +58,10 @@ def test_analysis_functions(trained_model, trained_differential_model):
     compute_silhouette_scores(trained_model, labels="cell_type", embeddings="normalized_X")
     evaluate_classification_task(trained_model, labels="cell_type", embeddings="normalized_X", joint=False)
     evaluate_classification_task(trained_model, labels="cell_type", embeddings="normalized_X", joint=True)
+
+    compute_confusion_matrix(trained_model, labels="cell_type", predictions="leiden")
+    plot_confusion_matrix(trained_model, labels="cell_type")
+    compute_columnwise_autocorrelation(trained_model, uns="M")
 
     for expected_ari, dataset in zip(expected_aris, trained_model.datasets):
         print(f"ARI score: {dataset.uns['ari']}")

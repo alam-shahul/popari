@@ -8,11 +8,11 @@ import numpy as np
 import anndata as ad
 import scanpy as sc
 import squidpy as sq
+import networkx as nx
 
-from sklearn.metrics import adjusted_rand_score, silhouette_score
+from sklearn.metrics import adjusted_rand_score, silhouette_score, precision_score, accuracy_score, confusion_matrix
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import precision_score, accuracy_score
 from sklearn.preprocessing import LabelEncoder
 
 import pandas as pd
@@ -480,3 +480,76 @@ def evaluate_classification_task(trained_model: SpiceMixPlus, embeddings: str, l
             for split in ("train", "validation"):
                 original_dataset.uns[f'microprecision_{split}'] = unmerged_dataset.uns[f'microprecision_{split}']
                 original_dataset.uns[f'macroprecision_{split}'] = unmerged_dataset.uns[f'macroprecision_{split}']
+
+def calcPermutation(sim):
+    """
+    TODO: document
+    maximum weight bipartite matching
+    :param sim:
+    :return: sim[perm, index], where index is sorted
+    """
+    Ks = sim.shape
+    B = nx.Graph()
+    B.add_nodes_from(['o{}'.format(i) for i in range(Ks[0])], bipartite=0)
+    B.add_nodes_from(['t{}'.format(i) for i in range(Ks[1])], bipartite=1)
+    B.add_edges_from([
+        ('o{}'.format(i), 't{}'.format(j), {'weight': sim[i, j]})
+        for i in range(Ks[0]) for j in range(Ks[1])
+    ])
+    assert nx.is_bipartite(B)
+    matching = nx.max_weight_matching(B, maxcardinality=True)
+    assert len(set(__ for _ in matching for __ in _)) == Ks[0] * 2
+    matching = [_ if _[0][0] == 'o' else _[::-1] for _ in matching]
+    matching = [tuple(int(__[1:]) for __ in _) for _ in matching]
+    matching = sorted(matching, key=lambda x: x[1])
+    perm, index = tuple(map(np.array, zip(*matching)))
+    return perm, index
+
+def compute_confusion_matrix(trained_model: SpiceMixPlus, labels: str, predictions: str, result_key: str = "confusion_matrix"):
+    r"""Compute confusion matrix for labels and predictions.
+
+    Useful for visualizing clustering validity.
+
+    Args:
+        trained_model: the trained SpiceMixPlus model.
+        labels: the key in the ``.obs`` dataframe for the label data.
+        predictions: the key in the ``.obs`` dataframe for the predictions data.
+        result_key: the key in the ``.uns`` dictionary where the reordered confusion matrix will be stored.
+    """
+    datasets = trained_model.datasets
+
+    for dataset in datasets:
+        unique_labels = sorted(dataset.obs[labels].unique())
+        unique_predictions = sorted(dataset.obs[predictions].unique())
+        if len(unique_labels) != len(unique_predictions):
+            raise ValueError("Number of unique labels and unique predictions must be equal.")
+
+        encoded_labels = [unique_labels.index(label) for label in dataset.obs[labels].values]
+        encoded_predictions = [unique_predictions.index(prediction) for prediction in dataset.obs[predictions].values]
+
+        confusion_output = confusion_matrix(encoded_labels, encoded_predictions)
+
+        permutation, index = calcPermutation(confusion_output)
+        dataset.obs[f'{labels}_inferred'] = [unique_labels[permutation[prediction]] for prediction in encoded_predictions]
+
+        reordered_confusion = confusion_matrix(dataset.obs[labels], dataset.obs[f"{labels}_inferred"])[:len(unique_labels)]
+
+        dataset.uns[result_key] = reordered_confusion
+
+def plot_confusion_matrix(trained_model: SpiceMixPlus, labels: str, confusion_matrix_key: str = "confusion_matrix"):
+    datasets = trained_model.datasets
+
+    for dataset in datasets:
+        ordered_labels = sorted(dataset.obs[labels].unique())
+        sns.heatmap(dataset.uns[confusion_matrix_key], xticklabels=ordered_labels, yticklabels=ordered_labels, annot=True)
+        plt.show()
+
+def compute_columnwise_autocorrelation(trained_model: SpiceMixPlus, uns:str = "ground_truth_M", result_key: str = "ground_truth_M_correlation"):
+    datasets = trained_model.datasets
+
+    for dataset in datasets:
+        matrix  = dataset.uns[uns][f"{dataset.name}"].T
+
+        num_columns, _= matrix.shape
+        correlation_coefficient_matrix = np.corrcoef(matrix, matrix)[:num_columns, :num_columns]
+        dataset.uns[result_key] = correlation_coefficient_matrix
