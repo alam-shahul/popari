@@ -71,4 +71,16 @@
     analysis.compute_ari_scores
     analysis.multireplicate_heatmap
     analysis.plot_all_metagene_embeddings
+    analysis.plot_metagene_embedding
+    analysis.multigroup_heatmap
+    analysis.compute_ari_scores
+    analysis.compute_silhouette_scores
+    analysis.compute_empirical_correlations
+    analysis.find_differential_genes
+    analysis.plot_gene_activations
+    analysis.plot_gene_trajectories
+    analysis.evaluate_classification_task
+    analysis.compute_confusion_matrix
+    analysis.plot_confusion_matrix
+    analysis.compute_columnwise_autocorrelation
 ```
