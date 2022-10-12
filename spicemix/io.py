@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import anndata as ad
 import torch
+from scipy.sparse import csr_matrix
 
 from spicemix.components import SpiceMixDataset
 
@@ -54,7 +55,7 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
 
         # Hacks to load adjacency matrices efficiently
         if "adjacency_matrix" in dataset.uns:
-            dataset.obsp["adjacency_matrix"] = dataset.uns["adjacency_matrix"][f"{replicate}"]
+            dataset.obsp["adjacency_matrix"] = csr_matrix(dataset.uns["adjacency_matrix"][f"{replicate}"])
 
         adjacency_matrix = dataset.obsp["adjacency_matrix"].tocoo()
 
