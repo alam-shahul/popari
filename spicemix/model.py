@@ -82,6 +82,7 @@ class SpiceMixPlus:
         spatial_affinity_constraint: str = "clamp",
         spatial_affinity_centering: bool = False,
         spatial_affinity_scaling: int = 10,
+        embedding_mini_iterations: int = 1000,
         embedding_step_size_multiplier: float = 1.0,
         use_inplace_ops: bool = False,
         random_state: int = 0,
@@ -119,6 +120,7 @@ class SpiceMixPlus:
         self.spatial_affinity_mode = spatial_affinity_mode
             
         self.embedding_step_size_multiplier=embedding_step_size_multiplier
+        self.embedding_mini_iterations=embedding_mini_iterations
 
         self.metagene_mode = metagene_mode 
         self.lambda_M = lambda_M
@@ -241,7 +243,8 @@ class SpiceMixPlus:
             context=self.context,
             use_inplace_ops=self.use_inplace_ops,
             verbose=self.verbose,
-            embedding_step_size_multiplier=self.embedding_step_size_multiplier
+            embedding_step_size_multiplier=self.embedding_step_size_multiplier,
+            embedding_mini_iterations=self.embedding_mini_iterations
         )
         
         self.parameter_optimizer.link(self.embedding_optimizer)

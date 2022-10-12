@@ -106,7 +106,7 @@ class EmbeddingOptimizer():
 
     """
 
-    def __init__(self, K, Ys, datasets, initial_context=None, context=None, use_inplace_ops=False, embedding_step_size_multiplier=1, verbose=0):
+    def __init__(self, K, Ys, datasets, initial_context=None, context=None, use_inplace_ops=False, embedding_step_size_multiplier=1, embedding_mini_iterations=1000, verbose=0):
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
         self.datasets = datasets
@@ -117,6 +117,7 @@ class EmbeddingOptimizer():
         self.adjacency_lists = {dataset.name: dataset.obs["adjacency_list"] for dataset in self.datasets}
         self.adjacency_matrices = {dataset.name: dataset.obsp["adjacency_matrix"] for dataset in self.datasets}
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
+        self.embedding_mini_iterations = embedding_mini_iterations
        
         if self.verbose:
             print(f"{get_datetime()} Initializing EmbeddingState") 
@@ -258,7 +259,7 @@ class EmbeddingOptimizer():
         return loss, X
     
     @torch.no_grad()
-    def estimate_weight_wnbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, n_epochs=1000, tol=1e-5, update_alg='nesterov'):
+    def estimate_weight_wnbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, tol=1e-5, update_alg='nesterov'):
         """Estimate updated weights taking neighbor-neighbor interactions into account.
     
         The optimization for all variables
@@ -437,7 +438,7 @@ class EmbeddingOptimizer():
         # TM: the above idea is not practical if we update only a subset of nodes each time
     
         loss = np.inf
-        pbar = trange(n_epochs, disable=not self.verbose, desc='Updating weight w/ neighbors')
+        pbar = trange(self.embedding_mini_iterations, disable=not self.verbose, desc='Updating weight w/ neighbors')
     
         for epoch in pbar:
             update_s()
