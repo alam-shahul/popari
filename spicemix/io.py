@@ -106,12 +106,11 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset]
                 uns=dataset.uns,
                 obsm=dataset.obsm,
         )
-
         # Hacks to store adjacency matrices efficiently
         if "adjacency_matrix" in dataset.obsp:
             adjacency_matrix = make_hdf5_compatible(dataset.obsp["adjacency_matrix"])
             dataset_copy.uns["adjacency_matrix"] = {f"{replicate}": adjacency_matrix }
-       
+        
         if "Sigma_x_inv" in dataset_copy.uns:
             replicate_Sigma_x_inv = dataset_copy.uns["Sigma_x_inv"][f"{replicate}"]
             if f"{replicate}" in dataset_copy.uns["Sigma_x_inv"]:
@@ -120,7 +119,6 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset]
                     replicate_Sigma_x_inv = -1
                 else:
                     replicate_Sigma_x_inv = make_hdf5_compatible(replicate_Sigma_x_inv)
-        
             dataset_copy.uns["Sigma_x_inv"] = {f"{replicate}": replicate_Sigma_x_inv}
         
         if "Sigma_x_inv_bar" in dataset_copy.uns:
@@ -131,14 +129,13 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset]
                     replicate_Sigma_x_inv_bar = -1
                 else:
                     replicate_Sigma_x_inv_bar = make_hdf5_compatible(replicate_Sigma_x_inv_bar)
-        
             dataset_copy.uns["Sigma_x_inv_bar"] = {f"{replicate}": replicate_Sigma_x_inv_bar}
-
+        
         if "M" in dataset_copy.uns:
             if f"{replicate}" in dataset_copy.uns["M"]:
                 replicate_M = make_hdf5_compatible(dataset_copy.uns["M"][f"{replicate}"])
                 dataset_copy.uns["M"] = {f"{replicate}": replicate_M}
-    
+        
         if "M_bar" in dataset_copy.uns:
             if f"{replicate}" in dataset_copy.uns["M_bar"]:
                 replicate_M_bar = make_hdf5_compatible(dataset_copy.uns["M_bar"][f"{replicate}"])
@@ -148,27 +145,23 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset]
             if "prior_x" in dataset_copy.uns["spicemixplus_hyperparameters"]:
                 prior_x = make_hdf5_compatible(dataset_copy.uns["spicemixplus_hyperparameters"]["prior_x"])
                 dataset_copy.uns["spicemixplus_hyperparameters"]["prior_x"] = prior_x
-            
             dataset_copy.uns["spicemixplus_hyperparameters"]["name"] = dataset.name
         else:
             dataset_copy.uns["spicemixplus_hyperparameters"] = {"name": dataset.name}
-
-                
+        
         if "X" in dataset_copy.obsm:
             replicate_X = make_hdf5_compatible(dataset_copy.obsm["X"])
             dataset_copy.obsm["X"] = replicate_X
- 
         dataset_copies.append(dataset_copy)
-
+        
         if "adjacency_list" in dataset_copy.obs:
             del dataset_copy.obs["adjacency_list"]
-
 
     dataset_names = [dataset.name for dataset in datasets]
     merged_dataset = ad.concat(dataset_copies, label="batch", keys=dataset_names, merge="unique", uns_merge="unique")
     merged_dataset.write(filepath)
-   
-    reloaded_dataset = ad.read_h5ad(filepath)
+
+    #reloaded_dataset = ad.read_h5ad(filepath)
 
     return merged_dataset
 
@@ -178,14 +171,11 @@ def make_hdf5_compatible(array: Union[torch.Tensor, np.ndarray]):
     Args:
         array: array to convert to Numpy.
     """
-
     if type(array) == torch.Tensor:
         cpu_tensor = array.detach().cpu()
         if cpu_tensor.is_sparse:
-            return cpu_tensor.to_dense()
-
+            cpu_tensor = cpu_tensor.to_dense()
         return cpu_tensor.numpy()
-
     return array
 
 def convert_numpy_to_pytorch_sparse_coo(numpy_coo, context):
