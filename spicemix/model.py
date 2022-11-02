@@ -79,10 +79,11 @@ class SpiceMixPlus:
         lambda_M: float = 0.5,
         lambda_Sigma_bar: float = 0.5,
         spatial_affinity_lr: float = 1e-3,
-        spatial_affinity_constraint: str = "clamp",
+        spatial_affinity_constraint: Optional[str] = None,
         spatial_affinity_centering: bool = False,
         spatial_affinity_scaling: int = 10,
         embedding_mini_iterations: int = 1000,
+        embedding_acceleration_trick: bool = True,
         embedding_step_size_multiplier: float = 1.0,
         use_inplace_ops: bool = False,
         random_state: int = 0,
@@ -121,6 +122,7 @@ class SpiceMixPlus:
             
         self.embedding_step_size_multiplier=embedding_step_size_multiplier
         self.embedding_mini_iterations=embedding_mini_iterations
+        self.embedding_acceleration_trick=embedding_acceleration_trick
 
         self.metagene_mode = metagene_mode 
         self.lambda_M = lambda_M
@@ -244,7 +246,8 @@ class SpiceMixPlus:
             use_inplace_ops=self.use_inplace_ops,
             verbose=self.verbose,
             embedding_step_size_multiplier=self.embedding_step_size_multiplier,
-            embedding_mini_iterations=self.embedding_mini_iterations
+            embedding_mini_iterations=self.embedding_mini_iterations,
+            embedding_acceleration_trick=self.embedding_acceleration_trick
         )
         
         self.parameter_optimizer.link(self.embedding_optimizer)
@@ -320,6 +323,12 @@ class SpiceMixPlus:
                     dataset.uns["spicemixplus_hyperparameters"]["lambda_M"] = self.lambda_M
                 if self.spatial_affinity_mode != "shared":
                     dataset.uns["spicemixplus_hyperparameters"]["lambda_Sigma_bar"] = self.lambda_Sigma_bar
+
+                dataset.uns["nll_embeddings"] = [self.embedding_optimizer.nll_embeddings()]
+                dataset.uns["nll_spatial_affinities"] = [self.parameter_optimizer.nll_spatial_affinities()]
+                dataset.uns["nll_metagenes"] = [self.parameter_optimizer.nll_metagenes()]
+                dataset.uns["nll_sigma_yx"] = [self.parameter_optimizer.nll_sigma_yx()]
+                dataset.uns["nll"] = [self.nll()]
                 
             if self.metagene_mode == "differential":
                 M_bar = {group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy() for group_name in self.metagene_groups}
@@ -343,6 +352,12 @@ class SpiceMixPlus:
             dataset.uns["sigma_yx"] = self.parameter_optimizer.sigma_yxs[dataset_index]
             with torch.no_grad():
                 dataset.uns["Sigma_x_inv"][dataset.name][:] = self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
+            
+            dataset.uns["nll_embeddings"].append(self.embedding_optimizer.nll_embeddings())
+            dataset.uns["nll_spatial_affinities"].append(self.parameter_optimizer.nll_spatial_affinities())
+            dataset.uns["nll_metagenes"].append(self.parameter_optimizer.nll_metagenes())
+            dataset.uns["nll_sigma_yx"].append(self.parameter_optimizer.nll_sigma_yx())
+            dataset.uns["nll"].append(self.nll())
             
         if self.metagene_mode == "differential":
             M_bar = {group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy() for group_name in self.metagene_groups}
@@ -393,6 +408,92 @@ class SpiceMixPlus:
         replicate_names = [dataset.name for dataset in self.datasets]
         save_anndata(path2dataset, self.datasets, replicate_names)
 
+    def nll(self):
+        with torch.no_grad():
+            total_loss  = torch.zeros(1, **self.context)
+            for dataset_index, dataset  in enumerate(self.datasets):
+                is_spatial_replicate = ("adjacency_list" in dataset.obs)
+                sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
+                Y = self.Ys[dataset_index].to(self.context["device"])
+                X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
+                M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+                prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
+                beta = self.betas[dataset_index]
+                prior_x = self.parameter_optimizer.prior_xs[dataset_index]
+                if not is_spatial_replicate:
+                    pass
+                else:
+
+                    # Precomputing quantities
+                    MTM = M.T @ M / (sigma_yx ** 2)
+                    YM = Y.to(M.device) @ M / (sigma_yx ** 2)
+                    Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx ** 2)
+                    S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
+
+                    Z = X / S
+                    N = len(Z)
+                    
+                    E_adjacency_list = self.embedding_optimizer.adjacency_lists[dataset.name]
+                    adjacency_matrix = self.embedding_optimizer.adjacency_matrices[dataset.name].to(self.context["device"])
+                    Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
+                    
+                    weighted_total_cells = beta * sum(map(len, E_adjacency_list))
+                    nu = adjacency_matrix @ Z
+                    eta = nu @ Sigma_x_inv
+                    logZ = integrate_of_exponential_over_simplex(eta)
+                    log_partition_function = beta * logZ.sum() / weighted_total_cells
+            
+                    loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
+                    if prior_x_mode == 'exponential shared fixed':
+                        loss += prior_x[0][0] * S.sum()
+                    elif not prior_x_mode:
+                        pass
+                    else:
+                        raise NotImplementedError
+            
+                    if Sigma_x_inv is not None:
+                        loss += (eta).mul(Z).sum() / 2
+
+                    loss += log_partition_function
+                    
+                    spatial_affinity_bars = None
+                    if self.spatial_affinity_mode == "differential lookup":
+                        spatial_affinity_bars = [self.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in self.spatial_affinity_tags[dataset.name]]
+
+                    regularization = torch.zeros(1, **self.context)
+                    if spatial_affinity_bars is not None:
+                        group_weighting = 1 / len(Sigma_x_inv_bar)
+                        for group_Sigma_x_inv_bar in spatial_affinity_bars:
+                            regularization += group_weighting * self.lambda_Sigma_bar * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() / 2
+        
+                    regularization += self.lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() / 2
+        
+                    M_bars = None
+                    if self.metagene_mode == "differential":
+                        M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.name]]
+
+                    differential_regularization_term = torch.zeros(1, **self.context)
+                    if self.lambda_M > 0 and M_bars is not None:
+                        differential_regularization_quadratic_factor = self.lambda_M * torch.eye(K, **self.context)
+                        
+                        differential_regularization_linear_term = torch.zeros_like(M, **self.context)
+                        group_weighting = 1 / len(M_bar)
+                        for group_M_bar in M_bars:
+                            differential_regularization_linear_term += group_weighting * self.lambda_M * group_M_bar
+
+                        differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum()
+                        group_weighting = 1 / len(M_bar)
+                        for group_M_bar in M_bar:
+                            differential_regularization_term += group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
+                   
+                    loss += regularization.item()
+                    loss += differential_regularization_term.item()
+
+                total_loss += loss
+
+        return total_loss.cpu().numpy()
+
+
 def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence[str] = None):
     """Load trained SpiceMixPlus model for downstream analysis.
 
@@ -429,3 +530,4 @@ def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence
     )
 
     return trained_model
+
