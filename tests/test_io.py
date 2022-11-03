@@ -52,7 +52,7 @@ def test_analysis_functions(trained_model, trained_differential_model):
     plot_gene_trajectories(trained_differential_model, differential_genes, covariate_values)
     plot_gene_activations(trained_differential_model, differential_genes)
 
-    expected_aris = [0.8719074554517243, 0.8732437089486653]
+    expected_aris = [0.8485001050978213, 0.8770125653681966]
     leiden(trained_model, joint=True, target_clusters=8)
     compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
     compute_silhouette_scores(trained_model, labels="cell_type", embeddings="normalized_X")

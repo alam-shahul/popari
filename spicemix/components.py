@@ -13,7 +13,7 @@ from scipy.stats import zscore
 import seaborn as sns
 
 from spicemix.sample_for_integral import integrate_of_exponential_over_simplex
-from spicemix.util import NesterovGD, IndependentSet, sample_graph_iid, project2simplex, project2simplex_, project_M, project_M_, get_datetime
+from spicemix.util import NesterovGD, IndependentSet, sample_graph_iid, project2simplex, project2simplex_, project_M, project_M_, get_datetime, convert_numpy_to_pytorch_sparse_coo
 
 import torch
 import torch.nn.functional as F
@@ -106,7 +106,7 @@ class EmbeddingOptimizer():
 
     """
 
-    def __init__(self, K, Ys, datasets, initial_context=None, context=None, use_inplace_ops=False, embedding_step_size_multiplier=1, embedding_mini_iterations=1000, embedding_acceleration_trick=True, verbose=0):
+    def __init__(self, K, Ys, datasets, initial_context=None, context=None, use_inplace_ops=False, embedding_step_size_multiplier=1, embedding_mini_iterations=1000, embedding_acceleration_trick=True, use_numpy=False, verbose=0):
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
         self.datasets = datasets
@@ -119,6 +119,7 @@ class EmbeddingOptimizer():
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
         self.embedding_mini_iterations = embedding_mini_iterations
         self.embedding_acceleration_trick = embedding_acceleration_trick
+        self.use_numpy = use_numpy
        
         if self.verbose:
             print(f"{get_datetime()} Initializing EmbeddingState") 
@@ -517,7 +518,7 @@ class EmbeddingOptimizer():
         E_adjacency_list = self.adjacency_lists[dataset.name]
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
-    
+        
         def compute_loss():
             X = Z * S
             loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
@@ -994,10 +995,7 @@ class ParameterOptimizer():
 
             elif self.spatial_affinity_mode == "differential lookup":
                 for dataset_index, dataset in enumerate(self.datasets):
-                    if differentiate_spatial_affinities:
-                        spatial_affinity_bars = [self.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in self.spatial_affinity_tags[dataset.name]]
-                    else:
-                        spatial_affinity_bars = None
+                    spatial_affinity_bars = [self.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in self.spatial_affinity_tags[dataset.name]]
 
                     replicate_mask = [False] * len(self.datasets)
                     replicate_mask[dataset_index] = True
@@ -1044,10 +1042,7 @@ class ParameterOptimizer():
 
             elif self.metagene_mode == "differential":
                 for dataset_index, dataset in enumerate(self.datasets):
-                    if differentiate_metagenes:
-                        M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.name]]
-                    else:
-                        M_bars = None
+                    M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.name]]
 
                     M = self.metagene_state[dataset.name]
                     replicate_mask = [False] * len(self.datasets)

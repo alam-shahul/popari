@@ -515,3 +515,15 @@ def sample_graph_iid(adjacency_list, indices_remaining, sample_size):
             excluded_indices |= set(adjacency_list[index])
 
     return valid_indices
+
+def convert_numpy_to_pytorch_sparse_coo(numpy_coo, context):
+    indices = numpy_coo.nonzero()
+    values = numpy_coo.data[numpy_coo.data.nonzero()]
+
+    i = torch.LongTensor(indices)
+    v = torch.FloatTensor(values)
+    size = numpy_coo.shape
+
+    torch_coo = torch.sparse_coo_tensor(i, v, size=size, **context)
+
+    return torch_coo

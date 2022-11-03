@@ -7,8 +7,9 @@ import torch
 from scipy.sparse import csr_matrix
 
 from spicemix.components import SpiceMixDataset
+from spicemix.util import convert_numpy_to_pytorch_sparse_coo
 
-def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = None, context: str = "numpy"):
+def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = None, context: dict = dict(device="cpu", dtype=torch.float64), use_numpy: bool = False):
     """Load AnnData object from h5ad file and reformat for SpiceMixPlus.
 
     """                                     
@@ -34,7 +35,7 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
             replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][f"{replicate}"]
             if np.isscalar(replicate_Sigma_x_inv) and replicate_Sigma_x_inv == -1:
                 replicate_Sigma_x_inv = None
-            elif context != "numpy":
+            elif not use_numpy:
                 replicate_Sigma_x_inv = torch.tensor(replicate_Sigma_x_inv, **context)
 
             dataset.uns["Sigma_x_inv"] = {
@@ -46,7 +47,7 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
             replicate_Sigma_x_inv_bar = dataset.uns["Sigma_x_inv_bar"][f"{replicate}"]
             if np.isscalar(replicate_Sigma_x_inv_bar) and replicate_Sigma_x_inv_bar == -1:
                 replicate_Sigma_x_inv_bar = None
-            elif context != "numpy":
+            elif not use_numpy:
                 replicate_Sigma_x_inv_bar = torch.tensor(replicate_Sigma_x_inv_bar, **context)
 
             dataset.uns["Sigma_x_inv_bar"] = {
@@ -66,29 +67,29 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
 
         dataset.obs["adjacency_list"] = adjacency_list
 
-        if context != "numpy":
+        if not use_numpy:
             dataset.obsp["adjacency_matrix"] = convert_numpy_to_pytorch_sparse_coo(adjacency_matrix, context)
         
         if "M" in dataset.uns:
-            if context == "numpy":
+            if use_numpy:
                 if f"{replicate}" in dataset.uns["M"]:
                     replicate_M = make_hdf5_compatible(dataset.uns["M"][f"{replicate}"])
                     dataset.uns["M"] = {f"{replicate}": replicate_M}
     
         if "M_bar" in dataset.uns:
-            if context == "numpy":
+            if use_numpy:
                 if f"{replicate}" in dataset.uns["M_bar"]:
                     replicate_M_bar = make_hdf5_compatible(dataset.uns["M_bar"][f"{replicate}"])
                     dataset.uns["M_bar"] = {f"{replicate}": replicate_M_bar}
         
         if "spicemixplus_hyperparameters" in dataset.uns:
-            if context == "numpy":
+            if use_numpy:
                 if "prior_x" in dataset.uns["spicemixplus_hyperparameters"]:
                     prior_x = make_hdf5_compatible(dataset.uns["spicemixplus_hyperparameters"]["prior_x"])
                     dataset.uns["spicemixplus_hyperparameters"]["prior_x"] = prior_x
  
         if "X" in dataset.obsm:
-            if context == "numpy":
+            if use_numpy:
                 replicate_X = make_hdf5_compatible(dataset.obsm["X"])
                 dataset.obsm["X"] = replicate_X
 
@@ -178,15 +179,3 @@ def make_hdf5_compatible(array: Union[torch.Tensor, np.ndarray]):
             cpu_tensor = cpu_tensor.to_dense()
         return cpu_tensor.numpy()
     return array
-
-def convert_numpy_to_pytorch_sparse_coo(numpy_coo, context):
-    indices = numpy_coo.nonzero()
-    values = numpy_coo.data[numpy_coo.data.nonzero()]
-
-    i = torch.LongTensor(indices)
-    v = torch.FloatTensor(values)
-    size = numpy_coo.shape
-
-    torch_coo = torch.sparse_coo_tensor(i, v, size=size, **context)
-
-    return torch_coo

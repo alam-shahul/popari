@@ -22,12 +22,23 @@ def spicemix_with_neighbors():
         initial_context=dict(device='cuda:0', dtype=torch.float64),
         dataset_path=path2dataset / "all_data.h5",
         replicate_names=replicate_names,
-        verbose=1
+        verbose=4
     )   
 
     for iteration in range(1, 5):
         obj.estimate_parameters()
+        nll_metagenes = obj.parameter_optimizer.nll_metagenes()
+        nll_spatial_affinities = obj.parameter_optimizer.nll_spatial_affinities()
+        nll_sigma_yx = obj.parameter_optimizer.nll_sigma_yx()
+        print(f"Metagene loss: {nll_metagenes}")
+        print(f"Spatial affinity loss: {nll_spatial_affinities}")
+        print(f"Sigma_yx loss: {nll_sigma_yx}")
         obj.estimate_weights()
+        nll_embeddings = obj.embedding_optimizer.nll_embeddings()
+        print(f"Embedding loss: {nll_embeddings}")
+        print(f"Overall loss: {obj.nll()}")
+
+    print(obj.datasets[0].uns["losses"]["nll"])
 
     for dataset in obj.datasets:
         dataset.uns["multigroup_heatmap"] = {group_name: np.arange(4).reshape((2, 2)) for group_name in obj.metagene_groups}
