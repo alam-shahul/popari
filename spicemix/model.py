@@ -8,6 +8,7 @@ import pandas as pd
 
 import torch
 import anndata as ad
+from scipy.special import factorial
 
 from collections import defaultdict
 
@@ -428,11 +429,16 @@ class SpiceMixPlus:
         replicate_names = [dataset.name for dataset in self.datasets]
         save_anndata(path2dataset, self.datasets, replicate_names)
 
-    def nll(self):
+    def nll(self, use_spatial=False):
         with torch.no_grad():
             total_loss  = torch.zeros(1, **self.context)
+            if use_spatial:    
+                weighted_total_cells = 0
+                for dataset in self.datasets: 
+                    E_adjacency_list = self.embedding_optimizer.adjacency_lists[dataset.name]
+                    weighted_total_cells += sum(map(len, E_adjacency_list))
+
             for dataset_index, dataset  in enumerate(self.datasets):
-                is_spatial_replicate = ("adjacency_list" in dataset.obs)
                 sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
                 Y = self.Ys[dataset_index].to(self.context["device"])
                 X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
@@ -440,30 +446,37 @@ class SpiceMixPlus:
                 prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
                 beta = self.betas[dataset_index]
                 prior_x = self.parameter_optimizer.prior_xs[dataset_index]
-                if not is_spatial_replicate:
-                    pass
+                    
+                # Precomputing quantities
+                MTM = M.T @ M / (sigma_yx ** 2)
+                YM = Y.to(M.device) @ M / (sigma_yx ** 2)
+                Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx ** 2)
+                S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
+
+                Z = X / S
+                N, G = Y.shape
+                
+                loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
+
+                logZ_i_Y = torch.full((N,), G/2 * np.log((2 * np.pi * sigma_yx**2)), **self.context)
+                if not use_spatial:
+                    logZ_i_X = torch.full((N,), 0, **self.context)
+                    if (prior_x[0] != 0).all():
+                        logZ_i_X +=  torch.full((N,), self.K * np.log(prior_x[0]), **self.context)
+                    log_partition_function = (logZ_i_Y + logZ_i_X).sum()
                 else:
 
-                    # Precomputing quantities
-                    MTM = M.T @ M / (sigma_yx ** 2)
-                    YM = Y.to(M.device) @ M / (sigma_yx ** 2)
-                    Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx ** 2)
-                    S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
-
-                    Z = X / S
-                    N = len(Z)
-                    
-                    E_adjacency_list = self.embedding_optimizer.adjacency_lists[dataset.name]
                     adjacency_matrix = self.embedding_optimizer.adjacency_matrices[dataset.name].to(self.context["device"])
                     Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
-                   
-                    weighted_total_cells = beta * sum(map(len, E_adjacency_list))
                     nu = adjacency_matrix @ Z
                     eta = nu @ Sigma_x_inv
-                    logZ = integrate_of_exponential_over_simplex(eta)
-                    log_partition_function = beta * logZ.sum() / weighted_total_cells
+                    logZ_i_s = torch.full((N,), 0, **self.context)
+                    if (prior_x[0] != 0).all():
+                        logZ_i_s = torch.full((N,), -self.K * np.log(prior_x[0]) + np.log(factorial(self.K-1, exact=True)), **self.context)
+
+                    logZ_i_z = integrate_of_exponential_over_simplex(eta)
+                    log_partition_function = (logZ_i_Y + logZ_i_z + logZ_i_s).sum()
             
-                    loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
                     if prior_x_mode == 'exponential shared fixed':
                         loss += prior_x[0][0] * S.sum()
                     elif not prior_x_mode:
@@ -474,8 +487,6 @@ class SpiceMixPlus:
                     if Sigma_x_inv is not None:
                         loss += (eta).mul(Z).sum() / 2
 
-                    loss += log_partition_function
-                    
                     spatial_affinity_bars = None
                     if self.spatial_affinity_mode == "differential lookup":
                         spatial_affinity_bars = [self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in self.spatial_affinity_tags[dataset.name]]
@@ -487,27 +498,32 @@ class SpiceMixPlus:
                             regularization += group_weighting * self.lambda_Sigma_bar * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() / 2
         
                     regularization += self.lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() / 2
+
+                    regularization *= weighted_total_cells
         
-                    M_bar = None
-                    if self.metagene_mode == "differential":
-                        M_bar = [self.parameter_optimizer.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.name]]
-
-                    differential_regularization_term = torch.zeros(1, **self.context)
-                    if self.lambda_M > 0 and M_bar is not None:
-                        differential_regularization_quadratic_factor = self.lambda_M * torch.eye(self.K, **self.context)
-                        
-                        differential_regularization_linear_term = torch.zeros_like(M, **self.context)
-                        group_weighting = 1 / len(M_bar)
-                        for group_M_bar in M_bar:
-                            differential_regularization_linear_term += group_weighting * self.lambda_M * group_M_bar
-
-                        differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum()
-                        group_weighting = 1 / len(M_bar)
-                        for group_M_bar in M_bar:
-                            differential_regularization_term += group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
-                   
                     loss += regularization.item()
-                    loss += differential_regularization_term.item()
+                    
+                loss += log_partition_function
+
+                differential_regularization_term = torch.zeros(1, **self.context)
+                M_bar = None
+                if self.metagene_mode == "differential":
+                    M_bar = [self.parameter_optimizer.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.name]]
+                   
+                if self.lambda_M > 0 and M_bar is not None:
+                    differential_regularization_quadratic_factor = self.lambda_M * torch.eye(self.K, **self.context)
+                    
+                    differential_regularization_linear_term = torch.zeros_like(M, **self.context)
+                    group_weighting = 1 / len(M_bar)
+                    for group_M_bar in M_bar:
+                        differential_regularization_linear_term += group_weighting * self.lambda_M * group_M_bar
+
+                    differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum()
+                    group_weighting = 1 / len(M_bar)
+                    for group_M_bar in M_bar:
+                        differential_regularization_term += group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
+                
+                loss += differential_regularization_term.item()
 
                 total_loss += loss
 
