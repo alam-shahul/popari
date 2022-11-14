@@ -14,6 +14,7 @@ pip install spicemix
 
 ## Publishing
 
+```
 pip install hatch
 pip install keyrings.alt
 
