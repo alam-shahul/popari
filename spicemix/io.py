@@ -95,14 +95,18 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
 
     return datasets, replicate_names
 
-def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset], replicate_names: Sequence[str]):
+def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset], replicate_names: Sequence[str], ignore_raw_data: bool = False):
     """Save SpiceMixPlus state as AnnData object.
 
     """
     dataset_copies = []
     for replicate, dataset in zip(replicate_names, datasets):
+        if ignore_raw_data:
+            X = csr_matrix(dataset.X.shape)
+        else:
+            X = dataset.X
         dataset_copy = ad.AnnData(
-                X=dataset.X,
+                X=X,
                 obs=dataset.obs,
                 var=dataset.var,
                 uns=dataset.uns,

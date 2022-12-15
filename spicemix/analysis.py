@@ -2,6 +2,7 @@ from typing import Optional, Sequence
 
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
+from matplotlib.colors import ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import numpy as np
@@ -34,7 +35,7 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
 
     return fig, axes
     
-def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, axes: Optional[Sequence[Axes]] = None):
+def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, axes: Optional[Sequence[Axes]] = None, **scatterplot_kwargs):
     r"""Plot a single metagene in-situ across all datasets.
 
     Args:
@@ -49,7 +50,7 @@ def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, ax
         fig, axes = setup_squarish_axes(len(datasets))
 
     for dataset, ax in zip(datasets, axes.flat):
-        dataset.plot_metagene_embedding(metagene_index, ax=ax)
+        dataset.plot_metagene_embedding(metagene_index, ax=ax, **scatterplot_kwargs)
 
     return fig
 
@@ -127,16 +128,16 @@ def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes = None, **spa
         fig, axes = setup_squarish_axes(len(datasets))
 
     edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
-    spot_size = 0.04 if "spot_size" not in spatial_kwargs else spatial_kwargs.pop("spot_size")
+    size = 0.04 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
     edges = True if "edges" not in spatial_kwargs else spatial_kwargs.pop("edges")
-    palette = sc.pl.palettes.godsnot_102 if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
+    palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
     legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
 
     neighbors_key = "spatial_neighbors" if "spatial_neighbors" not in spatial_kwargs else spatial_kwargs.pop("neighbors_key")
     for dataset, ax in zip(datasets, axes.flat):
-        sc.pl.spatial(dataset, spot_size=spot_size, neighbors_key=neighbors_key,
-            color=color, edges=edges,  edges_width=edges_width, legend_fontsize=legend_fontsize,
-            ax=ax, show=False, palette=palette, **spatial_kwargs)
+        sq.pl.spatial_scatter(dataset, shape=None, size=size, connectivity_key="adjacency_matrix",
+            color=color, edges_width=edges_width, legend_fontsize=legend_fontsize,
+            ax=ax, palette=palette, **spatial_kwargs)
 
 def plot_umap(trained_model: SpiceMixPlus, color="leiden", axes = None, **_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
@@ -157,10 +158,10 @@ def plot_umap(trained_model: SpiceMixPlus, color="leiden", axes = None, **_kwarg
     edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
     spot_size = 0.04 if "spot_size" not in spatial_kwargs else spatial_kwargs.pop("spot_size")
     edges = True if "edges" not in spatial_kwargs else spatial_kwargs.pop("edges")
-    palette = sc.pl.palettes.godsnot_102 if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
+    palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
     legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
     for dataset, ax in zip(datasets, axes.flat):
-        sc.pl.spatial(dataset, spot_size=spot_size, neighbors_key="spatial_neighbors",
+        sc.pl.umap(dataset, spot_size=spot_size, neighbors_key="spatial_neighbors",
             color=color, edges=True,  edges_width=edges_width, legend_fontsize=legend_fontsize,
             ax=ax, show=False, palette=palette, **spatial_kwargs)
 
@@ -312,13 +313,14 @@ def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str
         column_names = [f"{embedding_key}_{index}" for index in range(trained_model.K)]
 
     datasets = trained_model.datasets
-    spot_size = 0.1 if "spot_size" not in spatial_kwargs else spatial_kwargs.pop("spot_size")
-    palette = sc.pl.palettes.godsnot_102 if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
+    size = 0.1 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
+    palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
     for dataset in datasets:
-        axes = sc.pl.spatial(
+        axes = sq.pl.spatial_scatter(
             sq.pl.extract(dataset, embedding_key, prefix=f"{embedding_key}"),
+            shape=None,
             color=column_names,
-            spot_size=spot_size,
+            size=size,
             wspace=0.2,
             ncols=2,
             **spatial_kwargs

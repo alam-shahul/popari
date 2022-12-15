@@ -26,7 +26,7 @@ def project_M(M, M_constraint):
 @torch.no_grad()
 def estimate_M(Xs, M, betas, datasets, M_constraint, context,
         M_bar=None, lambda_M=0,
-        n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', verbose=False):
+        n_epochs=10000, tol=1e-5, backend_algorithm='gd Nesterov', check_frequency=100, verbose=False):
     """Optimize metagene parameters.
 
     M is shared across all replicates.
@@ -51,11 +51,15 @@ def estimate_M(Xs, M, betas, datasets, M_constraint, context,
         Updated estimate of metagene parameters.
     """
 
-    _, K = M.shape
+    G, K = M.shape
     quadratic_factor = torch.zeros([K, K], **context)
     linear_term = torch.zeros_like(M)
     sigma_yxs = np.array([dataset.uns["sigma_yx"] for dataset in datasets])
     scaled_betas = betas / (sigma_yxs**2)
+
+    # Scaling tolerance by number of genes
+    tol /= G
+    
     
     # ||Y||_2^2
     constant_magnitude = np.array([torch.linalg.norm(torch.tensor(dataset.X, **context)).item()**2 for dataset in datasets]).sum()
@@ -73,7 +77,7 @@ def estimate_M(Xs, M, betas, datasets, M_constraint, context,
         linear_term += lambda_M * M_bar
 
     loss_prev, loss = np.inf, np.nan
-    progress_bar = trange(n_epochs, leave=True, disable=not verbose, desc='Updating M', miniters=1000)
+    progress_bar = trange(n_epochs, leave=True, disable=not verbose, desc='Updating M', miniters=10 * check_frequency)
 
     def compute_loss_and_gradient(M, verbose=False):
         quadratic_factor_grad = M @ quadratic_factor
@@ -124,19 +128,20 @@ def estimate_M(Xs, M, betas, datasets, M_constraint, context,
             M = project_M(M, M_constraint)
             optimizer.set_parameters(M)
 
-            dloss = loss_prev - loss
-            dM = (M_prev - M).abs().max().item()
-            stop_criterion = dM < tol and epoch > 5
-            assert not np.isnan(loss)
-            if epoch % 1000 == 0 or stop_criterion:
-                progress_bar.set_description(
-                    f'Updating M: loss = {loss:.1e}, '
-                    f'%δloss = {dloss / loss:.1e}, '
-                    f'δM = {dM:.1e}'
-                    # f'lr={step_size_scale:.1e}'
-                )
-            if stop_criterion:
-                break
+            if epoch % check_frequency == 0:
+                dloss = loss_prev - loss
+                dM = (M_prev - M).abs().max().item()
+                stop_criterion = dM < tol and epoch > 5
+                assert not np.isnan(loss)
+                if epoch % 10 * check_frequency == 0 or stop_criterion:
+                    progress_bar.set_description(
+                        f'Updating M: loss = {loss:.1e}, '
+                        f'%δloss = {dloss / loss:.1e}, '
+                        f'δM = {dM:.1e}'
+                        # f'lr={step_size_scale:.1e}'
+                    )
+                if stop_criterion:
+                    break
         
         loss, grad = compute_loss_and_gradient(M, verbose=True)
         if verbose:
@@ -207,7 +212,7 @@ def estimate_M(Xs, M, betas, datasets, M_constraint, context,
     
     return M
 
-def estimate_Sigma_x_inv(Xs, Sigma_x_inv, spatial_flags, lambda_Sigma_x_inv, betas, optimizer, context, datasets, Sigma_x_inv_bar=None, n_epochs=1000):
+def estimate_Sigma_x_inv(Xs, Sigma_x_inv, spatial_flags, lambda_Sigma_x_inv, betas, optimizer, context, datasets, Sigma_x_inv_bar=None, tol=1e-1, check_frequency=50, n_epochs=1000):
     """Optimize Sigma_x_inv parameters.
 
    
@@ -246,74 +251,71 @@ def estimate_Sigma_x_inv(Xs, Sigma_x_inv, spatial_flags, lambda_Sigma_x_inv, bet
     history = []
     Sigma_x_inv.requires_grad_(True)
 
-    if optimizer:
-        loss_prev, loss = np.inf, np.nan
-        progress_bar = trange(n_epochs, desc='Updating Σx-1')
-        Sigma_x_inv_best, loss_best, epoch_best = None, np.inf, -1
-        dSigma_x_inv = np.inf
-        early_stop_epoch_count = 0
-        for epoch in progress_bar:
-            optimizer.zero_grad()
+    loss_prev, loss = np.inf, np.nan
+    progress_bar = trange(n_epochs, desc='Updating Σx-1', miniters=check_frequency)
+    Sigma_x_inv_best, loss_best, epoch_best = None, np.inf, -1
+    dSigma_x_inv = np.inf
+    best_epoch = -1
 
-            # Compute loss 
-            linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1)
-            regularization = lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() * weighted_total_cells / 2
-            if Sigma_x_inv_bar is not None:
-                regularization += lambda_Sigma_x_inv * 100 * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
-            
-            log_partition_function = 0
-            for Z, nu, beta in zip(Zs, nus, betas):
-                if nu is None:
-                    continue
-                assert torch.isfinite(nu).all()
-                assert torch.isfinite(Sigma_x_inv).all()
-                eta = nu @ Sigma_x_inv
-                logZ = integrate_of_exponential_over_simplex(eta)
-                log_partition_function += beta * logZ.sum()
+    early_stop_epoch_count = 0
+    for epoch in progress_bar:
+        optimizer.zero_grad()
 
-            loss = (linear_term + regularization + log_partition_function) / weighted_total_cells
-            # if epoch == 0: print(loss.item())
+        # Compute loss 
+        linear_term = Sigma_x_inv.view(-1) @ linear_term_coefficient.view(-1)
+        regularization = lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() * weighted_total_cells / 2
+        if Sigma_x_inv_bar is not None:
+            regularization += lambda_Sigma_x_inv * 100 * (Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
+        
+        log_partition_function = 0
+        for Z, nu, beta in zip(Zs, nus, betas):
+            if nu is None:
+                continue
+            assert torch.isfinite(nu).all()
+            assert torch.isfinite(Sigma_x_inv).all()
+            eta = nu @ Sigma_x_inv
+            logZ = integrate_of_exponential_over_simplex(eta)
+            log_partition_function += beta * logZ.sum()
 
-            if loss < loss_best:
-                Sigma_x_inv_best = Sigma_x_inv.clone().detach()
-                loss_best = loss.item()
-                epoch_best = epoch
+        loss = (linear_term + regularization + log_partition_function) / weighted_total_cells
+        # if epoch == 0: print(loss.item())
 
-            history.append((Sigma_x_inv.detach().cpu().numpy(), loss.item()))
+        if loss < loss_best:
+            Sigma_x_inv_best = Sigma_x_inv.clone().detach()
+            loss_best = loss.item()
+            epoch_best = epoch
 
-            with torch.no_grad():
-                Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
+        history.append((Sigma_x_inv.detach().cpu().numpy(), loss.item()))
 
-            loss.backward()
-            Sigma_x_inv.grad = (Sigma_x_inv.grad + Sigma_x_inv.grad.T) / 2
-            optimizer.step()
-            # with torch.no_grad():
-            #   Sigma_x_inv -= Sigma_x_inv.mean()
+        with torch.no_grad():
+            Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
 
-            loss = loss.item()
-            dloss = loss_prev - loss
-            loss_prev = loss
+        loss.backward()
+        Sigma_x_inv.grad = (Sigma_x_inv.grad + Sigma_x_inv.grad.T) / 2
+        optimizer.step()
+        # with torch.no_grad():
+        #   Sigma_x_inv -= Sigma_x_inv.mean()
 
-            with torch.no_grad():
-                dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
-            
-            progress_bar.set_description(
-                f'Updating Σx-1: loss = {dloss:.1e} -> {loss:.1e} '
-                f'δΣx-1 = {dSigma_x_inv:.1e} '
-                f'Σx-1 range = {Sigma_x_inv.min().item():.1e} ~ {Sigma_x_inv.max().item():.1e}'
-            )
+        loss = loss.item()
+        dloss = loss_prev - loss
+        loss_prev = loss
 
-            if Sigma_x_inv.grad.abs().max() < 1e-4 and dSigma_x_inv < 1e-4:
-                early_stop_epoch_count += 1
-            else:
-                early_stop_epoch_count = 0
-            if early_stop_epoch_count >= 10 or epoch > epoch_best + 100:
-                break
+        with torch.no_grad():
+            dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
+        
+        progress_bar.set_description(
+            f'Updating Σx-1: loss = {dloss:.1e} -> {loss:.1e} '
+            f'δΣx-1 = {dSigma_x_inv:.1e} '
+            f'Σx-1 range = {Sigma_x_inv.min().item():.1e} ~ {Sigma_x_inv.max().item():.1e}'
+        )
 
-        Sigma_x_inv = Sigma_x_inv_best
+        if Sigma_x_inv.grad.abs().max() < 1e-4 and dSigma_x_inv < tol:
+            early_stop_epoch_count += 1
+        else:
+            early_stop_epoch_count = 0
+        if early_stop_epoch_count >= 10 or epoch > epoch_best + 100:
+            break
 
-        return Sigma_x_inv, loss * weighted_total_cells
-    else:
-        pass
-    
-    Sigma_x_inv.requires_grad_(False)
+    Sigma_x_inv = Sigma_x_inv_best
+
+    return Sigma_x_inv, loss * weighted_total_cells

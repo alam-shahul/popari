@@ -85,6 +85,7 @@ class SpiceMixPlus:
         spatial_affinity_constraint: Optional[str] = None,
         spatial_affinity_centering: bool = False,
         spatial_affinity_scaling: int = 10,
+        spatial_affinity_regularization_power: int = 2,
         embedding_mini_iterations: int = 1000,
         embedding_acceleration_trick: bool = True,
         embedding_step_size_multiplier: float = 1.0,
@@ -120,6 +121,7 @@ class SpiceMixPlus:
         self.spatial_affinity_constraint = spatial_affinity_constraint
         self.spatial_affinity_centering = spatial_affinity_centering
         self.spatial_affinity_scaling = spatial_affinity_scaling
+        self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
         self.M_constraint = M_constraint
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.spatial_affinity_mode = spatial_affinity_mode
@@ -164,13 +166,7 @@ class SpiceMixPlus:
         self.metagene_groups, self.metagene_tags = fill_groups(metagene_groups, are_exclusive=(self.metagene_mode=="shared"))
         self.spatial_affinity_groups, self.spatial_affinity_tags = fill_groups(spatial_affinity_groups, are_exclusive=(self.spatial_affinity_mode=="shared lookup"))
 
-        # if self.context["device"] != "cpu":
-        #     preinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
-        #     print(preinit_memory_usage)
         self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
-        # if self.context["device"] != "cpu":
-        #     postinit_memory_usage = torch.cuda.memory_summary(self.context["device"], True)
-        #     print(postinit_memory_usage)
 
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
         """Load SpiceMixPlus data directly from AnnData objects.
@@ -230,6 +226,7 @@ class SpiceMixPlus:
                 self.spatial_affinity_tags,
                 spatial_affinity_constraint=self.spatial_affinity_constraint,
                 spatial_affinity_centering=self.spatial_affinity_centering,
+                spatial_affinity_regularization_power=self.spatial_affinity_regularization_power,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
                 lambda_M=self.lambda_M,
                 lambda_Sigma_bar=self.lambda_Sigma_bar,
@@ -419,7 +416,7 @@ class SpiceMixPlus:
         self.parameter_optimizer.update_sigma_yx()
         self.synchronize_datasets()
 
-    def save_results(self, path2dataset):
+    def save_results(self, path2dataset, ignore_raw_data=False):
         """Save datasets and learned SpiceMixPlus parameters to .h5ad file.
 
         Args:
@@ -427,9 +424,13 @@ class SpiceMixPlus:
 
         """
         replicate_names = [dataset.name for dataset in self.datasets]
-        save_anndata(path2dataset, self.datasets, replicate_names)
+        save_anndata(path2dataset, self.datasets, replicate_names, ignore_raw_data=ignore_raw_data)
 
     def nll(self, use_spatial=False):
+        """Compute overall negative log-likelihood for current model parameters.
+
+        """
+
         with torch.no_grad():
             total_loss  = torch.zeros(1, **self.context)
             if use_spatial:    
@@ -462,7 +463,7 @@ class SpiceMixPlus:
                 if not use_spatial:
                     logZ_i_X = torch.full((N,), 0, **self.context)
                     if (prior_x[0] != 0).all():
-                        logZ_i_X +=  torch.full((N,), self.K * np.log(prior_x[0]), **self.context)
+                        logZ_i_X +=  torch.full((N,), self.K * torch.log(prior_x[0]).item(), **self.context)
                     log_partition_function = (logZ_i_Y + logZ_i_X).sum()
                 else:
 
@@ -472,7 +473,7 @@ class SpiceMixPlus:
                     eta = nu @ Sigma_x_inv
                     logZ_i_s = torch.full((N,), 0, **self.context)
                     if (prior_x[0] != 0).all():
-                        logZ_i_s = torch.full((N,), -self.K * np.log(prior_x[0]) + np.log(factorial(self.K-1, exact=True)), **self.context)
+                        logZ_i_s = torch.full((N,), -self.K * torch.log(prior_x[0]).item() + torch.log(factorial(self.K-1, exact=True)).item(), **self.context)
 
                     logZ_i_z = integrate_of_exponential_over_simplex(eta)
                     log_partition_function = (logZ_i_Y + logZ_i_z + logZ_i_s).sum()
@@ -529,7 +530,6 @@ class SpiceMixPlus:
 
         return total_loss.cpu().numpy()
 
-
 def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence[str] = None, context=dict(device="cpu", dtype=torch.float64), use_numpy=True):
     """Load trained SpiceMixPlus model for downstream analysis.
 
@@ -567,4 +567,3 @@ def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence
     )
 
     return trained_model
-

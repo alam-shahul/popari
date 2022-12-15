@@ -35,6 +35,7 @@ def test_save_anndata(trained_model):
     replicate_names = [dataset.name for dataset in trained_model.datasets]
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     save_anndata(path2dataset/ "mock_results.h5ad", trained_model.datasets, replicate_names)
+    save_anndata(path2dataset/ "mock_results_ignore_raw_data.h5ad", trained_model.datasets, replicate_names, ignore_raw_data=True)
 
 def test_load_anndata(trained_model):
     replicate_names=[0, 1]
@@ -52,7 +53,7 @@ def test_analysis_functions(trained_model, trained_differential_model):
     plot_gene_trajectories(trained_differential_model, differential_genes, covariate_values)
     plot_gene_activations(trained_differential_model, differential_genes)
 
-    expected_aris = [0.8485001050978213, 0.8770125653681966]
+    expected_aris = [0.8629513626120968, 0.8770125653681966]
     leiden(trained_model, joint=True, target_clusters=8)
     compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
     compute_silhouette_scores(trained_model, labels="cell_type", embeddings="normalized_X")

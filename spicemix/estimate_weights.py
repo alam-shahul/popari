@@ -8,7 +8,7 @@ from sample_for_integral import project2simplex
 from util import NesterovGD
 
 @torch.no_grad()
-def estimate_weight_wonbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context, n_epochs=1000, tol=1e-6, update_alg='gd', verbose=True):
+def estimate_weight_wonbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context, n_epochs=1000, tol=1e-5, update_alg='gd', verbose=True):
     """Estimate weights without spatial information - equivalent to vanilla NMF.
 
     min 1/2σ^2 || Y - X MT ||_2^2 + lam || X ||_1
@@ -156,7 +156,7 @@ class IndependentSet:
         return valid_indices
 
 @torch.no_grad()
-def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context, n_epochs=1000, tol=1e-5, update_alg='nesterov'):
+def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, dataset, context, n_epochs=1000, tol=1e-2, update_alg='nesterov'):
     """Estimate updated weights taking neighbor-neighbor interactions into account.
 
     The optimization for all variables
@@ -175,6 +175,9 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
     """
     M = dataset.uns["M"][f"{replicate}"]
 
+    N, K = X.shape
+    tol /= K
+
     # Precomputing quantities
     MTM = M.T @ M / (sigma_yx ** 2)
     YM = Y.to(M.device) @ M / (sigma_yx ** 2)
@@ -182,7 +185,6 @@ def estimate_weight_wnbr(Y, M, X, sigma_yx, replicate, prior_x_mode, prior_x, da
     base_step_size = 1 / torch.linalg.eigvalsh(MTM).max().item()
     S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
     Z = X / S
-    N = len(Z)
     
     E_adjacency_list = dataset.obs["adjacency_list"]
     Sigma_x_inv = dataset.uns["Sigma_x_inv"][f"{replicate}"]

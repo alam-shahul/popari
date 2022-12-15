@@ -9,18 +9,16 @@ from scipy.spatial import Delaunay
 from scipy.spatial.distance import pdist, cdist, squareform
 from scipy.stats import gaussian_kde, gamma, truncnorm, truncexpon, expon, bernoulli, dirichlet
 from scipy.spatial import KDTree
+from scipy.sparse import csr_matrix
 
 from sklearn.decomposition import NMF
 
 import anndata as ad
+import squidpy as sq
 
 import umap
 import pickle as pkl
 import seaborn as sns
-import pandas as pd
-import networkx as nx
-import sys
-import os
 from pathlib import Path
 
 from matplotlib import pyplot as plt
@@ -71,17 +69,17 @@ def sample_gaussian(sigma: np.ndarray, means: np.ndarray, N: int = 1):
     
     return np.squeeze(x)
 
-def sample_2D_points(num_points, minimum_distance):
+def sample_2D_points(num_points, minimum_distance, width=1.0, height=1.0):
     """Generate 2D samples that are at least minimum_distance apart from each other.
     
     """
     # TODO: Implement Poisson disc sampling for a vectorized operation
     
     points = np.zeros((num_points, 2))
-    points[0] = np.random.random_sample(2)
+    points[0] = np.random.random_sample(2) * np.array([width, height])
     for index in range(1, num_points):
         while True:
-            point = np.random.random_sample((1, 2))
+            point = np.random.random_sample((1, 2)) * np.array([width, height])
             distances = cdist(points[:index], point)
             if np.min(distances) > minimum_distance:
                 points[index] = point
@@ -115,7 +113,10 @@ def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_
                 metagene = original_metagenes[index].copy()
                 variation_probability = replicate_variability
                 
-            mask = bernoulli.rvs(variation_probability, size=num_genes).astype('bool')
+            # mask = bernoulli.rvs(variation_probability, size=num_genes).astype('bool')
+            mask = np.full(num_genes, False)
+            masked_genes = np.random.choice(num_genes, size=int(variation_probability * num_genes), replace=False)
+            mask[masked_genes] = True
             perturbed_metagene = metagene.copy()
 
             perturbations = gamma.rvs(real_metagene_parameter, size=np.sum(mask))
@@ -138,10 +139,17 @@ def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_
        
     return metagenes
 
-def project_embeddings(X, Z):
+def sample_normalized_embeddings(Z, sigma_x):
     """Helper function to project simulated embeddings to simplex.
     
     """
+    X = np.zeros_like(Z)
+    num_cells, num_metagenes = Z.shape
+    # TODO: vectorize
+    for cell in range(num_cells):
+        for metagene in range(num_metagenes):
+            X[cell, metagene] = sigma_x[metagene] * truncnorm.rvs(-Z[cell, metagene]/sigma_x[metagene], 100) + Z[cell, metagene]
+ 
     X = X * (Z > 0)
     X = X / np.sum(X, axis=1, keepdims=True)
     
@@ -154,12 +162,8 @@ def synthesize_cell_embeddings(layer_labels, distributions, cell_type_definition
     
     num_metagenes = num_real_metagenes + n_noise_metagenes
     
-    sigma_x = np.concatenate([np.full(num_real_metagenes, signal_sigma_x), np.full(n_noise_metagenes, background_sigma_x)])
-    sigma_x = sigma_x * sigma_x_scale
-
     cell_type_assignments = np.zeros((num_cells), dtype='int')
     Z = np.zeros((num_cells, num_metagenes))
-    X = np.zeros((num_cells, num_metagenes))
     
     cell_types = cell_type_definitions.keys()
     
@@ -191,13 +195,11 @@ def synthesize_cell_embeddings(layer_labels, distributions, cell_type_definition
    
     # Extrinsic factors
     Z[:, num_real_metagenes:num_metagenes] = 0.05
-
-    # TODO: vectorize
-    for cell in range(num_cells):
-        for metagene in range(num_metagenes):
-            X[cell, metagene] = sigma_x[metagene] * truncnorm.rvs(-Z[cell, metagene]/sigma_x[metagene], 100) + Z[cell, metagene]
     
-    X = project_embeddings(X, Z).T
+    sigma_x = np.concatenate([np.full(num_real_metagenes, signal_sigma_x), np.full(n_noise_metagenes, background_sigma_x)])
+    sigma_x = sigma_x * sigma_x_scale
+
+    X = sample_normalized_embeddings(Z, sigma_x)
     
     return X, cell_type_assignments
 
@@ -393,9 +395,9 @@ class SyntheticDataset(ad.AnnData):
     Uses AnnData as a base class, with additional methods for simulation.
     """
     
-    def __init__(self, num_cells: int, num_genes: int, replicate_name: Union[int, str],
+    def __init__(self, num_cells: int=500, num_genes: int=100, replicate_name: Union[int, str]="default",
                  distributions=None, cell_type_definitions=None, metagene_variation_probabilities=None,
-                 domain_landmarks=None, shared_metagenes=None):
+                 domain_landmarks=None, shared_metagenes=None, width=1.0, height=1.0, minimum_distance=None):
         """Generate random coordinates (as well as expression values) for a single ST FOV.
         
         Args:
@@ -413,6 +415,8 @@ class SyntheticDataset(ad.AnnData):
         
         self.uns["layer_names"] = list(distributions.keys())
         self.uns["cell_type_names"] = list(cell_type_definitions.keys())
+        self.uns["width"] = width
+        self.uns["height"] = height
             
         self.uns["domain_landmarks"] = {
             self.name: domain_landmarks
@@ -428,11 +432,12 @@ class SyntheticDataset(ad.AnnData):
         }
         
 #         simulation_coordinates = sample_2D_points(num_cells, minimum_distance)
-        
-        minimum_distance = 0.75 / np.sqrt(self.num_cells)
+       
+        if not minimum_distance:
+            minimum_distance = 0.75 / np.sqrt(self.num_cells)
         tau = minimum_distance * 2.2
         
-        self.obsm["spatial"] = sample_2D_points(self.num_cells, minimum_distance)
+        self.obsm["spatial"] = sample_2D_points(self.num_cells, minimum_distance, width=self.uns["width"], height=self.uns["height"])
         self.domain_canvas = DomainCanvas(self.obsm["spatial"], self.uns["layer_names"], canvas_width=600, density=1)
         
     def simulate_expression(self, mode="metagene_based", predefined_metagenes=None, **simulation_parameters):
@@ -470,7 +475,7 @@ class SyntheticDataset(ad.AnnData):
                        self.num_cells, num_real_metagenes, sigma_x_scale=sigX_scale, n_noise_metagenes=num_noise_metagenes)
 
         self.S = gamma.rvs(num_metagenes, scale=lambda_s, size=self.num_cells)
-        self.obsm["ground_truth_X"] = (X_i * self.S).T
+        self.obsm["ground_truth_X"] = (X_i * self.S[:, np.newaxis])
         cell_type_encoded = C_i.astype(int)
         cell_type = [self.uns["cell_type_names"][index] for index in cell_type_encoded]
         self.obs["cell_type"] = cell_type
@@ -504,15 +509,17 @@ class MultiReplicateSyntheticDataset():
     
     """
     
-    def __init__(self, num_cells, num_genes, replicate_parameters, dataset_class, random_state=0): 
+    def __init__(self, total_cells, num_genes, replicate_parameters, dataset_class, random_state=0): 
         self.datasets = {}
         self.replicate_parameters = replicate_parameters
         np.random.seed(random_state)
         random.seed(random_state)
 
         for replicate_name in self.replicate_parameters:
-            synthetic_dataset = dataset_class(num_cells, num_genes, replicate_name, **self.replicate_parameters[replicate_name])
+            synthetic_dataset = dataset_class(num_genes=num_genes, replicate_name=replicate_name, **self.replicate_parameters[replicate_name])
             self.datasets[replicate_name] = synthetic_dataset
+            
+        self.total_cells = total_cells
     
     def annotate_replicate_layer(self, replicate_name):
         print(f"Annotating replicate {replicate_name}")
@@ -537,10 +544,50 @@ class MultiReplicateSyntheticDataset():
             
     def calculate_neighbors(self):
         for replicate, dataset in self.datasets.items():
-            sq.gr.spatial_neighbors(dataset, coord_type="generic", delaunay=True)
-            dataset.obsp["spatial_connectivities"] = remove_connectivity_artifacts(dataset.obsp["spatial_distances"])
+            sq.gr.spatial_neighbors(dataset, coord_type="generic", delaunay=True, radius=[0, 0.1])
+#             dataset.obsp["spatial_connectivities"] = remove_connectivity_artifacts(dataset.obsp["spatial_distances"])
             dataset.obsp["adjacency_matrix"] = dataset.obsp["spatial_connectivities"]
-            
+
+#             points = dataset.obsm["spatial"]
+#             minimum_distance = 0.75 / np.sqrt(len(points))
+#             tau = minimum_distance * 2.2
+#             dataset.obsp["adjacency_matrix"] = generate_affinity_mat(points, tau=tau)
+
+def remove_connectivity_artifacts(sparse_distance_matrix):
+    dense_distances = sparse_distance_matrix.toarray()
+    distances = sparse_distance_matrix.data
+    cutoff = np.percentile(distances, 94.5)
+    mask = dense_distances < cutoff
+    
+    return csr_matrix(dense_distances * mask)
+
+from scipy.spatial import Delaunay
+def generate_affinity_mat(p, tau=1.0, delaunay=True):
+    if delaunay:
+        A = np.zeros((p.shape[0], p.shape[0]))
+        D = Delaunay(p)
+        for tri in D.simplices:
+            A[tri[0], tri[1]] = 1
+            A[tri[1], tri[2]] = 1
+            A[tri[2], tri[0]] = 1
+    else:
+        disjoint_nodes = True
+        while(disjoint_nodes):
+            N = p.shape[0]
+            # Construct graph
+            D = squareform(pdist(p))
+            A = D < tau
+            Id = np.identity(N, dtype='bool')
+            A = A * ~Id
+            G = nx.from_numpy_matrix(A)
+            if not nx.is_connected(G):
+                # increase tau by 10% and repeat
+                tau = 1.1*tau
+                print('Graph is not connected, increasing tau to %s', tau)
+            else:
+                disjoint_nodes = False
+    return A
+
 class SpatialBatchEffectDataset(SyntheticDataset):
     """Simulation dataset with gradient-like batch effect.
     

@@ -54,8 +54,11 @@ class SpiceMixDataset(ad.AnnData):
         """
 
         sq.gr.spatial_neighbors(self, coord_type="generic", delaunay=True)
-        distance_matrix, adjacency_matrix = self.obsp["spatial_distances"], self.obsp["spatial_connectivities"]
-        self.obsp["spatial_connectivities"] = SpiceMixDataset.remove_connectivity_artifacts(distance_matrix, adjacency_matrix, threshold=threshold)
+        distance_matrix = self.obsp["spatial_distances"]
+        distances = distance_matrix.data
+        cutoff = np.percentile(distances, threshold)
+
+        sq.gr.spatial_neighbors(self, coord_type="generic", delaunay=True, radius=[0, cutoff])
         self.obsp["adjacency_matrix"] = self.obsp["spatial_connectivities"]
         
         num_cells, _ = self.obsp["adjacency_matrix"].shape
@@ -99,7 +102,7 @@ class SpiceMixDataset(ad.AnnData):
         metagene = self.obsm["X"][:, metagene_index]
     
         biased_batch_effect = pd.DataFrame({"x":x, "y":y, f"Metagene {metagene_index}": metagene})
-        sns.scatterplot(data=biased_batch_effect, x="x", y="y", hue="spatial_metagene", **scatterplot_kwargs)
+        sns.scatterplot(data=biased_batch_effect, x="x", y="y", hue=f"Metagene {metagene_index}", **scatterplot_kwargs)
  
 class EmbeddingOptimizer():
     """Optimizer and state for SpiceMix embeddings.
@@ -1112,7 +1115,7 @@ class ParameterOptimizer():
         return loss
 
     def estimate_M(self, M, replicate_mask,
-            M_bar=None, n_epochs=10000, tol=1e-6, backend_algorithm='gd Nesterov', simplex_projection_mode=False):
+            M_bar=None, n_epochs=10000, tol=1e-4, backend_algorithm='gd Nesterov', simplex_projection_mode=False):
         """Optimize metagene parameters.
     
         M is shared across all replicates.
@@ -1135,11 +1138,13 @@ class ParameterOptimizer():
             Updated estimate of metagene parameters.
         """
 
-        _, K = M.shape
+        G, K = M.shape
         quadratic_factor = torch.zeros([K, K], **self.context)
         linear_term = torch.zeros_like(M)
         # TODO: replace below (and any reference to dataset)
-        
+       
+        tol /= G
+
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         Ys = [Y for (use_replicate, Y) in zip(replicate_mask, self.Ys) if use_replicate]
@@ -1512,13 +1517,6 @@ class SpatialAffinityState(dict):
                 )
                 self.optimizers[group_name] = optimizer
                 
-                # # This optimizer retains its state throughout the optimization
-                # self.optimizer = 
-                # optimizer = torch.optim.Adam(
-                #     [self.__getitem__(dataset.name)],
-                #     lr=1e-3,
-                #     betas=(.5, .9),
-                # )
         elif self.mode == "differential lookup":
             for group_name, group_replicates in self.groups.items():
                 for dataset_index, dataset in enumerate(self.datasets):
