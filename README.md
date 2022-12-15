@@ -41,6 +41,25 @@ pip install pytest
 ```console
 python -m pytest -s tests/test_spicemix_shared.py
 ```
+# Building Documentation
+
+Assuming you have CMake:
+
+1. Navigate to `docs/`.
+```console
+cd docs/
+```
+2. Install Sphinx requirements.
+```console
+pip install -r requirements.txt
+```
+3. Clean and build.
+```console
+make clean
+make html
+```
+4. Push to GitHub, and documentation will automatically build.
+
 
 ## Cite
 
