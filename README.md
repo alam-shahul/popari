@@ -12,59 +12,17 @@ SpiceMix can be applied to any type of spatial transcriptomics data, including M
 pip install spicemix
 ```
 
-## Usage
+## Publishing
 
-```python
-from pathlib import Path
-
-import anndata as ad
-import torch
-
-from spicemix.model import SpiceMixPlus
-
-# Load datasets
-datasets = []
-replicate_names = []
-for fov in range(5):
-    dataset = ad.read_h5ad(f"./example_st_dataset_fov_{replicate}.h5ad") # Each dataset must have spatial information stored as an adjacency matrix
-    name = f"{fov}"
-    datasets.append(dataset)
-    replicate_names.append(name)
-
-# Define hyperparameters
-K = 20 # Number of metagenes
-lambda_Sigma_x_inv = 1e-4 # Spatial affinity regularization hyperparameter
-torch_context = dict(device='cuda:0', dtype=torch.float32) # Context for PyTorch tensor instantiation 
-
-# Initialize
-spicemixplus_demo = SpiceMixPlus(
-    K=K,
-    datasets=datasets,
-    lambda_Sigma_x_inv=lambda_Sigma_x_inv,
-    torch_context=torch_context
-)
-    
-# Train
-
-## Initialization with NMF
-for iteration in range(10):
-    spicemixplus_demo.estimate_parameters(update_spatial_affinities=False)
-    spicemixplus_demo.estimate_weights(use_neighbors=False)
-
-## Using spatial information
-num_iterations = 200
-for iteration in range(num_iterations):
-    spicemixplus_demo.estimate_parameters()
-    spicemixplus_demo.estimate_weights()
-
-# Save to disk
-result_filepath = Path(f"./demo_{num_iterations}_iterations.h5ad")
-spicemixplus_demo.save_results(result_filepath)
-    
-# Plot results
-
-...
 ```
+pip install hatch
+pip install keyrings.alt
+
+hatch build
+hatch publish
+```
+Username: `__token__`
+Password: `{API token for PyPI}`
 
 ## Tests
 
@@ -83,6 +41,25 @@ pip install pytest
 ```console
 python -m pytest -s tests/test_spicemix_shared.py
 ```
+## Building Documentation
+
+Assuming you have CMake:
+
+1. Navigate to `docs/`.
+```console
+cd docs/
+```
+2. Install Sphinx requirements.
+```console
+pip install -r requirements.txt
+```
+3. Clean and build.
+```console
+make clean
+make html
+```
+4. Push to GitHub, and documentation will automatically build.
+
 
 ## Cite
 
