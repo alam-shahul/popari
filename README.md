@@ -41,7 +41,7 @@ pip install pytest
 ```console
 python -m pytest -s tests/test_spicemix_shared.py
 ```
-# Building Documentation
+## Building Documentation
 
 Assuming you have CMake:
 
