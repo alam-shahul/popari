@@ -8,9 +8,9 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import TruncatedSVD, PCA
 
 import itertools
-from popari.components import SpiceMixDataset
+from popari.components import PopariDataset
 
-def initialize_kmeans(datasets: Sequence[SpiceMixDataset], K: int, context: dict, kwargs_kmeans:dict) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+def initialize_kmeans(datasets: Sequence[PopariDataset], K: int, context: dict, kwargs_kmeans:dict) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states using k-means clustering.
 
     Args:
@@ -49,7 +49,7 @@ def initialize_kmeans(datasets: Sequence[SpiceMixDataset], K: int, context: dict
 
     return M, Xs
     
-def initialize_svd(datasets: Sequence[SpiceMixDataset], K: int, context: dict, M_nonneg: bool = True, X_nonneg: bool = True) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+def initialize_svd(datasets: Sequence[PopariDataset], K: int, context: dict, M_nonneg: bool = True, X_nonneg: bool = True) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states using SVD.
 
     Args:

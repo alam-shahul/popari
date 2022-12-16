@@ -39,7 +39,7 @@
     :toctree: api/
     :recursive:
     
-    model.SpiceMixPlus
+    model.Popari
     model.load_trained_model
 ```
 
@@ -53,7 +53,7 @@
     :toctree: api/
     :recursive:
     
-    components.SpiceMixDataset
+    components.PopariDataset
 ```
 
 ## Analysis

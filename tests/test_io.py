@@ -2,7 +2,7 @@ import pytest
 import squidpy as sq
 
 from popari.io import load_anndata, save_anndata
-from popari.model import SpiceMixPlus, load_trained_model
+from popari.model import Popari, load_trained_model
 from popari.analysis import preprocess_embeddings, plot_metagene_embedding, leiden, plot_in_situ, multireplicate_heatmap, \
      multigroup_heatmap, compute_ari_scores, compute_silhouette_scores, plot_all_metagene_embeddings, \
      compute_empirical_correlations, find_differential_genes, plot_gene_activations, plot_gene_trajectories, \

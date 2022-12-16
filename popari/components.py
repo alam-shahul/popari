@@ -18,12 +18,12 @@ import torch
 import torch.nn.functional as F
 from torch.nn import MultiheadAttention
 
-class SpiceMixDataset(ad.AnnData):
-    r"""Wrapper around AnnData object. Allows for preprocessing of dataset for SpiceMix.
+class PopariDataset(ad.AnnData):
+    r"""Wrapper around AnnData object. Allows for preprocessing of dataset for Popari.
 
 
     Attributes:
-        dataset: AnnData dataset to convert into SpiceMix-compatible object.
+        dataset: AnnData dataset to convert into Popari-compatible object.
         replicate_name: name of dataset
         coordinates_key: location in ``.obsm`` dataframe of 2D coordinates for datapoints.
     """
@@ -104,7 +104,7 @@ class SpiceMixDataset(ad.AnnData):
         sns.scatterplot(data=biased_batch_effect, x="x", y="y", hue=f"Metagene {metagene_index}", **scatterplot_kwargs)
  
 class EmbeddingOptimizer():
-    """Optimizer and state for SpiceMix embeddings.
+    """Optimizer and state for Popari embeddings.
 
     """
 
@@ -130,7 +130,7 @@ class EmbeddingOptimizer():
         self.parameter_optimizer = parameter_optimizer
 
     def update_embeddings(self, use_neighbors=True):
-        """Update SpiceMixPlus embeddings according to optimization scheme.
+        """Update Popari embeddings according to optimization scheme.
 
         """
         logging.info(f'{get_datetime()}Updating latent states')
@@ -547,7 +547,7 @@ class EmbeddingState(dict):
         K: embedding dimension:
 
     """
-    def __init__(self, K: int, datasets: Sequence[SpiceMixDataset], initial_context=None, context=None):
+    def __init__(self, K: int, datasets: Sequence[PopariDataset], initial_context=None, context=None):
         self.datasets = datasets
         self.K = K
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
@@ -563,7 +563,7 @@ class EmbeddingState(dict):
             self.embeddings.append(replicate_embeddings)
 
 class ParameterOptimizer():
-    """Optimizer and state for SpiceMix parameters.
+    """Optimizer and state for Popari parameters.
 
     """
 
@@ -1372,12 +1372,12 @@ class ParameterOptimizer():
 
 
 class MetageneState(dict):
-    """State to store metagene parameters during SpiceMixPlus optimization.
+    """State to store metagene parameters during Popari optimization.
 
     Metagene state can be shared across replicates or maintained separately for each replicate.
 
     Attributes:
-        datasets: A reference to the list of SpiceMixDatasets that are being optimized.
+        datasets: A reference to the list of PopariDatasets that are being optimized.
         context: Parameters to define the context for PyTorch tensor instantiation.
         metagenes: A PyTorch tensor containing all metagene parameters.
     """

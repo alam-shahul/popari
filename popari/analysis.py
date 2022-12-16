@@ -21,7 +21,7 @@ from sklearn.preprocessing import LabelEncoder
 import pandas as pd
 import seaborn as sns
 
-from popari.model import SpiceMixPlus
+from popari.model import Popari
 
 def setup_squarish_axes(num_axes, **subplots_kwargs):
     """Create matplotlib subplots as squarely as possible."""
@@ -37,7 +37,7 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
 
     return fig, axes
     
-def preprocess_embeddings(trained_model: SpiceMixPlus, normalized_key="normalized_X"):
+def preprocess_embeddings(trained_model: Popari, normalized_key="normalized_X"):
     """Normalize embeddings per each cell.
     
     This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.
@@ -53,11 +53,11 @@ def preprocess_embeddings(trained_model: SpiceMixPlus, normalized_key="normalize
         dataset.obsm[normalized_key] = zscore(dataset.obsm["X"])
         sc.pp.neighbors(dataset, use_rep=normalized_key)
 
-def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, axes: Optional[Sequence[Axes]] = None, **scatterplot_kwargs):
+def plot_metagene_embedding(trained_model: Popari, metagene_index: int, axes: Optional[Sequence[Axes]] = None, **scatterplot_kwargs):
     r"""Plot a single metagene in-situ across all datasets.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         metagene_index: the index of the metagene to plot.
         axes: A predefined set of matplotlib axes to plot on.
 
@@ -72,11 +72,11 @@ def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, ax
 
     return fig
 
-def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.05):
+def leiden(trained_model: Popari, use_rep="normalized_X", joint: bool = False, resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.05):
     r"""Compute Leiden clustering for all datasets.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         joint: if `True`, jointly cluster the spots
         use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
         resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
@@ -85,11 +85,11 @@ def leiden(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = Fa
    
     cluster(trained_model, use_rep=use_rep, joint=joint, resolution=resolution, target_clusters=target_clusters, tolerance=tolerance)
 
-def cluster(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = False, method: str = "leiden", resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.05):
+def cluster(trained_model: Popari, use_rep="normalized_X", joint: bool = False, method: str = "leiden", resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.05):
     r"""Compute clustering for all datasets.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         joint: if `True`, jointly cluster the spots
         use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
         resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
@@ -129,13 +129,13 @@ def cluster(trained_model: SpiceMixPlus, use_rep="normalized_X", joint: bool = F
             original_dataset.obs[method] = unmerged_dataset.obs[method]
 
 
-def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes = None, **spatial_kwargs):
+def plot_in_situ(trained_model: Popari, color="leiden", axes = None, **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         color: the key in the ``.obs`` dataframe to plot.
         axes: A predefined set of matplotlib axes to plot on.
     """
@@ -157,13 +157,13 @@ def plot_in_situ(trained_model: SpiceMixPlus, color="leiden", axes = None, **spa
             color=color, edges_width=edges_width, legend_fontsize=legend_fontsize,
             ax=ax, palette=palette, **spatial_kwargs)
 
-def plot_umap(trained_model: SpiceMixPlus, color="leiden", axes = None, **_kwargs):
+def plot_umap(trained_model: Popari, color="leiden", axes = None, **_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         color: the key in the ``.obs`` dataframe to plot.
         axes: A predefined set of matplotlib axes to plot on.
     """
@@ -183,7 +183,7 @@ def plot_umap(trained_model: SpiceMixPlus, color="leiden", axes = None, **_kwarg
             color=color, edges=True,  edges_width=edges_width, legend_fontsize=legend_fontsize,
             ax=ax, show=False, palette=palette, **spatial_kwargs)
 
-def multireplicate_heatmap(trained_model: SpiceMixPlus,
+def multireplicate_heatmap(trained_model: Popari,
     title_font_size: Optional[int] = None,
     axes: Optional[Sequence[Axes]] = None,
     obsm: Optional[str] = None,
@@ -197,7 +197,7 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
     one of ``obsm``, ``obsp`` or ``uns`` should be used.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         axes: A predefined set of matplotlib axes to plot on.
         obsm: the key in the ``.obsm`` dataframe to plot.
         obsp: the key in the ``.obsp`` dataframe to plot.
@@ -235,7 +235,7 @@ def multireplicate_heatmap(trained_model: SpiceMixPlus,
         fig.colorbar(im, ax=ax, orientation='vertical')
 
 
-def multigroup_heatmap(trained_model: SpiceMixPlus,
+def multigroup_heatmap(trained_model: Popari,
     title_font_size: Optional[int] = None,
     group_type: str = "metagene",
     axes: Optional[Sequence[Axes]] = None,
@@ -248,7 +248,7 @@ def multigroup_heatmap(trained_model: SpiceMixPlus,
     one of ``obsm``, ``obsp`` or ``uns`` should be used.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         axes: A predefined set of matplotlib axes to plot on.
         obsm: the key in the ``.obsm`` dataframe to plot.
         obsp: the key in the ``.obsp`` dataframe to plot.
@@ -281,13 +281,13 @@ def multigroup_heatmap(trained_model: SpiceMixPlus,
             ax.set_title(group_name, fontsize= title_font_size)
         fig.colorbar(im, ax=ax, orientation='vertical')
 
-def compute_ari_scores(trained_model: SpiceMixPlus, labels: str, predictions: str, ari_key: str = "ari"):
+def compute_ari_scores(trained_model: Popari, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth labels and an unsupervised clustering.
 
     Useful for assessing clustering validity. ARI score is computed per dataset.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         labels: the key in the ``.obs`` dataframe for the label data.
         predictions: the key in the ``.obs`` dataframe for the predictions data.
         ari_key: the key in the ``.uns`` dictionary where the ARI score will be stored.
@@ -298,13 +298,13 @@ def compute_ari_scores(trained_model: SpiceMixPlus, labels: str, predictions: st
         ari = adjusted_rand_score(dataset.obs[labels], dataset.obs[predictions])
         dataset.uns[ari_key] = ari
 
-def compute_silhouette_scores(trained_model: SpiceMixPlus, labels: str, embeddings: str, silhouette_key: str = "silhouette"):
-    r"""Compute silhouette score for a clustering based on SpiceMixPlus embeddings.
+def compute_silhouette_scores(trained_model: Popari, labels: str, embeddings: str, silhouette_key: str = "silhouette"):
+    r"""Compute silhouette score for a clustering based on Popari embeddings.
 
     Useful for assessing clustering validity. ARI score is computed per dataset.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         labels: the key in the ``.obs`` dataframe for the label data.
         predictions: the key in the ``.obs`` dataframe for the predictions data.
         ari_key: the key in the ``.uns`` dictionary where the ARI score will be stored.
@@ -315,13 +315,13 @@ def compute_silhouette_scores(trained_model: SpiceMixPlus, labels: str, embeddin
         silhouette = silhouette_score(dataset.obsm[embeddings], dataset.obs[labels])
         dataset.uns[silhouette_key] = silhouette
 
-def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str = "X", column_names: Optional[str] = None, **spatial_kwargs):
+def plot_all_metagene_embeddings(trained_model: Popari, embedding_key: str = "X", column_names: Optional[str] = None, **spatial_kwargs):
     r"""Plot all laerned metagenes in-situ across all replicates.
 
     Each replicate's metagenes are contained in a separate plot.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         embedding_key: the key in the ``.obsm`` dataframe for the cell/spot embeddings.
         column_names: a list of the suffixes for each latent feature. If ``None``, it is assumed
             that these suffixes are just the indices of the latent features.
@@ -344,11 +344,11 @@ def plot_all_metagene_embeddings(trained_model: SpiceMixPlus, embedding_key: str
             **spatial_kwargs
         )
 
-def compute_empirical_correlations(trained_model: SpiceMixPlus, feature: str = "X", output: str = "empirical_correlation"):
+def compute_empirical_correlations(trained_model: Popari, feature: str = "X", output: str = "empirical_correlation"):
     """Compute the empirical spatial correlation for a feature set across all datasets.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         feature: key in `.obsm` of feature set for which spatial correlation should be computed.
         output: key in `.uns` where output correlation matrices should be stored.
     """
@@ -384,14 +384,14 @@ def compute_empirical_correlations(trained_model: SpiceMixPlus, feature: str = "
         all_correlations = {dataset.name: empirical_correlation}
         dataset.uns[output] = all_correlations
 
-def find_differential_genes(trained_model: SpiceMixPlus, top_gene_limit: int = 1):
+def find_differential_genes(trained_model: Popari, top_gene_limit: int = 1):
     """Identify genes/features that distinguish differential metagenes within a group.
 
     This type of analysis is only valid for runs of Popari in which ``metagene_mode="differential"``
     was used.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         top_gene_limit: the number of top genes to mark as differential for each metagene in a dataset.
 
     Returns:
@@ -414,14 +414,14 @@ def find_differential_genes(trained_model: SpiceMixPlus, top_gene_limit: int = 1
         
     return genes_of_interest
 
-def plot_gene_activations(trained_model: SpiceMixPlus, gene_subset: Sequence[str]):
+def plot_gene_activations(trained_model: Popari, gene_subset: Sequence[str]):
     """Plot metagene activation heatmaps for target genes across all groups.
     
     This type of analysis is only valid for runs of Popari in which ``metagene_mode="differential"``
     was used.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         gene_subset: names of genes to plot for.
 
     Returns:
@@ -440,7 +440,7 @@ def plot_gene_activations(trained_model: SpiceMixPlus, gene_subset: Sequence[str
         ax.set_title(gene)
         colorbar = fig.colorbar(im, ax=ax, orientation='vertical')
 
-def plot_gene_trajectories(trained_model: SpiceMixPlus, gene_subset: Sequence[str], covariate_values: Sequence[float], **subplots_kwargs):
+def plot_gene_trajectories(trained_model: Popari, gene_subset: Sequence[str], covariate_values: Sequence[float], **subplots_kwargs):
     """Plot metagene activation lineplots for target genes across all groups.
 
     
@@ -448,7 +448,7 @@ def plot_gene_trajectories(trained_model: SpiceMixPlus, gene_subset: Sequence[st
     was used.
     
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         gene_subset: names of genes to plot for.
         covariate_values: dependent vairable values against which gene trajectories will be plotted.
 
@@ -470,7 +470,7 @@ def plot_gene_trajectories(trained_model: SpiceMixPlus, gene_subset: Sequence[st
         im = ax.plot(covariate_values, trend)
         ax.set_title(f"{gene}, R = {r:.2f}")
 
-def evaluate_classification_task(trained_model: SpiceMixPlus, embeddings: str, labels: str, joint: bool):
+def evaluate_classification_task(trained_model: Popari, embeddings: str, labels: str, joint: bool):
     datasets = trained_model.datasets
     if joint:
         dataset_names = [dataset.name for dataset in datasets]
@@ -525,13 +525,13 @@ def calcPermutation(sim):
     perm, index = tuple(map(np.array, zip(*matching)))
     return perm, index
 
-def compute_confusion_matrix(trained_model: SpiceMixPlus, labels: str, predictions: str, result_key: str = "confusion_matrix"):
+def compute_confusion_matrix(trained_model: Popari, labels: str, predictions: str, result_key: str = "confusion_matrix"):
     r"""Compute confusion matrix for labels and predictions.
 
     Useful for visualizing clustering validity.
 
     Args:
-        trained_model: the trained SpiceMixPlus model.
+        trained_model: the trained Popari model.
         labels: the key in the ``.obs`` dataframe for the label data.
         predictions: the key in the ``.obs`` dataframe for the predictions data.
         result_key: the key in the ``.uns`` dictionary where the reordered confusion matrix will be stored.
@@ -556,7 +556,7 @@ def compute_confusion_matrix(trained_model: SpiceMixPlus, labels: str, predictio
 
         dataset.uns[result_key] = reordered_confusion
 
-def plot_confusion_matrix(trained_model: SpiceMixPlus, labels: str, confusion_matrix_key: str = "confusion_matrix"):
+def plot_confusion_matrix(trained_model: Popari, labels: str, confusion_matrix_key: str = "confusion_matrix"):
     datasets = trained_model.datasets
 
     for dataset in datasets:
@@ -564,7 +564,7 @@ def plot_confusion_matrix(trained_model: SpiceMixPlus, labels: str, confusion_ma
         sns.heatmap(dataset.uns[confusion_matrix_key], xticklabels=ordered_labels, yticklabels=ordered_labels, annot=True)
         plt.show()
 
-def compute_columnwise_autocorrelation(trained_model: SpiceMixPlus, uns:str = "ground_truth_M", result_key: str = "ground_truth_M_correlation"):
+def compute_columnwise_autocorrelation(trained_model: Popari, uns:str = "ground_truth_M", result_key: str = "ground_truth_M_correlation"):
     datasets = trained_model.datasets
 
     for dataset in datasets:

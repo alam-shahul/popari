@@ -18,10 +18,10 @@ from popari.io import load_anndata, save_anndata
 from popari.initialization import initialize_kmeans, initialize_svd
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 
-from popari.components import SpiceMixDataset, ParameterOptimizer, EmbeddingOptimizer
+from popari.components import PopariDataset, ParameterOptimizer, EmbeddingOptimizer
 
-class SpiceMixPlus:
-    r"""SpiceMixPlus optimization model.
+class Popari:
+    r"""Popari optimization model.
 
     Models spatial biological data using the NMF-HMRF formulation. Supports multiple
     fields-of-view (FOVs) and multimodal data.
@@ -29,7 +29,7 @@ class SpiceMixPlus:
     Attributes:
         K: number of metagenes to learn
         replicate_names: names of spatial datasets
-        datasets: list of input AnnData spatial datasets for SpiceMix.
+        datasets: list of input AnnData spatial datasets for Popari.
         dataset_path: path to AnnData merged dataset on disk. Ignored if ``datasets`` is specified.
         lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: 1e-4
         initialization_method: algorithm to use for initializing metagenes and embeddings. Default: ``svd``
@@ -98,7 +98,7 @@ class SpiceMixPlus:
         self.verbose = verbose
 
         if not any([datasets, dataset_path]):
-            raise ValueError("At least one of `datasets`, `dataset_path` must be specified in the SpiceMixPlus constructor.")
+            raise ValueError("At least one of `datasets`, `dataset_path` must be specified in the Popari constructor.")
 
         if not torch_context:
             torch_context = dict(device='cpu', dtype=torch.float32)
@@ -167,13 +167,13 @@ class SpiceMixPlus:
         self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
 
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
-        """Load SpiceMixPlus data directly from AnnData objects.
+        """Load Popari data directly from AnnData objects.
 
         Args:
             datasets: spatial transcriptomics datasets in AnnData format (one for each FOV)
             replicate_names: names for all datasets/replicates
         """
-        self.datasets = [SpiceMixDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
+        self.datasets = [PopariDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
         self.Ys = []
         for dataset in self.datasets:
             Y = torch.tensor(dataset.X, **self.context)
@@ -183,7 +183,7 @@ class SpiceMixPlus:
         self.num_replicates = len(self.datasets)
 
     def load_dataset(self, dataset_path: Union[str, Path], replicate_names: Sequence[str]):
-        """Load dataset into SpiceMixPlus from saved .h5ad file.
+        """Load dataset into Popari from saved .h5ad file.
 
         Args:
             dataset_path: path to input ST datasets, stored in .h5ad format
@@ -349,7 +349,7 @@ class SpiceMixPlus:
         self.synchronize_datasets()
     
     def synchronize_datasets(self):
-        """Synchronize datasets with learned SpiceMix parameters and embeddings."""
+        """Synchronize datasets with learned Popari parameters and embeddings."""
         for dataset_index, dataset in enumerate(self.datasets):
             dataset.uns["M"][dataset.name] = self.parameter_optimizer.metagene_state[dataset.name].cpu().detach().numpy()
             dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.name].cpu().detach().numpy()
@@ -403,7 +403,7 @@ class SpiceMixPlus:
         self.synchronize_datasets()
 
     def save_results(self, path2dataset, ignore_raw_data=False):
-        """Save datasets and learned SpiceMixPlus parameters to .h5ad file.
+        """Save datasets and learned Popari parameters to .h5ad file.
 
         Args:
             dataset_path: path to input ST datasets, to be stored in .h5ad format
@@ -517,10 +517,10 @@ class SpiceMixPlus:
         return total_loss.cpu().numpy()
 
 def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence[str] = None, context=dict(device="cpu", dtype=torch.float64)):
-    """Load trained SpiceMixPlus model for downstream analysis.
+    """Load trained Popari model for downstream analysis.
 
     Args:
-        dataset_path: location of SpiceMixPlus results, stored as a .h5ad file.
+        dataset_path: location of Popari results, stored as a .h5ad file.
         replicate_names: names of spatial datasets. Must match names stored on disk in ``dataset_path``.
     """
 
@@ -541,7 +541,7 @@ def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence
     K = first_dataset.uns["popari_hyperparameters"]["K"]
     lambda_Sigma_x_inv = first_dataset.uns["popari_hyperparameters"]["lambda_Sigma_x_inv"]
 
-    trained_model = SpiceMixPlus(K=K,
+    trained_model = Popari(K=K,
         metagene_mode=metagene_mode,
         datasets=datasets,
         metagene_groups=metagene_groups,

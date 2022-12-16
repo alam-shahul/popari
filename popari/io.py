@@ -6,11 +6,11 @@ import anndata as ad
 import torch
 from scipy.sparse import csr_matrix
 
-from popari.components import SpiceMixDataset
+from popari.components import PopariDataset
 from popari.util import convert_numpy_to_pytorch_sparse_coo
 
 def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = None):
-    """Load AnnData object from h5ad file and reformat for SpiceMixPlus.
+    """Load AnnData object from h5ad file and reformat for Popari.
 
     """                                     
 
@@ -24,7 +24,7 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
     if replicate_names == None:
         replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
     
-    datasets = [SpiceMixDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
+    datasets = [PopariDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
 
     if len(replicate_names) != len(datasets):
         raise ValueError(f"List of replicates '{replicate_names}' does not match number of datasets ({len(datasets)}) stored in AnnData object.")
@@ -84,8 +84,8 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
 
     return datasets, replicate_names
 
-def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset], replicate_names: Sequence[str], ignore_raw_data: bool = False):
-    """Save SpiceMixPlus state as AnnData object.
+def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], replicate_names: Sequence[str], ignore_raw_data: bool = False):
+    """Save Popari state as AnnData object.
 
     """
     dataset_copies = []
