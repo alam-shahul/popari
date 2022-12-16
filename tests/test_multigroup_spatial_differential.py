@@ -1,5 +1,5 @@
-from spicemix.model import SpiceMixPlus
-from spicemix.util import clustering_louvain_nclust
+from popari.model import SpiceMixPlus
+from popari.util import clustering_louvain_nclust
 
 import os
 import pandas as pd
@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score, adjusted_rand_score
 
 @pytest.fixture(scope="module")
-def spicemix_with_neighbors():
+def popari_with_neighbors():
     path2dataset = Path('tests/test_data/multigroup')
     K=11
     lambda_Sigma_x_inv = 1e-4 # Spatial affinity regularization hyperparameter
@@ -41,34 +41,34 @@ def spicemix_with_neighbors():
                 
     return obj
 
-def test_Sigma_x_inv(spicemix_with_neighbors):
-    Sigma_x_inv = list(spicemix_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].cpu().detach().numpy()
+def test_Sigma_x_inv(popari_with_neighbors):
+    Sigma_x_inv = list(popari_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].cpu().detach().numpy()
     np.save("tests/test_data/multigroup/outputs/Sigma_x_inv_spatial_differential.npy", Sigma_x_inv)
     test_Sigma_x_inv = np.load("tests/test_data/multigroup/outputs/Sigma_x_inv_spatial_differential.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
 
-def test_M(spicemix_with_neighbors):
-    M_bar = spicemix_with_neighbors.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
+def test_M(popari_with_neighbors):
+    M_bar = popari_with_neighbors.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
     np.save("tests/test_data/multigroup/outputs/M_bar_spatial_differential.npy", M_bar)
     test_M = np.load("tests/test_data/multigroup/outputs/M_bar_spatial_differential.npy")
     assert np.allclose(test_M, M_bar)
 
-def test_X_0(spicemix_with_neighbors):
-    X_0 = spicemix_with_neighbors.embedding_optimizer.embedding_state["top"].detach().cpu().numpy()
+def test_X_0(popari_with_neighbors):
+    X_0 = popari_with_neighbors.embedding_optimizer.embedding_state["top"].detach().cpu().numpy()
     np.save("tests/test_data/multigroup/outputs/X_0_spatial_differential.npy", X_0)
     test_X_0 = np.load("tests/test_data/multigroup/outputs/X_0_spatial_differential.npy")
     assert np.allclose(test_X_0, X_0)
 
-def test_louvain_clustering(spicemix_with_neighbors):
+def test_louvain_clustering(popari_with_neighbors):
     df_meta = []
     path2dataset = Path('tests/test_data/multigroup')
     repli_list = [0, 1]
     expected_aris = [0.7773584481376827, 0.7851558268629739, 0.7797035144162096]
     expected_silhouettes = [0.3364204109220141, 0.30696366760999366, 0.31038299322010154]
     
-    for index, (r, X) in enumerate(spicemix_with_neighbors.embedding_optimizer.embedding_state.items()):
+    for index, (r, X) in enumerate(popari_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')
-        df = spicemix_with_neighbors.datasets[index].obs
+        df = popari_with_neighbors.datasets[index].obs
         df['repli'] = r
         df['cell_type'] = pd.Categorical(df['cell_type'], categories=np.unique(df['cell_type']))
         df_meta.append(df)
@@ -94,7 +94,7 @@ def test_louvain_clustering(spicemix_with_neighbors):
     # df_meta = pd.concat(df_meta, axis=0).reset_index(drop=True)
     # df_meta['cell type'] = pd.Categorical(df_meta['cell type'], categories=np.unique(df_meta['cell type']))
 
-    # Xs = [X.cpu().numpy() for X in spicemix_with_neighbors.Xs]
+    # Xs = [X.cpu().numpy() for X in popari_with_neighbors.Xs]
 
     # x = np.concatenate(Xs, axis=0)
     # x = StandardScaler().fit_transform(x)
@@ -118,7 +118,7 @@ def test_louvain_clustering(spicemix_with_neighbors):
 #     project2simplex(x, dim=0)
 
 if __name__ == "__main__":
-    test_Sigma_x_inv(example_spicemix_run)
+    test_Sigma_x_inv(example_popari_run)
     test_M()
     test_X_0()
     

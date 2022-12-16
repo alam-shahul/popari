@@ -35,7 +35,7 @@ classifiers = [
 ]
 
 [tool.hatch.version]
-path = "spicemix/__about__.py"
+path = "popari/__about__.py"
 
 [project.urls]
 "Homepage" = "https://github.com/alam-shahul/popari"
@@ -46,10 +46,10 @@ path = "spicemix/__about__.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "spicemix/*.py",
+  "popari/*.py",
 ]
 
 [tool.hatch.build.targets.wheel]
 include = [
-  "spicemix/*.py",
+  "popari/*.py",
 ]
