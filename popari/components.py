@@ -8,7 +8,6 @@ import squidpy as sq
 
 import numpy as np
 from scipy.sparse import csr_matrix
-from scipy.stats import zscore
 
 import seaborn as sns
 
@@ -109,7 +108,7 @@ class EmbeddingOptimizer():
 
     """
 
-    def __init__(self, K, Ys, datasets, initial_context=None, context=None, use_inplace_ops=False, embedding_step_size_multiplier=1, embedding_mini_iterations=1000, embedding_acceleration_trick=True, use_numpy=False, verbose=0):
+    def __init__(self, K, Ys, datasets, initial_context=None, context=None, use_inplace_ops=False, embedding_step_size_multiplier=1, embedding_mini_iterations=1000, embedding_acceleration_trick=True, verbose=0):
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
         self.datasets = datasets
@@ -118,11 +117,10 @@ class EmbeddingOptimizer():
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.adjacency_lists = {dataset.name: dataset.obs["adjacency_list"] for dataset in self.datasets}
-        self.adjacency_matrices = {dataset.name: dataset.obsp["adjacency_matrix"] for dataset in self.datasets}
+        self.adjacency_matrices = {dataset.name: convert_numpy_to_pytorch_sparse_coo(dataset.obsp["adjacency_matrix"], self.context) for dataset in self.datasets}
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
         self.embedding_mini_iterations = embedding_mini_iterations
         self.embedding_acceleration_trick = embedding_acceleration_trick
-        self.use_numpy = use_numpy
        
         if self.verbose:
             print(f"{get_datetime()} Initializing EmbeddingState") 
@@ -564,21 +562,6 @@ class EmbeddingState(dict):
             self.__setitem__(dataset.name, replicate_embeddings)
             self.embeddings.append(replicate_embeddings)
 
-    def normalize(self, normalized_key="normalized_X"):
-        """Normalize embeddings per each cell.
-        
-        This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.
-
-        """
-        # TODO: implement
-
-        for dataset in self.datasets:
-            if "X" not in dataset.obsm:
-                raise ValueError("Must initialize embeddings before running normalizing them.")
-
-            dataset.obsm["normalized_X"] = zscore(dataset.obsm["X"])
-            sc.pp.neighbors(dataset, use_rep="normalized_X")
-
 class ParameterOptimizer():
     """Optimizer and state for SpiceMix parameters.
 
@@ -633,7 +616,7 @@ class ParameterOptimizer():
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
         self.adjacency_lists = {dataset.name: dataset.obs["adjacency_list"] for dataset in self.datasets}
-        self.adjacency_matrices = {dataset.name: dataset.obsp["adjacency_matrix"] for dataset in self.datasets}
+        self.adjacency_matrices = {dataset.name: convert_numpy_to_pytorch_sparse_coo(dataset.obsp["adjacency_matrix"], self.context) for dataset in self.datasets}
        
         if self.verbose:
             print(f"{get_datetime()} Initializing MetageneState") 

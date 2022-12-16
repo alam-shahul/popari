@@ -66,6 +66,7 @@
     :toctree: api/
     :recursive:
  
+    analysis.preprocess_embeddings
     analysis.leiden
     analysis.plot_in_situ
     analysis.compute_ari_scores

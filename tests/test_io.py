@@ -3,7 +3,7 @@ import squidpy as sq
 
 from popari.io import load_anndata, save_anndata
 from popari.model import SpiceMixPlus, load_trained_model
-from popari.analysis import plot_metagene_embedding, leiden, plot_in_situ, multireplicate_heatmap, \
+from popari.analysis import preprocess_embeddings, plot_metagene_embedding, leiden, plot_in_situ, multireplicate_heatmap, \
      multigroup_heatmap, compute_ari_scores, compute_silhouette_scores, plot_all_metagene_embeddings, \
      compute_empirical_correlations, find_differential_genes, plot_gene_activations, plot_gene_trajectories, \
      evaluate_classification_task, compute_confusion_matrix, plot_confusion_matrix, compute_columnwise_autocorrelation
@@ -44,7 +44,7 @@ def test_load_anndata(trained_model):
     load_anndata(path2dataset/ "trained_4_iterations.h5ad")
 
 def test_analysis_functions(trained_model, trained_differential_model):
-    trained_model.embedding_optimizer.embedding_state.normalize()
+    preprocess_embeddings(trained_model)
 
     differential_genes = find_differential_genes(trained_differential_model)
     print(differential_genes)

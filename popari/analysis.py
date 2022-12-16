@@ -11,6 +11,8 @@ import scanpy as sc
 import squidpy as sq
 import networkx as nx
 
+from scipy.stats import zscore
+
 from sklearn.metrics import adjusted_rand_score, silhouette_score, precision_score, accuracy_score, confusion_matrix
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
@@ -35,6 +37,22 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
 
     return fig, axes
     
+def preprocess_embeddings(trained_model: SpiceMixPlus, normalized_key="normalized_X"):
+    """Normalize embeddings per each cell.
+    
+    This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.
+
+    """
+    # TODO: implement
+
+    datasets = trained_model.datasets
+    for dataset in datasets:
+        if "X" not in dataset.obsm:
+            raise ValueError("Must initialize embeddings before normalizing them.")
+
+        dataset.obsm[normalized_key] = zscore(dataset.obsm["X"])
+        sc.pp.neighbors(dataset, use_rep=normalized_key)
+
 def plot_metagene_embedding(trained_model: SpiceMixPlus, metagene_index: int, axes: Optional[Sequence[Axes]] = None, **scatterplot_kwargs):
     r"""Plot a single metagene in-situ across all datasets.
 
@@ -412,7 +430,7 @@ def plot_gene_activations(trained_model: SpiceMixPlus, gene_subset: Sequence[str
     gene_indices = trained_model.datasets[0].var_names.get_indexer(gene_subset)
     images = np.zeros((len(gene_indices), trained_model.K, len(trained_model.metagene_groups)))
     for group_index, group_name in enumerate(trained_model.metagene_groups):
-        M_bar_subset = trained_model.parameter_optimizer.metagene_state.M_bar[group_name][gene_indices]
+        M_bar_subset = trained_model.datasets[0].uns["M_bar"][group_name][gene_indices]
         images[:, :, group_index] = M_bar_subset
     
     fig, axes = setup_squarish_axes(len(gene_indices), figsize=(10, 10))

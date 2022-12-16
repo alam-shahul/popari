@@ -9,7 +9,7 @@ from scipy.sparse import csr_matrix
 from popari.components import SpiceMixDataset
 from popari.util import convert_numpy_to_pytorch_sparse_coo
 
-def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = None, context: dict = dict(device="cpu", dtype=torch.float64), use_numpy: bool = False):
+def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = None):
     """Load AnnData object from h5ad file and reformat for SpiceMixPlus.
 
     """                                     
@@ -35,8 +35,6 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
             replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][f"{replicate}"]
             if np.isscalar(replicate_Sigma_x_inv) and replicate_Sigma_x_inv == -1:
                 replicate_Sigma_x_inv = None
-            elif not use_numpy:
-                replicate_Sigma_x_inv = torch.tensor(replicate_Sigma_x_inv, **context)
 
             dataset.uns["Sigma_x_inv"] = {
                 f"{replicate}": replicate_Sigma_x_inv
@@ -47,8 +45,6 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
             replicate_Sigma_x_inv_bar = dataset.uns["Sigma_x_inv_bar"][f"{replicate}"]
             if np.isscalar(replicate_Sigma_x_inv_bar) and replicate_Sigma_x_inv_bar == -1:
                 replicate_Sigma_x_inv_bar = None
-            elif not use_numpy:
-                replicate_Sigma_x_inv_bar = torch.tensor(replicate_Sigma_x_inv_bar, **context)
 
             dataset.uns["Sigma_x_inv_bar"] = {
                 f"{replicate}": replicate_Sigma_x_inv_bar
@@ -67,31 +63,24 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
 
         dataset.obs["adjacency_list"] = adjacency_list
 
-        if not use_numpy:
-            dataset.obsp["adjacency_matrix"] = convert_numpy_to_pytorch_sparse_coo(adjacency_matrix, context)
-        
         if "M" in dataset.uns:
-            if use_numpy:
-                if f"{replicate}" in dataset.uns["M"]:
-                    replicate_M = make_hdf5_compatible(dataset.uns["M"][f"{replicate}"])
-                    dataset.uns["M"] = {f"{replicate}": replicate_M}
+            if f"{replicate}" in dataset.uns["M"]:
+                replicate_M = make_hdf5_compatible(dataset.uns["M"][f"{replicate}"])
+                dataset.uns["M"] = {f"{replicate}": replicate_M}
     
         if "M_bar" in dataset.uns:
-            if use_numpy:
-                if f"{replicate}" in dataset.uns["M_bar"]:
-                    replicate_M_bar = make_hdf5_compatible(dataset.uns["M_bar"][f"{replicate}"])
-                    dataset.uns["M_bar"] = {f"{replicate}": replicate_M_bar}
+            if f"{replicate}" in dataset.uns["M_bar"]:
+                replicate_M_bar = make_hdf5_compatible(dataset.uns["M_bar"][f"{replicate}"])
+                dataset.uns["M_bar"] = {f"{replicate}": replicate_M_bar}
         
         if "popari_hyperparameters" in dataset.uns:
-            if use_numpy:
-                if "prior_x" in dataset.uns["popari_hyperparameters"]:
-                    prior_x = make_hdf5_compatible(dataset.uns["popari_hyperparameters"]["prior_x"])
-                    dataset.uns["popari_hyperparameters"]["prior_x"] = prior_x
+            if "prior_x" in dataset.uns["popari_hyperparameters"]:
+                prior_x = make_hdf5_compatible(dataset.uns["popari_hyperparameters"]["prior_x"])
+                dataset.uns["popari_hyperparameters"]["prior_x"] = prior_x
  
         if "X" in dataset.obsm:
-            if use_numpy:
-                replicate_X = make_hdf5_compatible(dataset.obsm["X"])
-                dataset.obsm["X"] = replicate_X
+            replicate_X = make_hdf5_compatible(dataset.obsm["X"])
+            dataset.obsm["X"] = replicate_X
 
     return datasets, replicate_names
 
@@ -166,8 +155,6 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[SpiceMixDataset]
     dataset_names = [dataset.name for dataset in datasets]
     merged_dataset = ad.concat(dataset_copies, label="batch", keys=dataset_names, merge="unique", uns_merge="unique")
     merged_dataset.write(filepath)
-
-    #reloaded_dataset = ad.read_h5ad(filepath)
 
     return merged_dataset
 
