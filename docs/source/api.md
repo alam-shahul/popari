@@ -9,17 +9,17 @@
 # API
 
 ```{eval-rst}
-.. module:: spicemix
+.. module:: popari
 
-.. automodule:: spicemix
+.. automodule:: popari
    :noindex:
 ```
 
 ## IO
 
 ```{eval-rst}
-.. module:: spicemix.io
-.. currentmodule:: spicemix
+.. module:: popari.io
+.. currentmodule:: popari
 
 .. autosummary::
     :toctree: api/
@@ -32,8 +32,8 @@
 ## Model
 
 ```{eval-rst}
-.. module:: spicemix.model
-.. currentmodule:: spicemix
+.. module:: popari.model
+.. currentmodule:: popari
 
 .. autosummary::
     :toctree: api/
@@ -46,8 +46,8 @@
 ## Components
 
 ```{eval-rst}
-.. module:: spicemix.components
-.. currentmodule:: spicemix
+.. module:: popari.components
+.. currentmodule:: popari
 
 .. autosummary::
     :toctree: api/
@@ -59,8 +59,8 @@
 ## Analysis
 
 ```{eval-rst}
-.. module:: spicemix.analysis
-.. currentmodule:: spicemix
+.. module:: popari.analysis
+.. currentmodule:: popari
 
 .. autosummary::
     :toctree: api/
