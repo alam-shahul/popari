@@ -41,6 +41,8 @@ path = "popari/__about__.py"
 "Homepage" = "https://github.com/alam-shahul/popari"
 "Bug Tracker" = "https://github.com/alam-shahul/popari/issues"
 
+[project.scripts]
+popari = "popari:main"
 
 [tool]
 
