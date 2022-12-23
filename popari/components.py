@@ -577,6 +577,7 @@ class ParameterOptimizer():
             spatial_affinity_centering=False,
             spatial_affinity_scaling=10,
             lambda_Sigma_x_inv=1e-2,
+            spatial_affinity_tol=2e-3,
             spatial_affinity_mode="shared lookup",
             metagene_mode="shared",
             lambda_M=0.5,
@@ -607,6 +608,7 @@ class ParameterOptimizer():
         self.spatial_affinity_lr = spatial_affinity_lr
         self.spatial_affinity_scaling = spatial_affinity_scaling
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
+        self.spatial_affinity_tol=spatial_affinity_tol
         self.lambda_M = lambda_M
         self.metagene_mode = metagene_mode
         self.M_constraint = M_constraint
@@ -685,7 +687,7 @@ class ParameterOptimizer():
                     group_scale_factor = scale_factor[group_index]
                     replicate_embedding.mul_(group_scale_factor)
 
-    def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=None, subsample_rate=None, constraint="clamp", n_epochs=1000):
+    def estimate_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=None, subsample_rate=None, constraint=None, n_epochs=1000, tol=2e-3, check_frequency=50):
         """Optimize Sigma_x_inv parameters.
     
        
@@ -738,11 +740,12 @@ class ParameterOptimizer():
         loss_prev, loss = np.inf, np.nan
         
         verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format='{desc}{postfix}')
-        progress_bar = trange(n_epochs, disable=not self.verbose, desc='Updating Σx-1')
+        progress_bar = trange(1, n_epochs+1, disable=not self.verbose, desc='Updating Σx-1')
 
         Sigma_x_inv_best, loss_best, epoch_best = None, np.inf, -1
         dSigma_x_inv = np.inf
         early_stop_epoch_count = 0
+        Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
         for epoch in progress_bar:
             optimizer.zero_grad()
     
@@ -754,7 +757,7 @@ class ParameterOptimizer():
                 for group_Sigma_x_inv_bar in Sigma_x_inv_bar:
                     regularization += group_weighting * self.lambda_Sigma_bar * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() * weighted_total_cells / 2
 
-            regularization += self.lambda_Sigma_x_inv * Sigma_x_inv.pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
+            regularization += self.lambda_Sigma_x_inv * Sigma_x_inv.abs().pow(self.spatial_affinity_regularization_power).sum() * weighted_total_cells / 2
             
             log_partition_function = 0
             for nu, beta in zip(nus, self.betas):
@@ -782,11 +785,6 @@ class ParameterOptimizer():
                 loss_best = loss.item()
                 epoch_best = epoch
     
-            history.append((Sigma_x_inv.detach().cpu().numpy(), loss.item()))
-    
-            with torch.no_grad():
-                Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
-    
             loss.backward()
             Sigma_x_inv.grad = (Sigma_x_inv.grad + Sigma_x_inv.grad.T) / 2
             optimizer.step()
@@ -799,41 +797,39 @@ class ParameterOptimizer():
                 elif self.spatial_affinity_constraint == "scale":
                     Sigma_x_inv.mul_(self.spatial_affinity_state.scaling / Sigma_x_inv.abs().max())
 
+                if epoch % check_frequency == 0:
+                    loss = loss.item()
+                    dloss = loss_prev - loss
+                    loss_prev = loss
+                    regularization_prev = regularization.item()
+                    log_partition_function_prev = log_partition_function.item()
+                    linear_term_prev = linear_term.item()
+            
+                    history.append((Sigma_x_inv.detach().cpu().numpy(), loss))
     
-            loss = loss.item()
-            dloss = loss_prev - loss
-            loss_prev = loss
-            regularization_prev = regularization.item()
-            log_partition_function_prev = log_partition_function.item()
-            linear_term_prev = linear_term.item()
     
-            with torch.no_grad():
-                dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
+                    dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
+                    Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
            
-            description = (
-                f'Updating Σx-1: loss = {dloss:.1e} -> {loss:.1e} '
-                f'δΣx-1 = {dSigma_x_inv:.1e} '
-                f'Σx-1 range = {Sigma_x_inv.min().item():.1e} ~ {Sigma_x_inv.max().item():.1e}'
-            )
+                    description = (
+                        f'Updating Σx-1: loss = {dloss:.1e} -> {loss:.1e} '
+                        f'δΣx-1 = {dSigma_x_inv:.1e} '
+                        f'Σx-1 range = {Sigma_x_inv.min().item():.1e} ~ {Sigma_x_inv.max().item():.1e}'
+                    )
 
-            verbose_description = (
-                    f"Spatial affinity average: {Sigma_x_inv.mean().item():.1e} "
-                    f"Total spatial affinity loss: {loss:.1e} "
-                    f"spatial affinity linear term {linear_term:.6e} "
-                    f"spatial affinity regularization {regularization.item():.1e} "
-                    f"spatial affinity log_partition_function {log_partition_function:.1e} "
-                )
+                    verbose_description = (
+                            f"Spatial affinity average: {Sigma_x_inv.mean().item():.1e} "
+                            f"Total spatial affinity loss: {loss:.1e} "
+                            f"spatial affinity linear term {linear_term:.6e} "
+                            f"spatial affinity regularization {regularization.item():.1e} "
+                            f"spatial affinity log_partition_function {log_partition_function:.1e} "
+                        )
 
-            verbose_bar.set_description_str(verbose_description)
-            progress_bar.set_description(description)
-    
-            if Sigma_x_inv.grad.abs().max() < 1e-4 and dSigma_x_inv < 1e-4:
-                early_stop_epoch_count += 1
-            else:
-                early_stop_epoch_count = 0
-
-            if early_stop_epoch_count >= 10 or epoch > epoch_best + 100:
-                break
+                    verbose_bar.set_description_str(verbose_description)
+                    progress_bar.set_description(description)
+   
+                    if dSigma_x_inv < tol * check_frequency or epoch > epoch_best + 2 * check_frequency:
+                        break
    
         verbose_bar.close()
         progress_bar.close()
@@ -947,7 +943,7 @@ class ParameterOptimizer():
                 first_dataset_name = group_replicates[0]
                 Sigma_x_inv = self.spatial_affinity_state[first_dataset_name].to(self.context["device"])
                 optimizer = self.spatial_affinity_state.optimizers[group_name]
-                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, subsample_rate=subsample_rate)
+                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, subsample_rate=subsample_rate, tol=self.spatial_affinity_tol)
                 with torch.no_grad():
                    self.spatial_affinity_state[first_dataset_name][:] = Sigma_x_inv
 
@@ -962,7 +958,7 @@ class ParameterOptimizer():
                 replicate_mask[dataset_index] = True
                 Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
                 optimizer = self.spatial_affinity_state.optimizers[dataset.name]
-                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bars, subsample_rate=subsample_rate)
+                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bars, subsample_rate=subsample_rate, tol=self.spatial_affinity_tol)
                 with torch.no_grad():
                     self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
             
@@ -1098,7 +1094,7 @@ class ParameterOptimizer():
         return loss
 
     def estimate_M(self, M, replicate_mask,
-            M_bar=None, n_epochs=10000, tol=1e-4, backend_algorithm='gd Nesterov', simplex_projection_mode=False):
+            M_bar=None, n_epochs=10000, tol=1e-3, backend_algorithm='gd Nesterov', simplex_projection_mode=False):
         """Optimize metagene parameters.
     
         M is shared across all replicates.

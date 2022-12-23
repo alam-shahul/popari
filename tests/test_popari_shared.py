@@ -16,7 +16,7 @@ def popari_with_neighbors():
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     replicate_names=[0, 1]
     obj = Popari(
-        K=10, lambda_Sigma_x_inv=1e-5,
+        K=10, lambda_Sigma_x_inv=1e-3,
         metagene_mode="shared",
         torch_context=dict(device='cuda:0', dtype=torch.float64),
         initial_context=dict(device='cuda:0', dtype=torch.float64),
@@ -26,6 +26,7 @@ def popari_with_neighbors():
     )   
 
     for iteration in range(1, 5):
+        print(f"-----  Iteration {iteration} -----")
         obj.estimate_parameters()
         nll_metagenes = obj.parameter_optimizer.nll_metagenes()
         nll_spatial_affinities = obj.parameter_optimizer.nll_spatial_affinities()
@@ -68,8 +69,8 @@ def test_louvain_clustering(popari_with_neighbors):
     df_meta = []
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
-    expected_aris = [0.8457611466382401, 0.8732247853237098]
-    expected_silhouettes = [0.289188687261259, 0.3173047990612234]
+    expected_aris = [0.8153973232569635, 0.8555718914000724]
+    expected_silhouettes = [0.3064951308728855, 0.3437001914519185]
     
     for index, (r, X) in enumerate(popari_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')

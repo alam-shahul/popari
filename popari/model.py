@@ -81,7 +81,8 @@ class Popari:
         spatial_affinity_mode: str = "shared lookup",
         lambda_M: float = 0.5,
         lambda_Sigma_bar: float = 0.5,
-        spatial_affinity_lr: float = 1e-3,
+        spatial_affinity_lr: float = 1e-2,
+        spatial_affinity_tol: float = 2e-3,
         spatial_affinity_constraint: Optional[str] = None,
         spatial_affinity_centering: bool = False,
         spatial_affinity_scaling: int = 10,
@@ -100,6 +101,9 @@ class Popari:
         if not any([datasets, dataset_path]):
             raise ValueError("At least one of `datasets`, `dataset_path` must be specified in the Popari constructor.")
 
+        if K <= 1 or type(K) != int:
+            raise ValueError("`K` must be an integer value greater than 1.")
+
         if not torch_context:
             torch_context = dict(device='cpu', dtype=torch.float32)
         
@@ -117,6 +121,7 @@ class Popari:
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
         self.lambda_Sigma_bar = lambda_Sigma_bar
         self.spatial_affinity_lr = spatial_affinity_lr
+        self.spatial_affinity_tol = spatial_affinity_tol
         self.spatial_affinity_constraint = spatial_affinity_constraint
         self.spatial_affinity_centering = spatial_affinity_centering
         self.spatial_affinity_scaling = spatial_affinity_scaling
@@ -226,6 +231,7 @@ class Popari:
                 spatial_affinity_centering=self.spatial_affinity_centering,
                 spatial_affinity_regularization_power=self.spatial_affinity_regularization_power,
                 lambda_Sigma_x_inv=self.lambda_Sigma_x_inv,
+                spatial_affinity_tol=self.spatial_affinity_tol,
                 lambda_M=self.lambda_M,
                 lambda_Sigma_bar=self.lambda_Sigma_bar,
                 spatial_affinity_lr=self.spatial_affinity_lr,
@@ -299,6 +305,8 @@ class Popari:
             # self.parameter_optimizer.update_metagenes()
 
             initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
+
+            # Initializing spatial affinities
             self.parameter_optimizer.spatial_affinity_state.initialize(initial_embeddings)
             
             for dataset_index, dataset in enumerate(self.datasets):
