@@ -24,38 +24,56 @@ class Popari:
     r"""Popari optimization model.
 
     Models spatial biological data using the NMF-HMRF formulation. Supports multiple
-    fields-of-view (FOVs) and multimodal data.
+    fields-of-view (FOVs) and differential analysis.
+   
+    Example of including math in docstring (for use later):
+    :math:`||A||_F = [\sum_{i,j} abs(a_{i,j})^2]^{1/2}`
 
     Attributes:
         K: number of metagenes to learn
         replicate_names: names of spatial datasets
         datasets: list of input AnnData spatial datasets for Popari.
         dataset_path: path to AnnData merged dataset on disk. Ignored if ``datasets`` is specified.
-        lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: 1e-4
+        lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: ``1e-4``
+        pretrained: if set, attempts to load model state from input files. Default: ``False``
         initialization_method: algorithm to use for initializing metagenes and embeddings. Default: ``svd``
         metagene_groups: defines a grouping of replicates for the metagene optimization. If
-            ``metagene_mode == "shared"``, then there will be one set of metagenes for each group;
+            ``metagene_mode == "shared"``, then one set of metagenes will be created for each group;
             if ``metagene_mode == "differential",  then all replicates will have their own set of metagenes,
             but each group will share an ``M_bar``.
-        spatial_affinity_groups: defines a grouping of replicates for the spatial affinityoptimization.
-            If ``spatial_affinity_mode == "shared"``, then there will be one set of spatial_affinitys for each group;
+        spatial_affinity_groups: defines a grouping of replicates for the spatial affinity optimization.
+            If ``spatial_affinity_mode == "shared"``, then one set of spatial_affinities will be created for each group;
             if ``spatial_affinity_mode == "differential"``,  then all replicates will have their own set of spatial
             affinities, but each group will share a ``spatial_affinity_bar``.
         betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
         prior_x_modes: family of prior distribution for embeddings of each dataset
         M_constraint: constraint on columns of M. Default: ``simplex``
         sigma_yx_inv_mode: form of sigma_yx_inv parameter. Default: ``separate``
-        torch_context: keyword args to use during initialization of PyTorch tensors.
-        metagene_mode: modality of metagene parameters. Default: ``shared``
+        torch_context: keyword args to use of PyTorch tensors during training.
+        initial_context: keyword args to use during initialization of PyTorch tensors.
+        metagene_mode: modality of metagene parameters. Default: ``shared``.
+
+            =================  ===== 
+            ``metagene_mode``  Option
+            =================  =====
+            ``shared``         A metagene set is shared between all replicates in a group.
+            ``differential``   Each replicate learns its own metagene set.
+            =================  =====
+
         spatial_affinity_mode: modality of spatial affinity parameters. Default: ``shared lookup``
         lambda_M: hyperparameter to constrain metagene deviation in differential case. Ignored if
-            ``metagene_mode`` is ``shared``. Default: ``0``
+            ``metagene_mode`` is ``shared``. Default: ``0.5``
         lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
-            ``spatial_affinity_mode`` is ``shared lookup``. Default: ``0``
+            ``spatial_affinity_mode`` is ``shared lookup``. Default: ``0.5``
         spatial_affinity_lr: learning rate for optimization of ``Sigma_x_inv``
+        spatial_affinity_tol: convergence tolerance during optimization of ``Sigma_x_inv``
         spatial_affinity_constraint: method to ensure that spatial affinities lie within an appropriate range
         spatial_affinity_centering: if set, spatial affinities are zero-centered after every optimization step
-        spatial_affinity_scaling: method to ensure that spatial affinities lie within an appropriate range. Default: ``"clamp"``
+        spatial_affinity_scaling: magnitude of spatial affinities during initial scaling. Default: ``10``
+        spatial_affinity_regularization_power: exponent controlling penalization of spatial affinity magnitudes. Default: ``2``
+        embedding_mini_iterations: number of mini-iterations to use during each iteration of embedding optimization. Default: ``1000``
+        embedding_acceleration_trick: if set, use trick to accelerate convergence of embedding optimization. Default: ``True``
+        embedding_step_size_multiplier: controls relative step size during embedding optimization. Default: ``1.0``
         use_inplace_ops: if set, inplace PyTorch operations will be used to speed up computation
         random_state: seed for reproducibility of randomized computations. Default: ``0``
         verbose: level of verbosity to use during optimization. Default: ``0`` (no print statements)
@@ -410,12 +428,12 @@ class Popari:
         self.parameter_optimizer.update_sigma_yx()
         self.synchronize_datasets()
 
-    def save_results(self, path2dataset, ignore_raw_data=False):
+    def save_results(self, path2dataset: str, ignore_raw_data: bool =True):
         """Save datasets and learned Popari parameters to .h5ad file.
 
         Args:
             dataset_path: path to input ST datasets, to be stored in .h5ad format
-
+            ignore_raw_data: if set, only learned parameters and embeddings will be saved; raw gene expression will be ignored.
         """
         replicate_names = [dataset.name for dataset in self.datasets]
         save_anndata(path2dataset, self.datasets, replicate_names, ignore_raw_data=ignore_raw_data)

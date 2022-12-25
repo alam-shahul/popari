@@ -17,6 +17,8 @@
 
 ## IO
 
+Tools for loading and saving Popari data and parameters.
+
 ```{eval-rst}
 .. module:: popari.io
 .. currentmodule:: popari
@@ -30,6 +32,8 @@
 ```
 
 ## Model
+
+Entry points for implementations of the Popari algorithm.
 
 ```{eval-rst}
 .. module:: popari.model
@@ -45,6 +49,8 @@
 
 ## Components
 
+Objects that are helpful for working with Popari.
+
 ```{eval-rst}
 .. module:: popari.components
 .. currentmodule:: popari
@@ -57,6 +63,8 @@
 ```
 
 ## Analysis
+
+Functions for visualizing and evaluating Popari results.
 
 ```{eval-rst}
 .. module:: popari.analysis

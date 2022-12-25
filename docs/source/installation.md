@@ -1,3 +1,4 @@
+(installation)=
 # Installation
 
 `popari` requires Python version >=3.8.
