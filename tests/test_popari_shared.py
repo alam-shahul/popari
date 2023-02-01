@@ -20,6 +20,7 @@ def popari_with_neighbors():
         metagene_mode="shared",
         torch_context=dict(device='cuda:0', dtype=torch.float64),
         initial_context=dict(device='cuda:0', dtype=torch.float64),
+        initialization_method="svd",
         dataset_path=path2dataset / "all_data.h5",
         replicate_names=replicate_names,
         verbose=4
@@ -43,9 +44,27 @@ def popari_with_neighbors():
 
     for dataset in obj.datasets:
         dataset.uns["multigroup_heatmap"] = {group_name: np.arange(4).reshape((2, 2)) for group_name in obj.metagene_groups}
- 
+        print(dataset.uns)
+
     obj.save_results(path2dataset / 'trained_4_iterations.h5ad')
     return obj
+
+@pytest.fixture(scope="module")
+def popari_with_louvain_initialization():
+    path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    replicate_names=[0, 1]
+    obj = Popari(
+        K=10, lambda_Sigma_x_inv=1e-3,
+        metagene_mode="shared",
+        torch_context=dict(device='cuda:0', dtype=torch.float64),
+        initial_context=dict(device='cuda:0', dtype=torch.float64),
+        dataset_path=path2dataset / "all_data.h5",
+        replicate_names=replicate_names,
+        verbose=4
+    )
+
+def test_louvain_initialization(popari_with_louvain_initialization):
+    pass
 
 def test_Sigma_x_inv(popari_with_neighbors):
     Sigma_x_inv = list(popari_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].cpu().detach().numpy()

@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import anndata as ad
 import torch
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, issparse
 
 from popari.components import PopariDataset
 from popari.util import convert_numpy_to_pytorch_sparse_coo
@@ -30,29 +30,30 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
         raise ValueError(f"List of replicates '{replicate_names}' does not match number of datasets ({len(datasets)}) stored in AnnData object.")
         
     for replicate, dataset in zip(replicate_names, datasets):
+        replicate_string = f"{replicate}"
         if "Sigma_x_inv" in dataset.uns:
             # Keep only Sigma_x_inv corresponding to a particular replicate
-            replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][f"{replicate}"]
+            replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][replicate_string]
             if np.isscalar(replicate_Sigma_x_inv) and replicate_Sigma_x_inv == -1:
                 replicate_Sigma_x_inv = None
 
             dataset.uns["Sigma_x_inv"] = {
-                f"{replicate}": replicate_Sigma_x_inv
+                replicate_string: replicate_Sigma_x_inv
             }
         
         if "Sigma_x_inv_bar" in dataset.uns:
             # Keep only Sigma_x_inv_bar corresponding to a particular replicate
-            replicate_Sigma_x_inv_bar = dataset.uns["Sigma_x_inv_bar"][f"{replicate}"]
+            replicate_Sigma_x_inv_bar = dataset.uns["Sigma_x_inv_bar"][replicate_string]
             if np.isscalar(replicate_Sigma_x_inv_bar) and replicate_Sigma_x_inv_bar == -1:
                 replicate_Sigma_x_inv_bar = None
 
             dataset.uns["Sigma_x_inv_bar"] = {
-                f"{replicate}": replicate_Sigma_x_inv_bar
+                replicate_string: replicate_Sigma_x_inv_bar
             }
 
         # Hacks to load adjacency matrices efficiently
         if "adjacency_matrix" in dataset.uns:
-            dataset.obsp["adjacency_matrix"] = csr_matrix(dataset.uns["adjacency_matrix"][f"{replicate}"])
+            dataset.obsp["adjacency_matrix"] = csr_matrix(dataset.uns["adjacency_matrix"][replicate_string])
 
         adjacency_matrix = dataset.obsp["adjacency_matrix"].tocoo()
 
@@ -64,14 +65,14 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
         dataset.obs["adjacency_list"] = adjacency_list
 
         if "M" in dataset.uns:
-            if f"{replicate}" in dataset.uns["M"]:
-                replicate_M = make_hdf5_compatible(dataset.uns["M"][f"{replicate}"])
-                dataset.uns["M"] = {f"{replicate}": replicate_M}
+            if replicate_string in dataset.uns["M"]:
+                replicate_M = make_hdf5_compatible(dataset.uns["M"][replicate_string])
+                dataset.uns["M"] = {replicate_string: replicate_M}
     
         if "M_bar" in dataset.uns:
-            if f"{replicate}" in dataset.uns["M_bar"]:
-                replicate_M_bar = make_hdf5_compatible(dataset.uns["M_bar"][f"{replicate}"])
-                dataset.uns["M_bar"] = {f"{replicate}": replicate_M_bar}
+            if replicate_string in dataset.uns["M_bar"]:
+                replicate_M_bar = make_hdf5_compatible(dataset.uns["M_bar"][replicate_string])
+                dataset.uns["M_bar"] = {replicate_string: replicate_M_bar}
         
         if "popari_hyperparameters" in dataset.uns:
             if "prior_x" in dataset.uns["popari_hyperparameters"]:
@@ -82,6 +83,9 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
             replicate_X = make_hdf5_compatible(dataset.obsm["X"])
             dataset.obsm["X"] = replicate_X
 
+        if issparse(dataset.X):
+            dataset.X = dataset.X.toarray()
+
     return datasets, replicate_names
 
 def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], replicate_names: Sequence[str], ignore_raw_data: bool = False):
@@ -90,6 +94,7 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], 
     """
     dataset_copies = []
     for replicate, dataset in zip(replicate_names, datasets):
+        replicate_string = f"{replicate}"
         if ignore_raw_data:
             X = csr_matrix(dataset.X.shape)
         else:
@@ -104,37 +109,37 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], 
         # Hacks to store adjacency matrices efficiently
         if "adjacency_matrix" in dataset.obsp:
             adjacency_matrix = make_hdf5_compatible(dataset.obsp["adjacency_matrix"])
-            dataset_copy.uns["adjacency_matrix"] = {f"{replicate}": adjacency_matrix }
+            dataset_copy.uns["adjacency_matrix"] = {replicate_string: adjacency_matrix }
         
         if "Sigma_x_inv" in dataset_copy.uns:
-            replicate_Sigma_x_inv = dataset_copy.uns["Sigma_x_inv"][f"{replicate}"]
-            if f"{replicate}" in dataset_copy.uns["Sigma_x_inv"]:
+            replicate_Sigma_x_inv = dataset_copy.uns["Sigma_x_inv"][replicate_string]
+            if replicate_string in dataset_copy.uns["Sigma_x_inv"]:
                 # Using a sentinel value - hopefully this can be fixed in the future!
                 if replicate_Sigma_x_inv is None: 
                     replicate_Sigma_x_inv = -1
                 else:
                     replicate_Sigma_x_inv = make_hdf5_compatible(replicate_Sigma_x_inv)
-            dataset_copy.uns["Sigma_x_inv"] = {f"{replicate}": replicate_Sigma_x_inv}
+            dataset_copy.uns["Sigma_x_inv"] = {replicate_string: replicate_Sigma_x_inv}
         
         if "Sigma_x_inv_bar" in dataset_copy.uns:
-            replicate_Sigma_x_inv_bar = dataset_copy.uns["Sigma_x_inv_bar"][f"{replicate}"]
-            if f"{replicate}" in dataset_copy.uns["Sigma_x_inv_bar"]:
+            replicate_Sigma_x_inv_bar = dataset_copy.uns["Sigma_x_inv_bar"][replicate_string]
+            if replicate_string in dataset_copy.uns["Sigma_x_inv_bar"]:
                 # Using a sentinel value - hopefully this can be fixed in the future!
                 if replicate_Sigma_x_inv_bar is None: 
                     replicate_Sigma_x_inv_bar = -1
                 else:
                     replicate_Sigma_x_inv_bar = make_hdf5_compatible(replicate_Sigma_x_inv_bar)
-            dataset_copy.uns["Sigma_x_inv_bar"] = {f"{replicate}": replicate_Sigma_x_inv_bar}
+            dataset_copy.uns["Sigma_x_inv_bar"] = {replicate_string: replicate_Sigma_x_inv_bar}
         
         if "M" in dataset_copy.uns:
-            if f"{replicate}" in dataset_copy.uns["M"]:
-                replicate_M = make_hdf5_compatible(dataset_copy.uns["M"][f"{replicate}"])
-                dataset_copy.uns["M"] = {f"{replicate}": replicate_M}
+            if replicate_string in dataset_copy.uns["M"]:
+                replicate_M = make_hdf5_compatible(dataset_copy.uns["M"][replicate_string])
+                dataset_copy.uns["M"] = {replicate_string: replicate_M}
         
         if "M_bar" in dataset_copy.uns:
-            if f"{replicate}" in dataset_copy.uns["M_bar"]:
-                replicate_M_bar = make_hdf5_compatible(dataset_copy.uns["M_bar"][f"{replicate}"])
-                dataset_copy.uns["M_bar"] = {f"{replicate}": replicate_M_bar}
+            if replicate_string in dataset_copy.uns["M_bar"]:
+                replicate_M_bar = make_hdf5_compatible(dataset_copy.uns["M_bar"][replicate_string])
+                dataset_copy.uns["M_bar"] = {replicate_string: replicate_M_bar}
         
         if "popari_hyperparameters" in dataset_copy.uns:
             if "prior_x" in dataset_copy.uns["popari_hyperparameters"]:

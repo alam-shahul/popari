@@ -3,10 +3,10 @@ import squidpy as sq
 
 from popari.io import load_anndata, save_anndata
 from popari.model import Popari, load_trained_model
-from popari.analysis import preprocess_embeddings, plot_metagene_embedding, leiden, plot_in_situ, multireplicate_heatmap, \
-     multigroup_heatmap, compute_ari_scores, compute_silhouette_scores, plot_all_metagene_embeddings, \
-     compute_empirical_correlations, find_differential_genes, plot_gene_activations, plot_gene_trajectories, \
-     evaluate_classification_task, compute_confusion_matrix, plot_confusion_matrix, compute_columnwise_autocorrelation
+from popari.analysis import preprocess_embeddings, plot_metagene_embedding, leiden, pca, plot_in_situ, plot_umap, \
+     multireplicate_heatmap, multigroup_heatmap, compute_ari_scores, compute_silhouette_scores, plot_all_metagenes, \
+     compute_empirical_correlations, find_differential_genes, plot_gene_activations, plot_gene_trajectories, evaluate_classification_task, \
+     compute_confusion_matrix, plot_confusion_matrix, compute_columnwise_autocorrelation, compute_spatial_correlation
 
 from pathlib import Path
 
@@ -28,8 +28,19 @@ def trained_differential_model():
 
     return trained_model
 
+@pytest.fixture(scope="module")
+def differential_from_shared():
+    path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad", metagene_mode="differential", spatial_affinity_mode="differential lookup")
+
+    return trained_model
+
 def test_load_trained_model(trained_model):
     pass
+
+def test_load_differential_from_shared(differential_from_shared):
+    assert differential_from_shared.metagene_mode == "differential"
+    assert differential_from_shared.spatial_affinity_mode == "differential lookup"
 
 def test_save_anndata(trained_model):
     replicate_names = [dataset.name for dataset in trained_model.datasets]
@@ -53,7 +64,9 @@ def test_analysis_functions(trained_model, trained_differential_model):
     plot_gene_trajectories(trained_differential_model, differential_genes, covariate_values)
     plot_gene_activations(trained_differential_model, differential_genes)
 
-    expected_aris = [0.8629513626120968, 0.8770125653681966]
+    pca(trained_model, joint=True)
+
+    expected_aris = [0.9220847186955679, 0.9184046856054412]
     leiden(trained_model, joint=True, target_clusters=8)
     compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
     compute_silhouette_scores(trained_model, labels="cell_type", embeddings="normalized_X")
@@ -80,9 +93,14 @@ def test_analysis_functions(trained_model, trained_differential_model):
 
     plot_in_situ(trained_model)
 
+    # TODO: add function to compute UMAP first... perhaps same function as PCA?
+    # plot_umap(trained_model, color="leiden")
+
     multireplicate_heatmap(trained_model, uns="Sigma_x_inv")
-    plot_all_metagene_embeddings(trained_model, embedding_key="normalized_X")
+    plot_metagene_embedding(trained_model, 0)
+    plot_all_metagenes(trained_model, embedding_key="normalized_X")
     compute_empirical_correlations(trained_model, output="empirical_correlation")
     multireplicate_heatmap(trained_model, uns="empirical_correlation")
+    compute_spatial_correlation(trained_model)
 
     multigroup_heatmap(trained_model, key="multigroup_heatmap")

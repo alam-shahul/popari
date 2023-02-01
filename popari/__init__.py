@@ -20,8 +20,9 @@ def main():
     parser.add_argument('--prior_x_modes', type=json.loads, help="family of prior distribution for embeddings of each dataset")
     parser.add_argument('--M_constraint', type=str, help="constraint on columns of M. Default ``simplex``")
     parser.add_argument('--sigma_yx_inv_mode', type=str, help="form of sigma_yx_inv parameter. Default ``separate``")
-    parser.add_argument('--torch_context', type=json.loads, help="keyword args to use of PyTorch tensors during training.")
-    parser.add_argument('--initial_context', type=json.loads, help="keyword args to use during initialization of PyTorch tensors.")
+    parser.add_argument('--dtype', type=str, help="Datatype to use for PyTorch operations. Choose between ``float32`` or ``float64``")
+    parser.add_argument('--torch_device', type=str, help="keyword args to use of PyTorch tensors during training.")
+    parser.add_argument('--initial_device', type=str, help="keyword args to use during initialization of PyTorch tensors.")
     parser.add_argument('--spatial_affinity_mode', type=str, help="modality of spatial affinity parameters. Default ``shared lookup``")
     parser.add_argument('--lambda_M', type=float, help="hyperparameter to constrain metagene deviation in differential case.")
     parser.add_argument('--lambda_Sigma_bar', type=float, help="hyperparameter to constrain spatial affinity deviation in differential case.")
@@ -43,6 +44,20 @@ def main():
 
     num_iterations = filtered_args.pop("num_iterations")
     nmf_preiterations = filtered_args.pop("nmf_preiterations")
+    
+    torch_device = filtered_args.pop("torch_device")
+    initial_device = filtered_args.pop("initial_device")
+    dtype = filtered_args.pop("dtype")
+
+    dtype_object = torch.float32
+    if dtype == "float64":
+        dtype_object = torch.float64
+
+    initial_context = {"device": initial_device, "dtype": dtype_object}
+    filtered_args["initial_context"] = initial_context
+
+    torch_context = {"device": torch_device, "dtype": dtype_object}
+    filtered_args["torch_context"] = torch_context
 
     output_path = filtered_args.pop("output_path")
     output_path = Path(output_path)

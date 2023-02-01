@@ -17,6 +17,29 @@ import matplotlib
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
 import seaborn as sns
+from collections import defaultdict
+
+def create_neighbor_groups(replicate_names, covariate_values, window_size = 1):
+    if window_size == None:
+        return None
+    
+    unique_covariates = np.unique(covariate_values)
+    covariate_to_replicate_name = defaultdict(list)
+    for covariate_value, replicate_name in zip(covariate_values, replicate_names):
+        covariate_to_replicate_name[covariate_value].append(replicate_name)
+        
+    sort_indices = np.argsort(unique_covariates)
+    sorted_covariates = unique_covariates[sort_indices]
+    
+    groups = {}
+    for index in range(window_size, len(sorted_covariates) - window_size):
+        group_covariates = sorted_covariates[index - window_size : index + window_size + 1]
+        group_replicates = sum([covariate_to_replicate_name[group_covariate] for group_covariate in group_covariates], [])
+        group_name = f"{sorted_covariates[index]}"
+
+        groups[group_name] = list(group_replicates)
+        
+    return groups
 
 def calc_modularity(adjacency_matrix, label, resolution=1):
     adjacency_matrix = adjacency_matrix.tocoo()

@@ -9,7 +9,7 @@ SpiceMix can be applied to any type of spatial transcriptomics data, including M
 ## Install
 
 ```
-pip install spicemix
+pip install popari
 ```
 
 ## Publishing
@@ -39,7 +39,7 @@ pip install pytest
 - Navigate to the root directory of this repo.
 - Run the following command. With GPU resources, this test should execute without errors in ~2.5 minutes:
 ```console
-python -m pytest -s tests/test_spicemix_shared.py
+python -m pytest -s tests/test_popari_shared.py
 ```
 ## Building Documentation
 

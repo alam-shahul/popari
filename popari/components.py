@@ -7,9 +7,11 @@ import scanpy as sc
 import squidpy as sq
 
 import numpy as np
+import pandas as pd
 from scipy.sparse import csr_matrix
 
 import seaborn as sns
+from matplotlib import pyplot as plt
 
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import NesterovGD, IndependentSet, sample_graph_iid, project2simplex, project2simplex_, project_M, project_M_, get_datetime, convert_numpy_to_pytorch_sparse_coo
@@ -89,7 +91,7 @@ class PopariDataset(ad.AnnData):
         
         return sparse_adjacency_matrix
 
-    def plot_metagene_embedding(metagene_index: int, **scatterplot_kwargs):
+    def plot_metagene_embedding(self, metagene_index: int, **scatterplot_kwargs):
         r"""Plot the embedding values for a metagene in-situ.
 
         Args:
@@ -99,10 +101,21 @@ class PopariDataset(ad.AnnData):
         points = self.obsm["spatial"]
         x, y = points.T
         metagene = self.obsm["X"][:, metagene_index]
-    
-        biased_batch_effect = pd.DataFrame({"x":x, "y":y, f"Metagene {metagene_index}": metagene})
-        sns.scatterplot(data=biased_batch_effect, x="x", y="y", hue=f"Metagene {metagene_index}", **scatterplot_kwargs)
- 
+  
+        palette = "viridis" if "palette" not in scatterplot_kwargs else scatterplot_kwargs.pop("palette")
+
+        metagene_key = f"Metagene {metagene_index}"
+        metagene_expression = pd.DataFrame({"x":x, "y":y, metagene_key: metagene})
+        sns.scatterplot(data=metagene_expression, x="x", y="y", hue=metagene_key, palette=palette, **scatterplot_kwargs)
+
+        ax = scatterplot_kwargs.get("ax", None)
+        if isinstance(palette, str) and ax:
+            norm = plt.Normalize(metagene_expression[metagene_key].min(), metagene_expression[metagene_key].max())
+            sm = plt.cm.ScalarMappable(cmap=palette, norm=norm)
+            sm.set_array([])
+            
+            ax.figure.colorbar(sm)
+
 class EmbeddingOptimizer():
     """Optimizer and state for Popari embeddings.
 
@@ -510,7 +523,6 @@ class EmbeddingOptimizer():
         MTM = M.T @ M / (sigma_yx ** 2)
         YM = Y.to(M.device) @ M / (sigma_yx ** 2)
         Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx ** 2)
-        base_step_size = self.embedding_step_size_multiplier / torch.linalg.eigvalsh(MTM).max().item()
         S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
 
         Z = X / S
@@ -959,6 +971,8 @@ class ParameterOptimizer():
                 Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
                 optimizer = self.spatial_affinity_state.optimizers[dataset.name]
                 Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bars, subsample_rate=subsample_rate, tol=self.spatial_affinity_tol)
+        # K_options, group_options = np.meshgrid()
+        # runs = 
                 with torch.no_grad():
                     self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
             
@@ -1042,7 +1056,7 @@ class ParameterOptimizer():
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         Ys = [Y for (use_replicate, Y) in zip(replicate_mask, self.Ys) if use_replicate]
-        sigma_yxs = self.sigma_yxs
+        sigma_yxs = self.sigma_yxs[replicate_mask]
 
         betas = self.betas[replicate_mask]
         betas /= betas.sum()
@@ -1079,7 +1093,7 @@ class ParameterOptimizer():
         
             loss += constant
 
-            if self.metagene_mode == "differential":
+            if self.metagene_mode == "differential" and M_bar is not None:
                 differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum()
                 group_weighting = 1 / len(M_bar)
                 for group_M_bar in M_bar:
@@ -1127,7 +1141,7 @@ class ParameterOptimizer():
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         Ys = [Y for (use_replicate, Y) in zip(replicate_mask, self.Ys) if use_replicate]
-        sigma_yxs = self.sigma_yxs
+        sigma_yxs = self.sigma_yxs[replicate_mask]
 
         betas = self.betas[replicate_mask]
         betas /= betas.sum()
@@ -1143,7 +1157,7 @@ class ParameterOptimizer():
             print(f"M constant magnitude: {constant_magnitude:.1e}")
 
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
-        for dataset, X, Y, sigma_yx, scaled_beta in zip(datasets, Xs, Ys, sigma_yxs, scaled_betas):
+        for dataset, X, Y, scaled_beta in zip(datasets, Xs, Ys, scaled_betas):
             # X_c^TX_c
             quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
             # MX_c^TY_c
@@ -1188,7 +1202,7 @@ class ParameterOptimizer():
         
             loss += constant
 
-            if self.metagene_mode == "differential":
+            if self.metagene_mode == "differential" and M_bar is not None:
                 differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum()
                 group_weighting = 1 / len(M_bar)
                 for group_M_bar in M_bar:

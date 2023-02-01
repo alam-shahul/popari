@@ -15,7 +15,7 @@ from collections import defaultdict
 from popari.util import get_datetime, convert_numpy_to_pytorch_sparse_coo
 from popari.io import load_anndata, save_anndata
 
-from popari.initialization import initialize_kmeans, initialize_svd
+from popari.initialization import initialize_kmeans, initialize_svd, initialize_louvain
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 
 from popari.components import PopariDataset, ParameterOptimizer, EmbeddingOptimizer
@@ -86,7 +86,7 @@ class Popari:
         dataset_path: Optional[Union[str, Path ]] = None,
         lambda_Sigma_x_inv: float = 1e-4,
         pretrained: bool = False,
-        initialization_method: str = "svd",
+        initialization_method: str = "louvain",
         metagene_groups: Optional[dict] = None,
         spatial_affinity_groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
@@ -119,7 +119,7 @@ class Popari:
         if not any([datasets, dataset_path]):
             raise ValueError("At least one of `datasets`, `dataset_path` must be specified in the Popari constructor.")
 
-        if K <= 1 or type(K) != int:
+        if K <= 1:
             raise ValueError("`K` must be an integer value greater than 1.")
 
         if not torch_context:
@@ -280,10 +280,10 @@ class Popari:
 
         if self.pretrained:
             first_dataset = self.datasets[0]
-            if self.metagene_mode == "differential":
-                self.parameter_optimizer.metagene_state.M_bar = {group_name: torch.from_numpy(first_dataset.uns["M_bar"][group_name]).to(**self.initial_context) for group_name in self.metagene_groups}
-            if self.spatial_affinity_mode == "differential lookup":
-                self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar = {group_name: first_dataset.uns["M_bar"][group_name].to(**self.initial_context) for group_name in self.spatial_affinity_groups}
+            # if self.metagene_mode == "differential":
+            #     self.parameter_optimizer.metagene_state.M_bar = {group_name: torch.from_numpy(first_dataset.uns["M_bar"][group_name]).to(**self.initial_context) for group_name in self.metagene_groups}
+            # if self.spatial_affinity_mode == "differential lookup":
+            #     self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar = {group_name: first_dataset.uns["M_bar"][group_name].to(**self.initial_context) for group_name in self.spatial_affinity_groups}
             for dataset_index, dataset  in enumerate(self.datasets):
                 self.parameter_optimizer.metagene_state[dataset.name][:] = torch.from_numpy(dataset.uns["M"][dataset.name]).to(**self.initial_context)
                 self.embedding_optimizer.embedding_state[dataset.name][:] = torch.from_numpy(dataset.obsm["X"]).to(**self.initial_context)
@@ -300,6 +300,11 @@ class Popari:
                 self.M, self.Xs = initialize_kmeans(self.datasets, self.K, self.initial_context, kwargs_kmeans=dict(random_state=self.random_state))
             elif method == 'svd':
                 self.M, self.Xs = initialize_svd(self.datasets, self.K, self.initial_context, M_nonneg=(self.M_constraint == 'simplex'), X_nonneg=True)
+            elif method == 'louvain':
+                kwargs_louvain = {
+                    "random_state": self.random_state
+                }
+                self.M, self.Xs = initialize_louvain(self.datasets, self.K, self.initial_context, kwargs_louvain=kwargs_louvain)
             else:
                 raise NotImplementedError
             
@@ -346,6 +351,22 @@ class Popari:
                     "spatial_affinity_tags": self.metagene_tags,
                     "K": self.K,
                     "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
+                    "metagene_mode": self.metagene_mode,
+                    "spatial_affinity_mode": self.spatial_affinity_mode,
+                    "lambda_M": self.lambda_M,
+                    "lambda_Sigma_bar": self.lambda_Sigma_bar,
+                    "spatial_affinity_lr": self.spatial_affinity_lr,
+                    "spatial_affinity_tol": self.spatial_affinity_tol,
+                    "spatial_affinity_constraint": self.spatial_affinity_constraint,
+                    "spatial_affinity_centering": self.spatial_affinity_centering,
+                    "spatial_affinity_scaling": self.spatial_affinity_scaling,
+                    "spatial_affinity_regularization_power": self.spatial_affinity_regularization_power,
+                    "embedding_mini_iterations": self.embedding_mini_iterations,
+                    "embedding_acceleration_trick": self.embedding_acceleration_trick,
+                    "embedding_step_size_multiplier": self.embedding_step_size_multiplier,
+                    "use_inplace_ops": self.use_inplace_ops,
+                    "random_state": self.random_state,
+                    "verbose": self.verbose
                 }
 
                 if self.metagene_mode == "differential":
@@ -371,6 +392,11 @@ class Popari:
             else:
                 for key in dataset.uns["losses"]:
                     dataset.uns["losses"][key] = list(dataset.uns["losses"][key])
+            
+        if self.metagene_mode == "differential":
+            self.parameter_optimizer.metagene_state.reaverage()
+        if self.spatial_affinity_mode == "differential lookup":
+            self.parameter_optimizer.spatial_affinity_state.reaverage()
 
         self.synchronize_datasets()
     
@@ -478,7 +504,6 @@ class Popari:
                         logZ_i_X +=  torch.full((N,), self.K * torch.log(prior_x[0]).item(), **self.context)
                     log_partition_function = (logZ_i_Y + logZ_i_X).sum()
                 else:
-
                     adjacency_matrix = self.embedding_optimizer.adjacency_matrices[dataset.name].to(self.context["device"])
                     Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
                     nu = adjacency_matrix @ Z
@@ -506,7 +531,7 @@ class Popari:
 
                     regularization = torch.zeros(1, **self.context)
                     if spatial_affinity_bars is not None:
-                        group_weighting = 1 / len(Sigma_x_inv_bar)
+                        group_weighting = 1 / len(spatial_affinity_bars)
                         for group_Sigma_x_inv_bar in spatial_affinity_bars:
                             regularization += group_weighting * self.lambda_Sigma_bar * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() / 2
         
@@ -542,7 +567,7 @@ class Popari:
 
         return total_loss.cpu().numpy()
 
-def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence[str] = None, context=dict(device="cpu", dtype=torch.float64)):
+def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence[str] = None, context=dict(device="cpu", dtype=torch.float64), **popari_kwargs):
     """Load trained Popari model for downstream analysis.
 
     Args:
@@ -554,29 +579,46 @@ def load_trained_model(dataset_path: Union[str, Path], replicate_names: Sequence
 
     datasets, replicate_names = load_anndata(dataset_path, replicate_names)
 
+    return load_pretrained(datasets, replicate_names, context=context, **popari_kwargs)
+
+def load_pretrained(datasets: Sequence[PopariDataset], replicate_names: Sequence[str]=None, context=dict(device="cpu", dtype=torch.float64), **popari_kwargs):
+    """Load pretrained Popari model from in-memory datasets.
+
+    """
     first_dataset = datasets[0]
-    metagene_groups = first_dataset.uns["popari_hyperparameters"]["metagene_groups"]
+    saved_hyperparameters = first_dataset.uns["popari_hyperparameters"]
+
+    metagene_groups = saved_hyperparameters["metagene_groups"]
     for group in metagene_groups:
         metagene_groups[group] = list(metagene_groups[group])
 
-    spatial_affinity_groups = first_dataset.uns["popari_hyperparameters"]["spatial_affinity_groups"]
+    spatial_affinity_groups = saved_hyperparameters["spatial_affinity_groups"]
     for group in spatial_affinity_groups:
         spatial_affinity_groups[group] = list(spatial_affinity_groups[group])
 
-    metagene_mode = first_dataset.uns["popari_hyperparameters"]["metagene_mode"]
-    K = first_dataset.uns["popari_hyperparameters"]["K"]
-    lambda_Sigma_x_inv = first_dataset.uns["popari_hyperparameters"]["lambda_Sigma_x_inv"]
+    new_kwargs = saved_hyperparameters.copy()
+    for keyword in popari_kwargs:
+        new_kwargs[keyword] = popari_kwargs[keyword]
 
-    trained_model = Popari(K=K,
-        metagene_mode=metagene_mode,
+    for noninitial_hyperparamter in ["prior_x", "metagene_tags", "spatial_affinity_tags"]:
+        new_kwargs.pop(noninitial_hyperparamter)
+
+    # metagene_mode = saved_hyperparameters["metagene_mode"]
+    # K = saved_hyperparameters["K"]
+    # lambda_Sigma_x_inv = saved_hyperparameters["lambda_Sigma_x_inv"]
+
+    trained_model = Popari(
         datasets=datasets,
-        metagene_groups=metagene_groups,
-        spatial_affinity_groups=spatial_affinity_groups,
         replicate_names=replicate_names,
-        lambda_Sigma_x_inv=lambda_Sigma_x_inv,
+        pretrained=True,
+        # K=K,
+        # metagene_mode=metagene_mode,
+        # metagene_groups=metagene_groups,
+        # spatial_affinity_groups=spatial_affinity_groups,
+        # lambda_Sigma_x_inv=lambda_Sigma_x_inv,
         initial_context=context,
         torch_context=context,
-        pretrained=True
+        **new_kwargs
     )
 
     return trained_model

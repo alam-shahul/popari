@@ -1,27 +1,19 @@
 from typing import Optional, Sequence
+from functools import partial
 
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import numpy as np
-import anndata as ad
 import scanpy as sc
-import squidpy as sq
-import networkx as nx
-
-from scipy.stats import zscore
-
-from sklearn.metrics import adjusted_rand_score, silhouette_score, precision_score, accuracy_score, confusion_matrix
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-
-import pandas as pd
-import seaborn as sns
 
 from popari.model import Popari
+from popari._dataset_utils import _preprocess_embeddings, _plot_metagene_embedding, _cluster, _pca, _plot_in_situ, \
+                                  _plot_umap, _multireplicate_heatmap, _multigroup_heatmap, _compute_empirical_correlations, \
+                                  _broadcast_operator, _compute_ari_score, _compute_silhouette_score, _plot_all_embeddings, \
+                                  _evaluate_classification_task, _compute_confusion_matrix, _compute_columnwise_autocorrelation, \
+                                  _plot_confusion_matrix, _compute_spatial_correlation
 
 def setup_squarish_axes(num_axes, **subplots_kwargs):
     """Create matplotlib subplots as squarely as possible."""
@@ -32,8 +24,10 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
 
     constrained_layout = True if "constrained_layout" not in subplots_kwargs else subplots_kwargs.pop("constrained_layout")
     dpi = 300 if "dpi" not in subplots_kwargs else subplots_kwargs.pop("dpi")
+    sharex = True if "sharex" not in subplots_kwargs else subplots_kwargs.pop("sharex")
+    sharey = True if "sharey" not in subplots_kwargs else subplots_kwargs.pop("sharey")
 
-    fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=constrained_layout, dpi=dpi, sharex=True, sharey=True, **subplots_kwargs)
+    fig, axes = plt.subplots(height, width, squeeze=False, constrained_layout=constrained_layout, dpi=dpi, sharex=sharex, sharey=sharey, **subplots_kwargs)
 
     return fig, axes
     
@@ -43,15 +37,9 @@ def preprocess_embeddings(trained_model: Popari, normalized_key="normalized_X"):
     This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.
 
     """
-    # TODO: implement
 
     datasets = trained_model.datasets
-    for dataset in datasets:
-        if "X" not in dataset.obsm:
-            raise ValueError("Must initialize embeddings before normalizing them.")
-
-        dataset.obsm[normalized_key] = zscore(dataset.obsm["X"])
-        sc.pp.neighbors(dataset, use_rep=normalized_key)
+    _preprocess_embeddings(datasets, normalized_key=normalized_key)
 
 def plot_metagene_embedding(trained_model: Popari, metagene_index: int, axes: Optional[Sequence[Axes]] = None, **scatterplot_kwargs):
     r"""Plot a single metagene in-situ across all datasets.
@@ -62,15 +50,9 @@ def plot_metagene_embedding(trained_model: Popari, metagene_index: int, axes: Op
         axes: A predefined set of matplotlib axes to plot on.
 
     """
+
     datasets = trained_model.datasets
-
-    if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets))
-
-    for dataset, ax in zip(datasets, axes.flat):
-        dataset.plot_metagene_embedding(metagene_index, ax=ax, **scatterplot_kwargs)
-
-    return fig
+    _plot_metagene_embedding(datasets, metagene_index=metagene_index, axes=axes, **scatterplot_kwargs)
 
 def leiden(trained_model: Popari, use_rep="normalized_X", joint: bool = False, resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.05):
     r"""Compute Leiden clustering for all datasets.
@@ -81,53 +63,32 @@ def leiden(trained_model: Popari, use_rep="normalized_X", joint: bool = False, r
         use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
         resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
     """
-    # TODO: implement joint clustering
    
     cluster(trained_model, use_rep=use_rep, joint=joint, resolution=resolution, target_clusters=target_clusters, tolerance=tolerance)
 
-def cluster(trained_model: Popari, use_rep="normalized_X", joint: bool = False, method: str = "leiden", resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.05):
+def cluster(trained_model: Popari, use_rep="normalized_X", joint: bool = False, method: str = "leiden", resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.01):
     r"""Compute clustering for all datasets.
 
     Args:
         trained_model: the trained Popari model.
         joint: if `True`, jointly cluster the spots
         use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
-        resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
+        resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters.
     """
-    # TODO: implement joint clustering
     
     datasets = trained_model.datasets
-    if joint:
-        dataset_names = [dataset.name for dataset in datasets]
-        merged_dataset = ad.concat(datasets, label="batch", keys=dataset_names, merge="unique", uns_merge="unique", pairwise=True)
-        datasets = [merged_dataset]
+    _cluster(datasets, use_rep=use_rep, joint=joint, method=method, resolution=resolution, target_clusters=target_clusters, tolerance=tolerance)
 
-        
-    clustering_function = getattr(sc.tl, method)
-    for dataset in datasets:
-        sc.pp.neighbors(dataset, use_rep=use_rep)
-        clustering_function(dataset, resolution=resolution)
+def pca(trained_model: Popari, joint: bool = False, n_comps: int = 50):
+    r"""Compute PCA for all datasets.
+
+    Args:
+        trained_model: the trained Popari model.
+        joint: if `True`, jointly reduce dimensionality.
+    """
     
-        num_clusters = len(dataset.obs[method].unique())
-       
-        lower_bound = 0.25 * resolution 
-        upper_bound = 1.75 * resolution 
-        while target_clusters and num_clusters != target_clusters and np.abs(lower_bound - upper_bound) > tolerance:
-            effective_resolution = (lower_bound * upper_bound) ** 0.5
-            clustering_function(dataset, resolution=effective_resolution)
-            num_clusters = len(dataset.obs[method].unique())
-            if num_clusters < target_clusters:
-                lower_bound = effective_resolution
-            elif num_clusters >= target_clusters:
-                upper_bound = effective_resolution
-            print(num_clusters)
-
-    if joint:
-        indices = merged_dataset.obs.groupby("batch").indices.values()
-        unmerged_datasets = [merged_dataset[index] for index in indices]
-        for unmerged_dataset, original_dataset in zip(unmerged_datasets, trained_model.datasets):
-            original_dataset.obs[method] = unmerged_dataset.obs[method]
-
+    datasets = trained_model.datasets
+    _pca(datasets, joint=joint, n_comps=n_comps)
 
 def plot_in_situ(trained_model: Popari, color="leiden", axes = None, **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
@@ -140,24 +101,9 @@ def plot_in_situ(trained_model: Popari, color="leiden", axes = None, **spatial_k
         axes: A predefined set of matplotlib axes to plot on.
     """
     datasets = trained_model.datasets
-        
-    fig = None
-    if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets))
+    _plot_in_situ(datasets, color=color, axes=axes, **spatial_kwargs)
 
-    edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
-    size = 0.04 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
-    edges = True if "edges" not in spatial_kwargs else spatial_kwargs.pop("edges")
-    palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
-    legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
-
-    neighbors_key = "spatial_neighbors" if "spatial_neighbors" not in spatial_kwargs else spatial_kwargs.pop("neighbors_key")
-    for dataset, ax in zip(datasets, axes.flat):
-        sq.pl.spatial_scatter(dataset, shape=None, size=size, connectivity_key="adjacency_matrix",
-            color=color, edges_width=edges_width, legend_fontsize=legend_fontsize,
-            ax=ax, palette=palette, **spatial_kwargs)
-
-def plot_umap(trained_model: Popari, color="leiden", axes = None, **_kwargs):
+def plot_umap(trained_model: Popari, color="leiden", axes = None, **kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
@@ -168,20 +114,8 @@ def plot_umap(trained_model: Popari, color="leiden", axes = None, **_kwargs):
         axes: A predefined set of matplotlib axes to plot on.
     """
     datasets = trained_model.datasets
-        
-    fig = None
-    if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets))
 
-    edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
-    spot_size = 0.04 if "spot_size" not in spatial_kwargs else spatial_kwargs.pop("spot_size")
-    edges = True if "edges" not in spatial_kwargs else spatial_kwargs.pop("edges")
-    palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
-    legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
-    for dataset, ax in zip(datasets, axes.flat):
-        sc.pl.umap(dataset, spot_size=spot_size, neighbors_key="spatial_neighbors",
-            color=color, edges=True,  edges_width=edges_width, legend_fontsize=legend_fontsize,
-            ax=ax, show=False, palette=palette, **spatial_kwargs)
+    _plot_umap(datasets, color=color, axes=axes, **kwargs)
 
 def multireplicate_heatmap(trained_model: Popari,
     title_font_size: Optional[int] = None,
@@ -189,6 +123,7 @@ def multireplicate_heatmap(trained_model: Popari,
     obsm: Optional[str] = None,
     obsp: Optional[str] = None,
     uns: Optional[str] = None,
+    nested: bool = True,
     **heatmap_kwargs
   ):
     r"""Plot 2D heatmap data across all datasets.
@@ -206,34 +141,8 @@ def multireplicate_heatmap(trained_model: Popari,
     """
     datasets = trained_model.datasets
     
-
-    fig = None
-    if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets))
-
-    aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")    
-    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")    
-
-    for dataset_index, ax in enumerate(axes.flat):
-        if dataset_index >= len(datasets):
-            ax.set_visible(False)
-            continue
-        
-        dataset = datasets[dataset_index]
-        key = None
-        if obsm:
-            image = dataset.obsm[obsm][dataset.name]
-        if obsp:
-            image = dataset.obsp[obsp][dataset.name]
-        if uns:
-            image = dataset.uns[uns][dataset.name]
-       
-        im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
-        if title_font_size is not None:
-            ax.set_title(dataset.name, fontsize= title_font_size)
-
-        fig.colorbar(im, ax=ax, orientation='vertical')
-
+    _multireplicate_heatmap(datasets, title_font_size=title_font_size, axes=axes,
+                            obsm=obsm, obsp=obsp, uns=uns, nested=nested, **heatmap_kwargs)
 
 def multigroup_heatmap(trained_model: Popari,
     title_font_size: Optional[int] = None,
@@ -257,29 +166,7 @@ def multigroup_heatmap(trained_model: Popari,
     """
     datasets = trained_model.datasets
     groups = trained_model.metagene_groups if group_type == "metagene" else trained_model.spatial_affinity_groups
-    
-
-    fig = None
-    if axes is None:
-        fig, axes = setup_squarish_axes(len(groups))
-
-    aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")    
-    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")    
-
-    for group_index, (ax, group_name) in enumerate(zip(axes.flat, groups)):
-        first_dataset_name = groups[group_name][0]
-        first_dataset = next(filter(lambda dataset: dataset.name == first_dataset_name, datasets))
-
-        if group_index > len(groups):
-            ax.set_visible(False)
-            continue
-        
-        image = first_dataset.uns[key][group_name]
-       
-        im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
-        if title_font_size is not None:
-            ax.set_title(group_name, fontsize= title_font_size)
-        fig.colorbar(im, ax=ax, orientation='vertical')
+    _multigroup_heatmap(datasets, title_font_size=title_font_size, groups=groups, axes=axes, key=key, **heatmap_kwargs)
 
 def compute_ari_scores(trained_model: Popari, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth labels and an unsupervised clustering.
@@ -294,9 +181,7 @@ def compute_ari_scores(trained_model: Popari, labels: str, predictions: str, ari
     """
     datasets = trained_model.datasets
 
-    for dataset in datasets:
-        ari = adjusted_rand_score(dataset.obs[labels], dataset.obs[predictions])
-        dataset.uns[ari_key] = ari
+    _broadcast_operator(datasets, partial(_compute_ari_score, labels=labels, predictions=predictions, ari_key=ari_key))
 
 def compute_silhouette_scores(trained_model: Popari, labels: str, embeddings: str, silhouette_key: str = "silhouette"):
     r"""Compute silhouette score for a clustering based on Popari embeddings.
@@ -310,12 +195,10 @@ def compute_silhouette_scores(trained_model: Popari, labels: str, embeddings: st
         ari_key: the key in the ``.uns`` dictionary where the ARI score will be stored.
     """
     datasets = trained_model.datasets
+    
+    _broadcast_operator(datasets, partial(_compute_silhouette_score, labels=labels, embeddings=embeddings, silhouette_key=silhouette_key))
 
-    for dataset in datasets:
-        silhouette = silhouette_score(dataset.obsm[embeddings], dataset.obs[labels])
-        dataset.uns[silhouette_key] = silhouette
-
-def plot_all_metagene_embeddings(trained_model: Popari, embedding_key: str = "X", column_names: Optional[str] = None, **spatial_kwargs):
+def plot_all_embeddings(trained_model: Popari, embedding_key: str = "X", column_names: Optional[str] = None, **spatial_kwargs):
     r"""Plot all laerned metagenes in-situ across all replicates.
 
     Each replicate's metagenes are contained in a separate plot.
@@ -327,22 +210,13 @@ def plot_all_metagene_embeddings(trained_model: Popari, embedding_key: str = "X"
             that these suffixes are just the indices of the latent features.
     """
 
+
+    datasets = trained_model.datasets
+
     if column_names == None:
         column_names = [f"{embedding_key}_{index}" for index in range(trained_model.K)]
 
-    datasets = trained_model.datasets
-    size = 0.1 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
-    palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
-    for dataset in datasets:
-        axes = sq.pl.spatial_scatter(
-            sq.pl.extract(dataset, embedding_key, prefix=f"{embedding_key}"),
-            shape=None,
-            color=column_names,
-            size=size,
-            wspace=0.2,
-            ncols=2,
-            **spatial_kwargs
-        )
+    _broadcast_operator(datasets, partial(_plot_all_embeddings, embedding_key=embedding_key, column_names=column_names, **spatial_kwargs))
 
 def compute_empirical_correlations(trained_model: Popari, feature: str = "X", output: str = "empirical_correlation"):
     """Compute the empirical spatial correlation for a feature set across all datasets.
@@ -354,35 +228,9 @@ def compute_empirical_correlations(trained_model: Popari, feature: str = "X", ou
     """
 
     datasets = trained_model.datasets
-    num_replicates = len(datasets)
-
-    first_dataset = datasets[0]
-    N, K = first_dataset.obsm[feature].shape
     scaling = trained_model.parameter_optimizer.spatial_affinity_state.scaling
-    empirical_correlations = np.zeros([num_replicates, K, K])
-    for replicate, dataset in enumerate(datasets):
-        adjacency_list = dataset.obs["adjacency_list"]
-        X = dataset.obsm[feature]
-        Z = X / np.linalg.norm(X, axis=1, keepdims=True, ord=1)
-        edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
 
-        x = Z[edges[:, 0]]
-        y = Z[edges[:, 1]]
-        x = x - x.mean(axis=0, keepdims=True)
-        y = y - y.mean(axis=0, keepdims=True)
-        y_std = y.std(axis=0, keepdims=True)
-        x_std = x.std(axis=0, keepdims=True)
-        corr = (y / y_std).T @ (x / x_std) / len(x)
-        empirical_correlations[replicate] = - corr
-
-    # Symmetrizing and zero-centering empirical_correlation
-    empirical_correlations = (empirical_correlations + np.transpose(empirical_correlations, (0, 2, 1))) / 2
-    empirical_correlations -= empirical_correlations.mean(axis=(1, 2), keepdims=True)
-    empirical_correlations *= scaling
-
-    for dataset, empirical_correlation in zip(datasets, empirical_correlations):
-        all_correlations = {dataset.name: empirical_correlation}
-        dataset.uns[output] = all_correlations
+    _compute_empirical_correlations(datasets, scaling, feature=feature, output=output)
 
 def find_differential_genes(trained_model: Popari, top_gene_limit: int = 1):
     """Identify genes/features that distinguish differential metagenes within a group.
@@ -472,58 +320,7 @@ def plot_gene_trajectories(trained_model: Popari, gene_subset: Sequence[str], co
 
 def evaluate_classification_task(trained_model: Popari, embeddings: str, labels: str, joint: bool):
     datasets = trained_model.datasets
-    if joint:
-        dataset_names = [dataset.name for dataset in datasets]
-        merged_dataset = ad.concat(datasets, label="batch", keys=dataset_names, merge="unique", uns_merge="unique", pairwise=True)
-        datasets = [merged_dataset]
-
-    for dataset in datasets:
-        le = LabelEncoder()
-        encoded_labels = le.fit_transform(dataset.obs[labels].astype(str))
-        dataset_embeddings = dataset.obsm[embeddings]
-
-        X_train, X_valid, y_train, y_valid = train_test_split(dataset_embeddings, encoded_labels, train_size=0.25, random_state=42, stratify=encoded_labels)
-        model = KNeighborsClassifier(n_neighbors=10)
-        model.fit(X_train, y_train)
-
-        df = []
-        for split, X, y in [('train', X_train, y_train), ('validation', X_valid, y_valid)]:
-            y_soft = model.predict_proba(X)
-            y_hat = np.argmax(y_soft, 1)
-            dataset.uns[f'microprecision_{split}'] = precision_score(y, y_hat, average='micro')
-            dataset.uns[f'macroprecision_{split}'] = precision_score(y, y_hat, average='macro')
-        
-    if joint:
-        indices = merged_dataset.obs.groupby("batch").indices.values()
-        unmerged_datasets = [merged_dataset[index] for index in indices]
-        for unmerged_dataset, original_dataset in zip(unmerged_datasets, trained_model.datasets):
-            for split in ("train", "validation"):
-                original_dataset.uns[f'microprecision_{split}'] = unmerged_dataset.uns[f'microprecision_{split}']
-                original_dataset.uns[f'macroprecision_{split}'] = unmerged_dataset.uns[f'macroprecision_{split}']
-
-def calcPermutation(sim):
-    """
-    TODO: document
-    maximum weight bipartite matching
-    :param sim:
-    :return: sim[perm, index], where index is sorted
-    """
-    Ks = sim.shape
-    B = nx.Graph()
-    B.add_nodes_from(['o{}'.format(i) for i in range(Ks[0])], bipartite=0)
-    B.add_nodes_from(['t{}'.format(i) for i in range(Ks[1])], bipartite=1)
-    B.add_edges_from([
-        ('o{}'.format(i), 't{}'.format(j), {'weight': sim[i, j]})
-        for i in range(Ks[0]) for j in range(Ks[1])
-    ])
-    assert nx.is_bipartite(B)
-    matching = nx.max_weight_matching(B, maxcardinality=True)
-    assert len(set(__ for _ in matching for __ in _)) == Ks[0] * 2
-    matching = [_ if _[0][0] == 'o' else _[::-1] for _ in matching]
-    matching = [tuple(int(__[1:]) for __ in _) for _ in matching]
-    matching = sorted(matching, key=lambda x: x[1])
-    perm, index = tuple(map(np.array, zip(*matching)))
-    return perm, index
+    _evaluate_classification_task(datasets, embeddings=embeddings, labels=labels, joint=joint)
 
 def compute_confusion_matrix(trained_model: Popari, labels: str, predictions: str, result_key: str = "confusion_matrix"):
     r"""Compute confusion matrix for labels and predictions.
@@ -537,39 +334,22 @@ def compute_confusion_matrix(trained_model: Popari, labels: str, predictions: st
         result_key: the key in the ``.uns`` dictionary where the reordered confusion matrix will be stored.
     """
     datasets = trained_model.datasets
-
-    for dataset in datasets:
-        unique_labels = sorted(dataset.obs[labels].unique())
-        unique_predictions = sorted(dataset.obs[predictions].unique())
-        if len(unique_labels) != len(unique_predictions):
-            raise ValueError("Number of unique labels and unique predictions must be equal.")
-
-        encoded_labels = [unique_labels.index(label) for label in dataset.obs[labels].values]
-        encoded_predictions = [unique_predictions.index(prediction) for prediction in dataset.obs[predictions].values]
-
-        confusion_output = confusion_matrix(encoded_labels, encoded_predictions)
-
-        permutation, index = calcPermutation(confusion_output)
-        dataset.obs[f'{labels}_inferred'] = [unique_labels[permutation[prediction]] for prediction in encoded_predictions]
-
-        reordered_confusion = confusion_matrix(dataset.obs[labels], dataset.obs[f"{labels}_inferred"])[:len(unique_labels)]
-
-        dataset.uns[result_key] = reordered_confusion
+    _broadcast_operator(datasets, partial(_compute_confusion_matrix, labels=labels, predictions=predictions, result_key=result_key))
 
 def plot_confusion_matrix(trained_model: Popari, labels: str, confusion_matrix_key: str = "confusion_matrix"):
     datasets = trained_model.datasets
 
-    for dataset in datasets:
-        ordered_labels = sorted(dataset.obs[labels].unique())
-        sns.heatmap(dataset.uns[confusion_matrix_key], xticklabels=ordered_labels, yticklabels=ordered_labels, annot=True)
-        plt.show()
+    _broadcast_operator(datasets, partial(_plot_confusion_matrix, labels=labels, confusion_matrix_key=confusion_matrix_key))
 
 def compute_columnwise_autocorrelation(trained_model: Popari, uns:str = "ground_truth_M", result_key: str = "ground_truth_M_correlation"):
     datasets = trained_model.datasets
 
-    for dataset in datasets:
-        matrix  = dataset.uns[uns][f"{dataset.name}"].T
+    _broadcast_operator(datasets, partial(_compute_columnwise_autocorrelation, uns=uns, result_key=result_key))
 
-        num_columns, _= matrix.shape
-        correlation_coefficient_matrix = np.corrcoef(matrix, matrix)[:num_columns, :num_columns]
-        dataset.uns[result_key] = correlation_coefficient_matrix
+def compute_spatial_correlation(trained_model: Popari, spatial_key: str = "Sigma_x_inv", metagene_key: str = "M", spatial_correlation_key: str = "spatial_correlation", neighbor_interactions_key: str = "neighbor_interactions"):
+    """Computes spatial gene correlation according to learned metagenes.
+
+    """
+    datasets = trained_model.datasets
+
+    _broadcast_operator(datasets, partial(_compute_spatial_correlation, spatial_key=spatial_key, metagene_key=metagene_key, spatial_correlation_key=spatial_correlation_key, neighbor_interactions_key=neighbor_interactions_key))
