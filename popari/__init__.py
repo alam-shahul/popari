@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from popari.model import Popari
+from .__about__ import __version__
 
 def main():
     parser = argparse.ArgumentParser(description='Run SpiceMix on specified dataset and device.')

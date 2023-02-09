@@ -44,6 +44,15 @@ path = "popari/__about__.py"
 [project.scripts]
 popari = "popari:main"
 
+[project.optional-dependencies]
+simulation = [
+  "jupyterlab",
+  "ipycanvas",
+]
+mlflow = [
+  "mlflow",
+]
+
 [tool]
 
 [tool.hatch.build.targets.sdist]
