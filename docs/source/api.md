@@ -79,7 +79,7 @@ Functions for visualizing and evaluating Popari results.
     analysis.plot_in_situ
     analysis.compute_ari_scores
     analysis.multireplicate_heatmap
-    analysis.plot_all_metagene_embeddings
+    analysis.plot_all_embeddings
     analysis.plot_metagene_embedding
     analysis.multigroup_heatmap
     analysis.compute_ari_scores
