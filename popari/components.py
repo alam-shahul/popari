@@ -11,7 +11,6 @@ import pandas as pd
 from scipy.sparse import csr_matrix
 
 import seaborn as sns
-from matplotlib import pyplot as plt
 
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import NesterovGD, IndependentSet, sample_graph_iid, project2simplex, project2simplex_, project_M, project_M_, get_datetime, convert_numpy_to_pytorch_sparse_coo
@@ -101,21 +100,10 @@ class PopariDataset(ad.AnnData):
         points = self.obsm["spatial"]
         x, y = points.T
         metagene = self.obsm["X"][:, metagene_index]
-  
-        palette = "viridis" if "palette" not in scatterplot_kwargs else scatterplot_kwargs.pop("palette")
-
-        metagene_key = f"Metagene {metagene_index}"
-        metagene_expression = pd.DataFrame({"x":x, "y":y, metagene_key: metagene})
-        sns.scatterplot(data=metagene_expression, x="x", y="y", hue=metagene_key, palette=palette, **scatterplot_kwargs)
-
-        ax = scatterplot_kwargs.get("ax", None)
-        if isinstance(palette, str) and ax:
-            norm = plt.Normalize(metagene_expression[metagene_key].min(), metagene_expression[metagene_key].max())
-            sm = plt.cm.ScalarMappable(cmap=palette, norm=norm)
-            sm.set_array([])
-            
-            ax.figure.colorbar(sm)
-
+    
+        biased_batch_effect = pd.DataFrame({"x":x, "y":y, f"Metagene {metagene_index}": metagene})
+        sns.scatterplot(data=biased_batch_effect, x="x", y="y", hue=f"Metagene {metagene_index}", **scatterplot_kwargs)
+ 
 class EmbeddingOptimizer():
     """Optimizer and state for Popari embeddings.
 

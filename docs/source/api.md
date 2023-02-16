@@ -15,7 +15,7 @@
    :noindex:
 ```
 
-## IO
+## IO: `io`
 
 Tools for loading and saving Popari data and parameters.
 
@@ -62,34 +62,48 @@ Objects that are helpful for working with Popari.
     components.PopariDataset
 ```
 
-## Analysis
+## Analysis: `tl`
 
 Functions for visualizing and evaluating Popari results.
 
 ```{eval-rst}
-.. module:: popari.analysis
+.. module:: popari.tl
 .. currentmodule:: popari
 
 .. autosummary::
     :toctree: api/
     :recursive:
  
-    analysis.preprocess_embeddings
-    analysis.leiden
-    analysis.plot_in_situ
-    analysis.compute_ari_scores
-    analysis.multireplicate_heatmap
-    analysis.plot_all_embeddings
-    analysis.plot_metagene_embedding
-    analysis.multigroup_heatmap
-    analysis.compute_ari_scores
-    analysis.compute_silhouette_scores
-    analysis.compute_empirical_correlations
-    analysis.find_differential_genes
-    analysis.plot_gene_activations
-    analysis.plot_gene_trajectories
-    analysis.evaluate_classification_task
-    analysis.compute_confusion_matrix
-    analysis.plot_confusion_matrix
-    analysis.compute_columnwise_autocorrelation
+    tl.preprocess_embeddings
+    tl.leiden
+    tl.compute_ari_scores
+    tl.compute_ari_scores
+    tl.compute_silhouette_scores
+    tl.compute_empirical_correlations
+    tl.find_differential_genes
+    tl.plot_gene_activations
+    tl.plot_gene_trajectories
+    tl.evaluate_classification_task
+    tl.compute_confusion_matrix
+    tl.compute_columnwise_autocorrelation
+```
+
+## Plotting: `pl`
+
+Functions for visualizing and evaluating Popari results.
+
+```{eval-rst}
+.. module:: popari.pl
+.. currentmodule:: popari
+
+.. autosummary::
+    :toctree: api/
+    :recursive:
+ 
+    pl.in_situ
+    pl.all_embeddings
+    pl.metagene_embedding
+    pl.multireplicate_heatmap
+    pl.multigroup_heatmap
+    pl.confusion_matrix
 ```
