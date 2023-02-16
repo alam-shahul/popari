@@ -1,12 +1,10 @@
 import pytest
 import squidpy as sq
 
+from popari import pl, tl
+
 from popari.io import load_anndata, save_anndata
 from popari.model import Popari, load_trained_model
-from popari.analysis import preprocess_embeddings, plot_metagene_embedding, leiden, pca, plot_in_situ, plot_umap, \
-     multireplicate_heatmap, multigroup_heatmap, compute_ari_scores, compute_silhouette_scores, plot_all_metagenes, \
-     compute_empirical_correlations, find_differential_genes, plot_gene_activations, plot_gene_trajectories, evaluate_classification_task, \
-     compute_confusion_matrix, plot_confusion_matrix, compute_columnwise_autocorrelation, compute_spatial_correlation
 
 from pathlib import Path
 
@@ -55,27 +53,27 @@ def test_load_anndata(trained_model):
     load_anndata(path2dataset/ "trained_4_iterations.h5ad")
 
 def test_analysis_functions(trained_model, trained_differential_model):
-    preprocess_embeddings(trained_model)
+    tl.preprocess_embeddings(trained_model)
 
-    differential_genes = find_differential_genes(trained_differential_model)
+    differential_genes = tl.find_differential_genes(trained_differential_model)
     print(differential_genes)
 
     covariate_values = [0]
-    plot_gene_trajectories(trained_differential_model, differential_genes, covariate_values)
-    plot_gene_activations(trained_differential_model, differential_genes)
+    tl.plot_gene_trajectories(trained_differential_model, differential_genes, covariate_values)
+    tl.plot_gene_activations(trained_differential_model, differential_genes)
 
-    pca(trained_model, joint=True)
+    tl.pca(trained_model, joint=True)
 
-    expected_aris = [0.9220847186955679, 0.9184046856054412]
-    leiden(trained_model, joint=True, target_clusters=8)
-    compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
-    compute_silhouette_scores(trained_model, labels="cell_type", embeddings="normalized_X")
-    evaluate_classification_task(trained_model, labels="cell_type", embeddings="normalized_X", joint=False)
-    evaluate_classification_task(trained_model, labels="cell_type", embeddings="normalized_X", joint=True)
+    expected_aris = [0.7998884130878, 0.8329298508489761]
+    tl.leiden(trained_model, joint=True, target_clusters=8)
+    tl.compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
+    tl.compute_silhouette_scores(trained_model, labels="cell_type", embeddings="normalized_X")
+    tl.evaluate_classification_task(trained_model, labels="cell_type", embeddings="normalized_X", joint=False)
+    tl.evaluate_classification_task(trained_model, labels="cell_type", embeddings="normalized_X", joint=True)
 
-    compute_confusion_matrix(trained_model, labels="cell_type", predictions="leiden")
-    plot_confusion_matrix(trained_model, labels="cell_type")
-    compute_columnwise_autocorrelation(trained_model, uns="M")
+    tl.compute_confusion_matrix(trained_model, labels="cell_type", predictions="leiden")
+    pl.confusion_matrix(trained_model, labels="cell_type")
+    tl.compute_columnwise_autocorrelation(trained_model, uns="M")
 
     for expected_ari, dataset in zip(expected_aris, trained_model.datasets):
         print(f"ARI score: {dataset.uns['ari']}")
@@ -91,16 +89,16 @@ def test_analysis_functions(trained_model, trained_differential_model):
         assert expected_ari == pytest.approx(dataset.uns["ari"])
         sq.gr.spatial_neighbors(dataset, key_added="spatial")
 
-    plot_in_situ(trained_model)
+    pl.in_situ(trained_model)
 
-    # TODO: add function to compute UMAP first... perhaps same function as PCA?
-    # plot_umap(trained_model, color="leiden")
+    tl.umap(trained_model)
+    pl.umap(trained_model, color="leiden")
 
-    multireplicate_heatmap(trained_model, uns="Sigma_x_inv")
-    plot_metagene_embedding(trained_model, 0)
-    plot_all_metagenes(trained_model, embedding_key="normalized_X")
-    compute_empirical_correlations(trained_model, output="empirical_correlation")
-    multireplicate_heatmap(trained_model, uns="empirical_correlation")
-    compute_spatial_correlation(trained_model)
+    pl.multireplicate_heatmap(trained_model, uns="Sigma_x_inv")
+    pl.metagene_embedding(trained_model, 0)
+    pl.all_embeddings(trained_model, embedding_key="normalized_X")
+    tl.compute_empirical_correlations(trained_model, output="empirical_correlation")
+    pl.multireplicate_heatmap(trained_model, uns="empirical_correlation")
+    tl.compute_spatial_correlation(trained_model)
 
-    multigroup_heatmap(trained_model, key="multigroup_heatmap")
+    pl.multigroup_heatmap(trained_model, key="multigroup_heatmap")

@@ -157,6 +157,34 @@ def _pca(datasets: Sequence[PopariDataset], joint: bool = False, n_comps: int = 
 
     return datasets
 
+def _umap(datasets: Sequence[PopariDataset], joint: bool = False, n_neighbors: int = 20):
+    r"""Compute PCA for all datasets.
+
+    Args:
+        trained_model: the trained Popari model.
+        joint: if `True`, jointly reduce dimensionality.
+    """
+    
+    if joint:
+        original_datasets = datasets
+        dataset_names = [dataset.name for dataset in datasets]
+        merged_dataset = ad.concat(datasets, label="batch", keys=dataset_names, merge="unique", uns_merge="unique", pairwise=True)
+        datasets = [merged_dataset]
+        
+    for dataset in datasets:
+        sc.pp.neighbors(dataset, n_neighbors=n_neighbors)
+        sc.tl.umap(dataset)
+
+    if joint:
+        indices = merged_dataset.obs.groupby("batch").indices.values()
+        unmerged_datasets = [merged_dataset[index] for index in indices]
+        for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
+            original_dataset.obsm["X_umap"] = unmerged_dataset.obsm["X_umap"]
+
+        return original_datasets, merged_dataset
+
+    return datasets
+
 def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", axes = None, **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
@@ -209,12 +237,12 @@ def _plot_umap(datasets: Sequence[PopariDataset], color="leiden", axes = None, *
         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
 
     edges_width = 0.2 if "edges_width" not in kwargs else kwargs.pop("edges_width")
-    spot_size = 0.04 if "spot_size" not in kwargs else kwargs.pop("spot_size")
+    size = 0.04 if "size" not in kwargs else kwargs.pop("size")
     edges = True if "edges" not in kwargs else kwargs.pop("edges")
-    palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in kwargs else kwargs.pop("palette")
+    palette = sc.pl.palettes.godsnot_102 if "palette" not in kwargs else kwargs.pop("palette")
     legend_fontsize = "xx-small" if "legend_fontsize" not in kwargs else kwargs.pop("legend_fontsize")
     for dataset, ax in zip(datasets, axes.flat):
-        sc.pl.umap(dataset, spot_size=spot_size, neighbors_key="spatial_neighbors",
+        sc.pl.umap(dataset, size=size, neighbors_key="spatial_neighbors",
             color=color, edges=True,  edges_width=edges_width, legend_fontsize=legend_fontsize,
             ax=ax, show=False, palette=palette, **kwargs)
 

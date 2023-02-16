@@ -9,7 +9,7 @@ import numpy as np
 import scanpy as sc
 
 from popari.model import Popari
-from popari._dataset_utils import _preprocess_embeddings, _plot_metagene_embedding, _cluster, _pca, _plot_in_situ, \
+from popari._dataset_utils import _preprocess_embeddings, _plot_metagene_embedding, _cluster, _pca, _umap, \
                                   _plot_umap, _multireplicate_heatmap, _multigroup_heatmap, _compute_empirical_correlations, \
                                   _broadcast_operator, _compute_ari_score, _compute_silhouette_score, _plot_all_embeddings, \
                                   _evaluate_classification_task, _compute_confusion_matrix, _compute_columnwise_autocorrelation, \
@@ -40,19 +40,6 @@ def preprocess_embeddings(trained_model: Popari, normalized_key="normalized_X"):
 
     datasets = trained_model.datasets
     _preprocess_embeddings(datasets, normalized_key=normalized_key)
-
-def plot_metagene_embedding(trained_model: Popari, metagene_index: int, axes: Optional[Sequence[Axes]] = None, **scatterplot_kwargs):
-    r"""Plot a single metagene in-situ across all datasets.
-
-    Args:
-        trained_model: the trained Popari model.
-        metagene_index: the index of the metagene to plot.
-        axes: A predefined set of matplotlib axes to plot on.
-
-    """
-
-    datasets = trained_model.datasets
-    _plot_metagene_embedding(datasets, metagene_index=metagene_index, axes=axes, **scatterplot_kwargs)
 
 def leiden(trained_model: Popari, use_rep="normalized_X", joint: bool = False, resolution: float = 1.0, target_clusters: Optional[int] = None, tolerance: float = 0.05):
     r"""Compute Leiden clustering for all datasets.
@@ -90,32 +77,16 @@ def pca(trained_model: Popari, joint: bool = False, n_comps: int = 50):
     datasets = trained_model.datasets
     _pca(datasets, joint=joint, n_comps=n_comps)
 
-def plot_in_situ(trained_model: Popari, color="leiden", axes = None, **spatial_kwargs):
-    r"""Plot a categorical label across all datasets in-situ.
-
-    Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
+def umap(trained_model: Popari, joint: bool = False, n_neighbors: int = 20):
+    r"""Compute PCA for all datasets.
 
     Args:
         trained_model: the trained Popari model.
-        color: the key in the ``.obs`` dataframe to plot.
-        axes: A predefined set of matplotlib axes to plot on.
+        joint: if `True`, jointly reduce dimensionality.
     """
+    
     datasets = trained_model.datasets
-    _plot_in_situ(datasets, color=color, axes=axes, **spatial_kwargs)
-
-def plot_umap(trained_model: Popari, color="leiden", axes = None, **kwargs):
-    r"""Plot a categorical label across all datasets in-situ.
-
-    Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
-
-    Args:
-        trained_model: the trained Popari model.
-        color: the key in the ``.obs`` dataframe to plot.
-        axes: A predefined set of matplotlib axes to plot on.
-    """
-    datasets = trained_model.datasets
-
-    _plot_umap(datasets, color=color, axes=axes, **kwargs)
+    _umap(datasets, joint=joint, n_neighbors=n_neighbors)
 
 def multireplicate_heatmap(trained_model: Popari,
     title_font_size: Optional[int] = None,
@@ -198,26 +169,6 @@ def compute_silhouette_scores(trained_model: Popari, labels: str, embeddings: st
     
     _broadcast_operator(datasets, partial(_compute_silhouette_score, labels=labels, embeddings=embeddings, silhouette_key=silhouette_key))
 
-def plot_all_embeddings(trained_model: Popari, embedding_key: str = "X", column_names: Optional[str] = None, **spatial_kwargs):
-    r"""Plot all laerned metagenes in-situ across all replicates.
-
-    Each replicate's metagenes are contained in a separate plot.
-
-    Args:
-        trained_model: the trained Popari model.
-        embedding_key: the key in the ``.obsm`` dataframe for the cell/spot embeddings.
-        column_names: a list of the suffixes for each latent feature. If ``None``, it is assumed
-            that these suffixes are just the indices of the latent features.
-    """
-
-
-    datasets = trained_model.datasets
-
-    if column_names == None:
-        column_names = [f"{embedding_key}_{index}" for index in range(trained_model.K)]
-
-    _broadcast_operator(datasets, partial(_plot_all_embeddings, embedding_key=embedding_key, column_names=column_names, **spatial_kwargs))
-
 def compute_empirical_correlations(trained_model: Popari, feature: str = "X", output: str = "empirical_correlation"):
     """Compute the empirical spatial correlation for a feature set across all datasets.
 
@@ -280,6 +231,7 @@ def plot_gene_activations(trained_model: Popari, gene_subset: Sequence[str]):
     for group_index, group_name in enumerate(trained_model.metagene_groups):
         M_bar_subset = trained_model.datasets[0].uns["M_bar"][group_name][gene_indices]
         images[:, :, group_index] = M_bar_subset
+   
     
     fig, axes = setup_squarish_axes(len(gene_indices), figsize=(10, 10))
     for ax, image, gene in zip(axes.flat, images, gene_subset):
@@ -319,6 +271,15 @@ def plot_gene_trajectories(trained_model: Popari, gene_subset: Sequence[str], co
         ax.set_title(f"{gene}, R = {r:.2f}")
 
 def evaluate_classification_task(trained_model: Popari, embeddings: str, labels: str, joint: bool):
+    r"""Use cell labels to train classifier on Popari embeddings, and evaluate train/test accuracy.
+
+    Args:
+        trained_model: the trained Popari model.
+        embeddings: the key in the ``.obsm`` dataframe where the embeddings are stored.
+        labels: the key in the ``.obs`` dataframe for the label data.
+        joint: if `True`, jointly train the classifier across all datasets.
+    """
+
     datasets = trained_model.datasets
     _evaluate_classification_task(datasets, embeddings=embeddings, labels=labels, joint=joint)
 
@@ -335,11 +296,6 @@ def compute_confusion_matrix(trained_model: Popari, labels: str, predictions: st
     """
     datasets = trained_model.datasets
     _broadcast_operator(datasets, partial(_compute_confusion_matrix, labels=labels, predictions=predictions, result_key=result_key))
-
-def plot_confusion_matrix(trained_model: Popari, labels: str, confusion_matrix_key: str = "confusion_matrix"):
-    datasets = trained_model.datasets
-
-    _broadcast_operator(datasets, partial(_plot_confusion_matrix, labels=labels, confusion_matrix_key=confusion_matrix_key))
 
 def compute_columnwise_autocorrelation(trained_model: Popari, uns:str = "ground_truth_M", result_key: str = "ground_truth_M_correlation"):
     datasets = trained_model.datasets

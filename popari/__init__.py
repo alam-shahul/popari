@@ -5,6 +5,9 @@ from pathlib import Path
 from popari.model import Popari
 from .__about__ import __version__
 
+from . import analysis as tl
+from . import plotting as pl
+
 def main():
     parser = argparse.ArgumentParser(description='Run SpiceMix on specified dataset and device.')
     parser.add_argument('--K', type=int, required=True, default=10, help="Number of metagenes to use for all replicates.")
