@@ -77,7 +77,6 @@ Functions for visualizing and evaluating Popari results.
     tl.preprocess_embeddings
     tl.leiden
     tl.compute_ari_scores
-    tl.compute_ari_scores
     tl.compute_silhouette_scores
     tl.compute_empirical_correlations
     tl.find_differential_genes

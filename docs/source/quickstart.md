@@ -7,7 +7,7 @@ from pathlib import Path
 import anndata as ad
 import torch
 
-from spicemix.model import SpiceMixPlus
+from popari.model import Popari
 
 datasets = []
 replicate_names = []
@@ -37,7 +37,7 @@ spicemixplus_demo = SpiceMixPlus(
 ## Train
 ```python
 # Initialization with NMF
-for iteration in range(10):
+for iteration in range(5):
     spicemixplus_demo.estimate_parameters(update_spatial_affinities=False)
     spicemixplus_demo.estimate_weights(use_neighbors=False)
 
