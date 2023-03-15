@@ -27,7 +27,7 @@ torch_context = dict(device='cuda:0', dtype=torch.float32) # Context for PyTorch
 
 ## Initialize
 ```python
-spicemixplus_demo = SpiceMixPlus(
+popari_demo = Popari(
     K=K,
     datasets=datasets,
     lambda_Sigma_x_inv=lambda_Sigma_x_inv,
@@ -38,22 +38,20 @@ spicemixplus_demo = SpiceMixPlus(
 ```python
 # Initialization with NMF
 for iteration in range(5):
-    spicemixplus_demo.estimate_parameters(update_spatial_affinities=False)
-    spicemixplus_demo.estimate_weights(use_neighbors=False)
+    popari_demo.estimate_parameters(update_spatial_affinities=False)
+    popari_demo.estimate_weights(use_neighbors=False)
 
 # Using spatial information
 num_iterations = 200
 for iteration in range(num_iterations):
-    spicemixplus_demo.estimate_parameters()
-    spicemixplus_demo.estimate_weights()
+    popari_demo.estimate_parameters()
+    popari_demo.estimate_weights()
 ```
 
 ## Save to disk
 ```python
 result_filepath = Path(f"./demo_{num_iterations}_iterations.h5ad")
-spicemixplus_demo.save_results(result_filepath)
+popari_demo.save_results(result_filepath)
 ```
-    
-## Plot results
-...
-```
+
+See **Analysis Demo** for examples of how to analyze Popari outputs.
