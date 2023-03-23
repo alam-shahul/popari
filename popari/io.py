@@ -146,9 +146,9 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], 
             if "prior_x" in dataset_copy.uns["popari_hyperparameters"]:
                 prior_x = make_hdf5_compatible(dataset_copy.uns["popari_hyperparameters"]["prior_x"])
                 dataset_copy.uns["popari_hyperparameters"]["prior_x"] = prior_x
-            dataset_copy.uns["popari_hyperparameters"]["name"] = dataset.name
-        else:
-            dataset_copy.uns["popari_hyperparameters"] = {"name": dataset.name}
+
+        if "dataset_name" not in dataset_copy.uns:
+            dataset_copy.uns["dataset_name"] = dataset.name
         
         if "X" in dataset_copy.obsm:
             replicate_X = make_hdf5_compatible(dataset_copy.obsm["X"])

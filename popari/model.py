@@ -159,7 +159,7 @@ class Popari:
         if datasets:
             self.load_anndata_datasets(datasets, replicate_names)
         elif dataset_path:
-            self.load_dataset(dataset_path, replicate_names)
+            self.load_dataset(dataset_path)
 
         if replicate_names is None:
             self.replicate_names = [dataset.name for dataset in self.datasets]
@@ -215,7 +215,7 @@ class Popari:
 
         dataset_path = Path(dataset_path)
         
-        datasets, replicate_names = load_anndata(dataset_path, replicate_names)
+        datasets, replicate_names = load_anndata(dataset_path)
         self.load_anndata_datasets(datasets, replicate_names)
 
     def _initialize(self, pretrained=False, betas: Optional[Sequence[float]] = None, prior_x_modes: Optional[Sequence[str]] = None, method: str = 'svd'):
