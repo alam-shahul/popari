@@ -125,8 +125,10 @@ def all_embeddings(trained_model: Popari, embedding_key: str = "X", column_names
 
 
     datasets = trained_model.datasets
+    first_dataset = datasets[0]
+    _, K = first_dataset.obsm[f"{embedding_key}"].shape
 
     if column_names == None:
-        column_names = [f"{embedding_key}_{index}" for index in range(trained_model.K)]
+        column_names = [f"{embedding_key}_{index}" for index in range(K)]
 
     _broadcast_operator(datasets, partial(_plot_all_embeddings, embedding_key=embedding_key, column_names=column_names, **spatial_kwargs))

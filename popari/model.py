@@ -108,7 +108,7 @@ class Popari:
         embedding_mini_iterations: int = 1000,
         embedding_acceleration_trick: bool = True,
         embedding_step_size_multiplier: float = 1.0,
-        use_inplace_ops: bool = False,
+        use_inplace_ops: bool = True,
         random_state: int = 0,
         verbose: int = 0
     ):
@@ -205,7 +205,7 @@ class Popari:
         
         self.num_replicates = len(self.datasets)
 
-    def load_dataset(self, dataset_path: Union[str, Path], replicate_names: Sequence[str]):
+    def load_dataset(self, dataset_path: Union[str, Path]):
         """Load dataset into Popari from saved .h5ad file.
 
         Args:
@@ -284,6 +284,7 @@ class Popari:
             #     self.parameter_optimizer.metagene_state.M_bar = {group_name: torch.from_numpy(first_dataset.uns["M_bar"][group_name]).to(**self.initial_context) for group_name in self.metagene_groups}
             # if self.spatial_affinity_mode == "differential lookup":
             #     self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar = {group_name: first_dataset.uns["M_bar"][group_name].to(**self.initial_context) for group_name in self.spatial_affinity_groups}
+            spatial_affinity_copy = torch.zeros((len(self.datasets), self.K, self.K), **self.context)
             for dataset_index, dataset  in enumerate(self.datasets):
                 self.parameter_optimizer.metagene_state[dataset.name][:] = torch.from_numpy(dataset.uns["M"][dataset.name]).to(**self.initial_context)
                 self.embedding_optimizer.embedding_state[dataset.name][:] = torch.from_numpy(dataset.obsm["X"]).to(**self.initial_context)
@@ -291,8 +292,10 @@ class Popari:
                 self.parameter_optimizer.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(dataset.obsp["adjacency_matrix"], self.initial_context)
                     
                 self.parameter_optimizer.spatial_affinity_state[dataset.name] = torch.from_numpy(dataset.uns["Sigma_x_inv"][dataset.name]).to(**self.initial_context)
-        
+                spatial_affinity_copy[dataset_index] = self.parameter_optimizer.spatial_affinity_state[dataset.name]
+      
             self.parameter_optimizer.update_sigma_yx()
+            self.parameter_optimizer.spatial_affinity_state.initialize_optimizers(spatial_affinity_copy)
         else:
             if self.verbose:
                 print(f"{get_datetime()} Initializing metagenes and hidden states")
@@ -426,7 +429,12 @@ class Popari:
                 dataset.uns["spatial_affinity_bar"] = spatial_affinity_bar
 
     def estimate_weights(self, use_neighbors=True):
-        """Update embeddings (latent states) for each replicate."""
+        """Update embeddings (latent states) for each replicate.
+
+        Args:
+            use_neighbors: If specified, weight updates will take into account
+                neighboring interactions. Default: ``True``
+        """
         if self.verbose:
             print(f"{get_datetime()} Updating latent states")
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
@@ -436,8 +444,10 @@ class Popari:
         """Update parameters for each replicate.
 
         Args:
-            update_spatial_affinities: If specified, spatial affinities will be updated during this iteration.
-                Default: True.
+            update_spatial_affinities: If specified, spatial affinities will be updated during
+                this iteration. Default: ``True``
+            edge_subsample_rate: Fraction of adjacency matrix edges that will be included in
+                optimization of ``Sigma_x_inv``.
         """
         logging.info(f'{get_datetime()}Updating model parameters')
 
@@ -461,8 +471,7 @@ class Popari:
             dataset_path: path to input ST datasets, to be stored in .h5ad format
             ignore_raw_data: if set, only learned parameters and embeddings will be saved; raw gene expression will be ignored.
         """
-        replicate_names = [dataset.name for dataset in self.datasets]
-        save_anndata(path2dataset, self.datasets, replicate_names, ignore_raw_data=ignore_raw_data)
+        save_anndata(path2dataset, self.datasets, ignore_raw_data=ignore_raw_data)
 
     def nll(self, use_spatial=False):
         """Compute overall negative log-likelihood for current model parameters.
@@ -600,8 +609,8 @@ def load_pretrained(datasets: Sequence[PopariDataset], replicate_names: Sequence
     for keyword in popari_kwargs:
         new_kwargs[keyword] = popari_kwargs[keyword]
 
-    for noninitial_hyperparamter in ["prior_x", "metagene_tags", "spatial_affinity_tags"]:
-        new_kwargs.pop(noninitial_hyperparamter)
+    for noninitial_hyperparameter in ["prior_x", "metagene_tags", "spatial_affinity_tags"]:
+        new_kwargs.pop(noninitial_hyperparameter)
 
     # metagene_mode = saved_hyperparameters["metagene_mode"]
     # K = saved_hyperparameters["K"]

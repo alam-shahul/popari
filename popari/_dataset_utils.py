@@ -243,7 +243,7 @@ def _plot_umap(datasets: Sequence[PopariDataset], color="leiden", axes = None, *
     legend_fontsize = "xx-small" if "legend_fontsize" not in kwargs else kwargs.pop("legend_fontsize")
     for dataset, ax in zip(datasets, axes.flat):
         sc.pl.umap(dataset, size=size, neighbors_key="spatial_neighbors",
-            color=color, edges=True,  edges_width=edges_width, legend_fontsize=legend_fontsize,
+            color=color, edges=edges,  edges_width=edges_width, legend_fontsize=legend_fontsize,
             ax=ax, show=False, palette=palette, **kwargs)
 
     return fig
@@ -409,6 +409,39 @@ def _broadcast_operator(datasets: Sequence[PopariDataset], operator: Callable):
 
     return datasets
 
+def _adjacency_permutation_test(dataset: PopariDataset, labels: str = "X", n_trials: int = 500,
+        random_state: int = 0, pvalue_key: str = "pvalue"):
+    r"""Compute p-values for neighborhood enrichment.
+
+    See `In silico tissue generation and power analysis for spatial omics
+    <https://www.nature.com/articles/s41592-023-01766-6#Sec13>`_ for details.
+
+    """
+
+    rng = np.random.default_rng(seed=random_state)
+    original_labels = dataset.obsm[labels]
+    adjacency_matrix = dataset.obsp["adjacency_matrix"]
+    _, K = original_labels.shape
+
+    original_enrichment = compute_neighborhood_enrichment(original_labels, adjacency_matrix)
+
+    neighborhood_enrichments = np.zeros((n_trials, K, K), dtype=np.float64)
+    for trial in range(n_trials):
+        permuted_labels = rng.permutation(original_labels)
+        neighborhood_enrichments[trial] = compute_neighborhood_enrichment(permuted_labels, adjacency_matrix)
+
+    adjacency = (neighborhood_enrichments > original_enrichment[np.newaxis, :]).sum(axis=0)
+    avoidance = (neighborhood_enrichments < original_enrichment[np.newaxis, :]).sum(axis=0)
+
+    p_adjacency = (n_trials - adjacency + 1) / (n_trials + 1)
+    p_avoidance = (n_trials - avoidance + 1) / (n_trials + 1)
+
+
+    dataset.uns[f"adjacency_{pvalue_key}"] = p_adjacency
+    dataset.uns[f"avoidance_{pvalue_key}"] = p_avoidance
+
+    return dataset
+
 def _compute_ari_score(dataset: PopariDataset, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth labels and an unsupervised clustering.
 
@@ -452,13 +485,16 @@ def _plot_all_embeddings(dataset: PopariDataset, embedding_key: str = "X", colum
     """
 
 
+    _, K = dataset.obsm[f"{embedding_key}"].shape
     if column_names == None:
-        column_names = [f"{embedding_key}_{index}" for index in range(trained_model.K)]
+        # TODO: remove dependence on trained_model
+        column_names = [f"{embedding_key}_{index}" for index in range(K)]
+
     size = 0.1 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
     palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
         
     axes = sq.pl.spatial_scatter(
-        sq.pl.extract(dataset, embedding_key, prefix=f"{embedding_key}"),
+        sq.pl.extract(dataset.copy(), embedding_key, prefix=f"{embedding_key}"),
         shape=None,
         color=column_names,
         size=size,

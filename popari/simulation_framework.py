@@ -1,6 +1,7 @@
-from typing import Union, Sequence, Optional
-from collections import defaultdict
+from typing import Union, Sequence, Optional, Tuple
 import random
+
+import json
 
 import numpy as np
 
@@ -8,12 +9,12 @@ import scipy
 from scipy.spatial import Delaunay
 from scipy.spatial.distance import pdist, cdist, squareform
 from scipy.stats import gaussian_kde, gamma, truncnorm, truncexpon, expon, bernoulli, dirichlet
-from scipy.spatial import KDTree
 from scipy.sparse import csr_matrix
 
 from sklearn.decomposition import NMF
 
 import anndata as ad
+import scanpy as sc
 import squidpy as sq
 
 import umap
@@ -26,10 +27,10 @@ from matplotlib.colors import hsv_to_rgb
 from matplotlib.colors import ListedColormap
         
 import seaborn as sns
-from ipycanvas import Canvas, hold_canvas
-from ipywidgets import Output
 
-def sample_gaussian(sigma: np.ndarray, means: np.ndarray, N: int = 1):
+from _canvas import DomainCanvas, MetageneCanvas
+
+def sample_gaussian(sigma: np.ndarray, means: np.ndarray, N: int = 1, random_state=0):
     """Sample multivariate Gaussian from covariance matrix.
     
     Args:
@@ -39,6 +40,8 @@ def sample_gaussian(sigma: np.ndarray, means: np.ndarray, N: int = 1):
     Returns:
         (K, N) sample matrix
     """
+
+    rng = np.random.default_rng(random_state)
     K = len(sigma)
     assert sigma.shape[0] == sigma.shape[1]
     assert len(means) == K
@@ -51,7 +54,7 @@ def sample_gaussian(sigma: np.ndarray, means: np.ndarray, N: int = 1):
     while True:
         n_valid = 0
         while True:
-            z = 2*np.random.rand(2) - 1
+            z = 2*rng.random(2) - 1
             if (z[0]**2 + z[1]**2 <= 1):
                 r = np.linalg.norm(z)
                 x[n_valid, num_samples] = z[0]*np.sqrt(-2*np.log(r**2)/r**2)
@@ -69,17 +72,18 @@ def sample_gaussian(sigma: np.ndarray, means: np.ndarray, N: int = 1):
     
     return np.squeeze(x)
 
-def sample_2D_points(num_points, minimum_distance, width=1.0, height=1.0):
+def sample_2D_points(num_points, minimum_distance: float, width: float = 1.0, height: float = 1.0, random_state=0):
     """Generate 2D samples that are at least minimum_distance apart from each other.
     
     """
     # TODO: Implement Poisson disc sampling for a vectorized operation
+    rng = np.random.default_rng(random_state)
     
     points = np.zeros((num_points, 2))
-    points[0] = np.random.random_sample(2) * np.array([width, height])
+    points[0] = rng.random(2) * np.array([width, height])
     for index in range(1, num_points):
         while True:
-            point = np.random.random_sample((1, 2)) * np.array([width, height])
+            point = rng.random((1, 2)) * np.array([width, height])
             distances = cdist(points[:index], point)
             if np.min(distances) > minimum_distance:
                 points[index] = point
@@ -87,7 +91,7 @@ def sample_2D_points(num_points, minimum_distance, width=1.0, height=1.0):
                 
     return points
 
-def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_metagene_parameter, noise_metagene_parameter,  metagene_variation_probabilities, original_metagenes=None, replicate_variability=None, normalize=True):
+def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_metagene_parameter, noise_metagene_parameter,  metagene_variation_probabilities, original_metagenes=None, replicate_variability=None, normalize=True, random_state=0):
     """Synthesize related metagenes according to the metagene_variation_probabilities vector.
     
     Creates num_real_metagenes synthetic metagenes using a random Gamma distribution with
@@ -97,6 +101,7 @@ def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_
     a Gamma distribution with shape parameter noise_metagene_parameter.
     """
     
+    rng = np.random.default_rng(random_state)
     num_metagenes = num_real_metagenes + n_noise_metagenes 
     metagenes = np.zeros((num_metagenes, num_genes))
 
@@ -115,7 +120,7 @@ def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_
                 
             # mask = bernoulli.rvs(variation_probability, size=num_genes).astype('bool')
             mask = np.full(num_genes, False)
-            masked_genes = np.random.choice(num_genes, size=int(variation_probability * num_genes), replace=False)
+            masked_genes = rng.choice(num_genes, size=int(variation_probability * num_genes), replace=False)
             mask[masked_genes] = True
             perturbed_metagene = metagene.copy()
 
@@ -137,6 +142,34 @@ def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_
     if normalize:
         metagenes = metagenes / np.sum(metagenes, axis=1, keepdims=True)
        
+    return metagenes
+
+def synthesize_metagenes_nsf(num_genes, num_spatial_metagenes: int, n_nonspatial_metagenes: int,
+        spatial_metagene_parameter: float, nonspatial_metagene_parameter: float,
+        original_metagenes: np.ndarray =None, normalize: bool = False, random_state: int = 0,
+        nonspatial_nonzero_prob: Optional[float]=None):
+    """Test nsf metagene synthesis
+    
+    """
+    # TODO: delete the below lines for generalizability
+    rng = np.random.default_rng(random_state)
+    
+    num_metagenes = num_spatial_metagenes + n_nonspatial_metagenes 
+    metagenes = np.zeros((num_metagenes, num_genes))
+
+    # last_index = None
+    metagene_indices = rng.choice(num_spatial_metagenes, size=num_genes, replace=True)
+    metagenes[metagene_indices, np.arange(num_genes)] = spatial_metagene_parameter
+    
+    if n_nonspatial_metagenes > 0:
+        if nonspatial_nonzero_prob is not None:
+            for metagene_index in range(n_nonspatial_metagenes):
+                gene_indices = rng.binomial(n=1, p=nonspatial_nonzero_prob, size=num_genes).astype(bool)
+                metagenes[num_spatial_metagenes + metagene_index, gene_indices] = nonspatial_metagene_parameter
+        else:
+            metagene_indices = rng.choice(n_nonspatial_metagenes, size=num_genes, replace=True)
+            metagenes[metagene_indices + num_spatial_metagenes, np.arange(num_genes)] = nonspatial_metagene_parameter
+    
     return metagenes
 
 def sample_normalized_embeddings(Z, sigma_x):
@@ -203,191 +236,27 @@ def synthesize_cell_embeddings(layer_labels, distributions, cell_type_definition
     
     return X, cell_type_assignments
 
-class DomainKDTree:
-    """Wrapper of KDTree for spatial domain simulation.
-    
-    Using these, can query a "landmark" KD tree in order to obtain spatial domain labels for simulation.
-    """
-    
-    def __init__(self, landmarks: np.ndarray, domain_labels: Sequence[Union[int, str]]):
-        self.kd_tree = KDTree(data=landmarks, copy_data=True)
-        self.domain_labels = np.array(domain_labels)
-        
-    def query(self, coordinates):
-        """Query a list of simulation spatial coordinates for their layer label.
-       
-        Args:
-            coordinates: list of spatial coordinates
-        
-        Returns:
-            list of domain labels
-        """
-        distances, indices = self.kd_tree.query(coordinates)
-        
-        return self.domain_labels[indices]
-
-class DomainCanvas():
-    """Annotate spatial domains on a reference ST dataset and use to define domains for simulations.
+def synthesize_cell_embeddings_nsf(cell_type_labels, num_cells, cell_type_definitions, num_spatial_metagenes, n_nonspatial_metagenes=3, signal_sigma_x=0.1, background_sigma_x=0.2, nonspatial_nonzero_prob=0.1, sigma_x_scale=1.0, random_state=None):
+    """Generate synthetic cell embeddings.
     
     """
+   
+    rng = np.random.default_rng(random_state)
+    num_metagenes = num_spatial_metagenes + n_nonspatial_metagenes
+   
+    _, cell_type_encoded_labels = np.unique(cell_type_labels, return_inverse=True)
+    cell_type_assignments = np.zeros((num_cells), dtype='int')
+    Z = np.zeros((num_cells, num_metagenes))
     
-    def __init__(self, points: np.ndarray, domain_names: Sequence[str], canvas_width: int = 400, density: float =10):
-        """Create DomainCanvas.
-        
-        Args:
-            points (nd.array): background points to use as reference for domain annotation
-            domain_names (list of str): list of domains that will be annotated
-            canvas_width (int): display width of canvas in Jupyter Notebook, in pixels
-            density (float): Try 1 for Visium and 4 for Slide-seq V2
-        """
-        self.points = points
-        self.domain_names = domain_names
-        self.domain_option_string = "\n".join(f"{index}: {domain}" for index, domain in enumerate(self.domain_names))
-        self.domain_deletion_string = \
-            "This domain has already been annotated. What would you like to do? (enter 0 or 1) \n" \
-            "0: Further annotate it\n" \
-            "1: Delete the existing annotation and start from scratch\n"       
-        
-        dimensions = self.points.ptp(axis=0)
-        lower_boundaries = self.points.min(axis=0)
-        self.width, self.height = dimensions + lower_boundaries
- 
-        self.canvas_width = canvas_width
-        self.canvas_height = int((self.height / self.width) * self.canvas_width)
+    for cell_index, (cell_type, cell_type_encoded) in enumerate(zip(cell_type_labels, cell_type_encoded_labels)):
+        cell_type_assignments[cell_index] = cell_type_encoded
+        Z[cell_index, :num_spatial_metagenes] = cell_type_definitions[cell_type]
+   
+    # Extrinsic factors
+    Z[:, num_spatial_metagenes:num_metagenes] = rng.binomial(1, nonspatial_nonzero_prob, size=(num_cells, n_nonspatial_metagenes))
+    Z += 1e-6
 
-        self.scaling_factor = self.canvas_width / self.width
-        
-        self.canvas = Canvas(width=self.width * self.scaling_factor, height=self.height * self.scaling_factor)
-
-        self.canvas.layout.width = f"{self.canvas_width}px"
-        self.canvas.layout.height = f"{self.canvas_height}px"
-        
-        self.density = density
-        self.radius = 6 / self.density       
-        self.canvas.line_width = 2.5 / self.density
-        
-        self.render_reference_points()
-        
-        self.domains = defaultdict(list)
-        self.colors = {}
-        self.out = self.bind_canvas()
-        
-        return
-    
-    def render_reference_points(self):
-        x, y = self.points.T * self.scaling_factor
-
-        self.canvas.stroke_style = "gray"
-        self.canvas.stroke_circles(x, y, self.radius)
-        
-    def redraw(self):
-        self.canvas.clear()
-        self.render_reference_points()
-        self.load_domains(self.domains)
-        
-    def bind_canvas(self):
-        """Bind mouse click to canvas.
-        
-        Only used during initialization.
-        """
-        out = Output()
-
-        @out.capture()
-        def handle_mouse_down(x, y):
-            with hold_canvas():
-                self.canvas.sync_image_data=True
-                self.canvas.stroke_circle(x, y, self.radius)
-                self.canvas.fill_circle(x, y, self.radius)
-                self.canvas.stroke()
-                self.canvas.fill()
-                self.canvas.sync_image_data=False
-                
-            self.domains[self.current_domain].append((x / self.scaling_factor, y / self.scaling_factor))
-            return
-
-        self.canvas.on_mouse_down(handle_mouse_down)
-        
-        return out
-
-    def display(self):
-        """Display editable canvas.
-        
-        Click to add landmarks for the domain self.current_domain.
-        
-        """
-        display(self.out)
-        return self.canvas
-    
-    def annotate_domain(self):
-        """Create a new domain and display the canvas for annotation.
-        
-        """
-        domain_index = int(input(
-            "Choose a domain to annotate (enter an integer):\n"
-            f"{self.domain_option_string}\n"
-        ))
-        if not (0 <= domain_index < len(self.domain_names)):
-            raise ValueError(f"`{domain_index}` is not a valid index.")
-                                              
-        self.current_domain = self.domain_names[domain_index]
-        
-        if self.current_domain in self.colors:
-            start_afresh = int(input(self.domain_deletion_string))
-            if start_afresh not in (0, 1):
-                raise ValueError(f"`{start_afresh}` is not a valid option.")
-                
-            if start_afresh:
-                del self.domains[self.current_domain]
-                self.redraw()
-                
-            color = self.colors[self.current_domain]
-
-        else:
-            r, g, b = np.random.randint(0, 255, size=3)
-            color = f"rgb({r}, {g}, {b})"
-            self.colors[self.current_domain] = color
-            
-        self.canvas.stroke_style = color
-        self.canvas.fill_style = color
-        
-        return self.display()
-    
-    def load_domains(self, domains):
-        """Load and display a pre-defined set of domains.
-        
-        """
-
-        for domain_name in domains:
-            self.domains[domain_name] = domains[domain_name]
-            coordinates = domains[domain_name]
-            
-            if domain_name in self.colors:
-                color = self.colors[domain_name]
-            else:
-                r, g, b = np.random.randint(0, 255, size=3)
-                color = f"rgb({r}, {g}, {b})"
-                self.colors[domain_name] = color
-
-            self.canvas.stroke_style = color
-            self.canvas.fill_style = color
-            
-            x, y = np.array(coordinates).T * self.scaling_factor
-            self.canvas.stroke_circles(x, y, self.radius)
-            self.canvas.fill_circles(x, y, self.radius)
-    
-    def generate_domain_kd_tree(self):
-        """Export annotated dataset to KD-tree.
-        
-        """
-        domains, coordinates = zip(*self.domains.items())
-
-        domain_labels = [[domain] * len(coordinate) for domain, coordinate in zip(domains, coordinates)]
-
-        flattened_domain_labels = np.concatenate(domain_labels)
-        flattened_coordinates = np.concatenate(coordinates)
-        annotated_domain_kd_tree = DomainKDTree(flattened_coordinates, flattened_domain_labels)
-        
-        return annotated_domain_kd_tree
+    return Z, cell_type_assignments
 
 class SyntheticDataset(ad.AnnData):
     """Simulated spatial transcriptomics dataset.
@@ -395,57 +264,87 @@ class SyntheticDataset(ad.AnnData):
     Uses AnnData as a base class, with additional methods for simulation.
     """
     
-    def __init__(self, num_cells: int=500, num_genes: int=100, replicate_name: Union[int, str]="default",
-                 distributions=None, cell_type_definitions=None, metagene_variation_probabilities=None,
-                 domain_landmarks=None, shared_metagenes=None, width=1.0, height=1.0, minimum_distance=None):
+    def __init__(self, num_cells: int=None, num_genes: int=100, replicate_name: Union[int, str]="default",
+            annotation_mode: str = "layer", spatial_distributions: dict =None,
+            cell_type_definitions: dict = None, metagene_variation_probabilities: Sequence = None,
+            shared_metagenes: np.ndarray = None, width: float =1.0, height: float =1.0,
+            minimum_distance: float =None, grid_size: int =None,
+            random_state: Union[int, np.random.Generator] = None, verbose: int = 0):
         """Generate random coordinates (as well as expression values) for a single ST FOV.
         
         Args:
             num_cells: number of cells to simulate
+            num_genes: number of total genes to simulate
         
         """
-        self.num_cells = num_cells
+
+        self.verbose = verbose
+
+        if num_cells is not None:
+            self.num_cells = num_cells
+        elif grid_size is not None:
+            self.grid_size = grid_size
+            self.num_cells = self.grid_size ** 2
+
         self.num_genes = num_genes
+        self.annotation_mode = annotation_mode
+
+        self.rng = np.random.default_rng(random_state)
         
-        dummy_expression = np.zeros((num_cells, num_genes))
+        dummy_expression = np.zeros((self.num_cells, num_genes))
         
         ad.AnnData.__init__(self, X=dummy_expression)
         
         self.name = f"{replicate_name}"
         
-        self.uns["layer_names"] = list(distributions.keys())
-        self.uns["cell_type_names"] = list(cell_type_definitions.keys())
-        self.uns["width"] = width
-        self.uns["height"] = height
+        self.uns["domain_names"] = list(spatial_distributions.keys())
+        self.uns["width"] = self.width = width
+        self.uns["height"] = self.height = height
             
-        self.uns["domain_landmarks"] = {
-            self.name: domain_landmarks
-        }
         self.uns["domain_distributions"] = {
-            self.name: distributions
+            self.name: spatial_distributions
         }
         self.uns["metagene_variation_probabilities"] = {
             self.name: metagene_variation_probabilities
         }
-        self.uns["cell_type_definitions"] = {
-            self.name: cell_type_definitions
-        }
+
+        if self.annotation_mode == "layer":
+            self.uns["cell_type_names"] = list(cell_type_definitions.keys())
+            self.uns["cell_type_definitions"] = {
+                self.name: cell_type_definitions
+            }
+      
+        if grid_size:
+            x = np.linspace(0, self.width, grid_size)
+            y = np.linspace(0, self.height, grid_size)
+            xv, yv = np.meshgrid(x, y)
+
+            self.obsm["spatial"] = np.vstack([xv.flatten() * self.width, yv.flatten() * self.height]).T
+        else:
+            if not minimum_distance:
+                minimum_distance = 0.75 / np.sqrt(self.num_cells)
+            tau = minimum_distance * 2.2
+            self.obsm["spatial"] = sample_2D_points(self.num_cells, minimum_distance, width=self.uns["width"], height=self.uns["height"], random_state=self.rng)
+           
+        canvas_constructor = DomainCanvas if self.annotation_mode == "layer" else MetageneCanvas
+        self.domain_canvas = canvas_constructor(self.obsm["spatial"], self.uns["domain_names"], canvas_width=600, density=1)
         
-#         simulation_coordinates = sample_2D_points(num_cells, minimum_distance)
-       
-        if not minimum_distance:
-            minimum_distance = 0.75 / np.sqrt(self.num_cells)
-        tau = minimum_distance * 2.2
-        
-        self.obsm["spatial"] = sample_2D_points(self.num_cells, minimum_distance, width=self.uns["width"], height=self.uns["height"])
-        self.domain_canvas = DomainCanvas(self.obsm["spatial"], self.uns["layer_names"], canvas_width=600, density=1)
-        
-    def simulate_expression(self, mode="metagene_based", predefined_metagenes=None, **simulation_parameters):
+    def simulate_expression(self, predefined_metagenes=None, **simulation_parameters):
+        """Simulate expression using parameters.
+
+        """
+        if self.verbose:
+            print(f"Simulating {self.annotation_mode}-annotated expression...")
+
+        if self.annotation_mode == "layer":
             return self.simulate_metagene_based_expression(predefined_metagenes=predefined_metagenes, **simulation_parameters)
+        elif self.annotation_mode == "metagene":
+            return self.simulate_nsf_expression(predefined_metagenes=predefined_metagenes, **simulation_parameters)
     
     def simulate_metagene_based_expression(self, num_real_metagenes, num_noise_metagenes, real_metagene_parameter, noise_metagene_parameter,
                                            sigY_scale, sigX_scale, lambda_s, predefined_metagenes=None):
-        """TySc
+        """Simulate metagenes and embeddings following metagene-based SpiceMix model.
+
         
         """
         
@@ -464,15 +363,14 @@ class SyntheticDataset(ad.AnnData):
             self.variance_y = {cell_type: cell_specific_sig_y ** 2 for cell_type, cell_specific_sig_y in self.sig_y.items()}
         
         if predefined_metagenes is None:
-            self.uns["ground_truth_M"] = {self.name: synthesize_metagenes(self.num_genes, num_real_metagenes,
-                    num_noise_metagenes, real_metagene_parameter, noise_metagene_parameter, metagene_variation_probabilities=self.uns["metagene_variation_probabilities"][self.name
-                    ])
-            }
+            metagenes = synthesize_metagenes(self.num_genes, num_real_metagenes,
+                num_noise_metagenes, real_metagene_parameter, noise_metagene_parameter, metagene_variation_probabilities=self.uns["metagene_variation_probabilities"][self.name], random_state=self.rng)
+            self.uns["ground_truth_M"] = {self.name: metagenes.T}
         else:
             self.uns["ground_truth_M"] = {self.name: predefined_metagenes}
         
         X_i, C_i = synthesize_cell_embeddings(self.obs["layer"].to_numpy(), self.uns["domain_distributions"][self.name], self.uns["cell_type_definitions"][self.name],
-                       self.num_cells, num_real_metagenes, sigma_x_scale=sigX_scale, n_noise_metagenes=num_noise_metagenes)
+                       self.num_cells, num_real_metagenes, sigma_x_scale=sigX_scale, n_noise_metagenes=num_noise_metagenes, random_state=self.rng)
 
         self.S = gamma.rvs(num_metagenes, scale=lambda_s, size=self.num_cells)
         self.obsm["ground_truth_X"] = (X_i * self.S[:, np.newaxis])
@@ -481,26 +379,108 @@ class SyntheticDataset(ad.AnnData):
         self.obs["cell_type"] = cell_type
         self.obs["cell_type_encoded"] = cell_type_encoded
 
-        self.X = np.matmul(self.obsm["ground_truth_X"], self.uns["ground_truth_M"][self.name])
+        self.X = np.matmul(self.obsm["ground_truth_X"], self.uns["ground_truth_M"][self.name].T)
 
         self.sample_noisy_expression()
-            
-    def sample_noisy_expression(self):
-        for cell, cell_type in zip(range(self.num_cells), self.obs["cell_type_encoded"].to_numpy()):
-            if isinstance(self.variance_y, dict):
-                cell_type_variance_y = self.variance_y[int(cell_type)]
-            else:
-                cell_type_variance_y = self.variance_y
+    
+    def simulate_nsf_expression(self, num_spatial_metagenes: int, num_nonspatial_metagenes: int,
+            spatial_metagene_parameter: float, nonspatial_metagene_parameter: float,
+            lambda_s: float, background_expression: float = 0.2, predefined_metagenes=None,
+            metagene_magnitudes=None, rate: float = 10.0, nonspatial_nonzero_prob: Optional[float] = None):
+        """Simulate metagenes and embeddings following metagene-based NSF model.
 
-            # Ensure that gene expression is positive
-            self.X[cell] = np.abs(sample_gaussian(cell_type_variance_y, self.X[cell]))
+        Args:
+            num_spatial_metagenes: Number of spatial metagenes to simulate
+            num_nonspatial_metagenes: Number of non-spatial (intrinsic) metagenes to simulate
+        
+        """
+        
+        num_metagenes = num_spatial_metagenes + num_nonspatial_metagenes 
+        magnitudes = None
+        if predefined_metagenes is None:
+            metagenes = synthesize_metagenes_nsf(self.num_genes, num_spatial_metagenes,
+                    num_nonspatial_metagenes, spatial_metagene_parameter, nonspatial_metagene_parameter,
+                    random_state=self.rng, normalize=True, nonspatial_nonzero_prob=nonspatial_nonzero_prob
+            )
+
+            self.magnitudes = np.sum(metagenes, axis=1)
+            metagenes = metagenes / self.magnitudes[:, np.newaxis]
+            metagenes = metagenes.T
+        else:
+            metagenes = predefined_metagenes
+            self.magnitudes = metagene_magnitudes
             
-    def annotate_layer(self):
-        return self.domain_canvas.annotate_domain()
+        self.uns["ground_truth_M"] = {self.name: metagenes}
+        
+        X_i, C_i = synthesize_cell_embeddings_nsf(self.obs["cell_type"].to_numpy(), self.num_cells,
+                cell_type_definitions=self.uns["cell_type_definitions"][self.name], num_spatial_metagenes=num_spatial_metagenes,
+                n_nonspatial_metagenes=num_nonspatial_metagenes, random_state=self.rng)
+
+        # self.S = gamma.rvs(num_metagenes, scale=lambda_s, size=self.num_cells)
+        self.obsm["ground_truth_X"] = (X_i * self.magnitudes)
+        
+        # self.obsm["ground_truth_X"] = X_i
+
+        cell_type_encoded = C_i.astype(int)
+        cell_type = [self.uns["cell_type_names"][index] for index in cell_type_encoded]
+        self.obs["cell_type"] = cell_type
+        self.obs["cell_type_encoded"] = cell_type_encoded
+
+        self.X = np.matmul(self.obsm["ground_truth_X"], self.uns["ground_truth_M"][self.name].T)
+        self.X += background_expression
+
+        self.sample_noisy_expression(rate=rate)
+            
+    def sample_noisy_expression(self, rate=10.0):
+        """Samples gene expression from Negative Binomial distribution according to SyntheticDataset attributes.
+
+        Uses ``self.variance_y``.
+
+        TODO: make it so that mean expression is stored in .obsm, not in .X (so that this method does
+        not mutate mean expression).
+
+        """
+
+        if self.annotation_mode == "layer":
+            for cell, cell_type in zip(range(self.num_cells), self.obs["cell_type_encoded"].to_numpy()):
+                if isinstance(self.variance_y, dict):
+                    cell_type_variance_y = self.variance_y[int(cell_type)]
+                else:
+                    cell_type_variance_y = self.variance_y
+
+                # Ensure that gene expression is positive
+                self.X[cell] = np.abs(sample_gaussian(cell_type_variance_y, self.X[cell]))
+
+        elif self.annotation_mode == "metagene": 
+            self.X =  self.rng.negative_binomial(rate, rate/(self.X + rate))
+
+            self.raw = self
+            sc.pp.log1p(self)
+            
+    def annotate_layer(self, points=None):
+        return self.domain_canvas.annotate_domain(points=points)
         
     def assign_layer_labels(self):
+        if self.annotation_mode == "metagene":
+            self.domain_canvas.convert_metagenes_to_cell_types()
+
         domain_kd_tree = self.domain_canvas.generate_domain_kd_tree()
-        self.obs["layer"] = domain_kd_tree.query(self.obsm["spatial"])
+        domain_key = "layer" if self.annotation_mode == "layer" else "cell_type"
+        self.obs[domain_key] = domain_kd_tree.query(self.obsm["spatial"])
+        if self.annotation_mode == "metagene":
+            self.uns["cell_type_names"] = list(set(self.obs[domain_key]))
+            cell_type_definitions = {
+                    label: np.zeros(len(self.domain_canvas.domain_names)) for label in self.uns["cell_type_names"]
+            }
+
+            self.uns["cell_type_definitions"] = {
+                self.name: cell_type_definitions
+            }
+            for cell_type in self.uns["cell_type_names"]:
+                definition = json.loads(cell_type)
+                if None not in definition:
+                    self.uns["cell_type_definitions"][self.name][cell_type][definition] = 1
+
         self.uns["domain_landmarks"] = self.domain_canvas.domains
 
 class MultiReplicateSyntheticDataset():
@@ -509,22 +489,22 @@ class MultiReplicateSyntheticDataset():
     
     """
     
-    def __init__(self, total_cells, num_genes, replicate_parameters, dataset_class, random_state=0): 
+    def __init__(self, num_genes, replicate_parameters, dataset_class, random_state=0, verbose=0): 
+        self.verbose = verbose
         self.datasets = {}
         self.replicate_parameters = replicate_parameters
-        np.random.seed(random_state)
+
         random.seed(random_state)
+        self.rng = np.random.default_rng(random_state)
 
         for replicate_name in self.replicate_parameters:
-            synthetic_dataset = dataset_class(num_genes=num_genes, replicate_name=replicate_name, **self.replicate_parameters[replicate_name])
+            synthetic_dataset = dataset_class(num_genes=num_genes, replicate_name=replicate_name, **self.replicate_parameters[replicate_name], random_state=self.rng, verbose=self.verbose)
             self.datasets[replicate_name] = synthetic_dataset
-            
-        self.total_cells = total_cells
     
-    def annotate_replicate_layer(self, replicate_name):
+    def annotate_replicate_layer(self, replicate_name, points=None):
         print(f"Annotating replicate {replicate_name}")
 
-        return self.datasets[replicate_name].annotate_layer()
+        return self.datasets[replicate_name].annotate_layer(points=points)
     
     def assign_layer_labels(self):
         for replicate_dataset in self.datasets.values():
@@ -536,22 +516,32 @@ class MultiReplicateSyntheticDataset():
         """
         
         metagenes = None
+        metagene_magnitudes= None
         for replicate_name, replicate_dataset in self.datasets.items():
             print(replicate_name)
             simulation_parameters = replicate_simulation_parameters[replicate_name]
-            replicate_dataset.simulate_expression(predefined_metagenes=metagenes, **simulation_parameters)
-            metagenes = replicate_dataset.uns["ground_truth_M"][replicate_name]
-            
-    def calculate_neighbors(self):
-        for replicate, dataset in self.datasets.items():
-            sq.gr.spatial_neighbors(dataset, coord_type="generic", delaunay=True, radius=[0, 0.1])
-#             dataset.obsp["spatial_connectivities"] = remove_connectivity_artifacts(dataset.obsp["spatial_distances"])
-            dataset.obsp["adjacency_matrix"] = dataset.obsp["spatial_connectivities"]
+            if replicate_dataset.annotation_mode == "layer":
+                replicate_dataset.simulate_expression(predefined_metagenes=metagenes, **simulation_parameters)
+            elif replicate_dataset.annotation_mode == "metagene":
+                replicate_dataset.simulate_expression(predefined_metagenes=metagenes, metagene_magnitudes=metagene_magnitudes, **simulation_parameters)
 
-#             points = dataset.obsm["spatial"]
-#             minimum_distance = 0.75 / np.sqrt(len(points))
-#             tau = minimum_distance * 2.2
-#             dataset.obsp["adjacency_matrix"] = generate_affinity_mat(points, tau=tau)
+            metagenes = replicate_dataset.uns["ground_truth_M"][replicate_name]
+            metagene_magnitudes = replicate_dataset.magnitudes
+            
+    def calculate_neighbors(self, **neighbors_kwargs):
+        coord_type = neighbors_kwargs.pop("coord_type") if "coord_type" in neighbors_kwargs else "generic"
+        delaunay = neighbors_kwargs.pop("delaunay") if "delaunay" in neighbors_kwargs else True
+        for replicate, dataset in self.datasets.items():
+            sq.gr.spatial_neighbors(dataset, coord_type=coord_type, delaunay=delaunay, radius=[0, 0.1], **neighbors_kwargs)
+            dataset.obsp["adjacency_matrix"] = dataset.obsp["spatial_connectivities"]
+            
+            num_cells, _ = dataset.obsp["adjacency_matrix"].shape
+
+            adjacency_list = [[] for _ in range(num_cells)]
+            for x, y in zip(*dataset.obsp["adjacency_matrix"].nonzero()):
+                adjacency_list[x].append(y)
+
+            dataset.obs["adjacency_list"] = adjacency_list
 
 def remove_connectivity_artifacts(sparse_distance_matrix):
     dense_distances = sparse_distance_matrix.toarray()
@@ -587,23 +577,3 @@ def generate_affinity_mat(p, tau=1.0, delaunay=True):
             else:
                 disjoint_nodes = False
     return A
-
-class SpatialBatchEffectDataset(SyntheticDataset):
-    """Simulation dataset with gradient-like batch effect.
-    
-    """
-    def __init__(self, num_cells, num_genes, replicate_name, distributions=None, cell_type_definitions=None, metagene_variation_probabilities=None,
-                 domain_landmarks=None, shared_metagenes=None):
-        super().__init__(num_cells, num_genes, replicate_name, distributions, cell_type_definitions, metagene_variation_probabilities,
-                 domain_landmarks, shared_metagenes)
-        
-    def simulate_expression(self, spatial_function, spatial_metagene_index, mode="metagene_based", **simulation_parameters):
-        super().simulate_expression(**simulation_parameters)
-        
-        spatial_effect = spatial_function(self.obsm["spatial"])
-
-        self.obsm["ground_truth_X"][:, spatial_metagene_index] += spatial_effect
-        self.obsm["ground_truth_X"] = (project_embeddings(self.obsm["ground_truth_X"] / self.S[:, np.newaxis])) * self.S[:, np.newaxis]
-        
-        self.X = np.matmul(self.obsm["ground_truth_X"], self.uns["ground_truth_M"][self.name])
-        self.sample_noisy_expression()

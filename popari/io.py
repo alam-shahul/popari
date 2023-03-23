@@ -19,7 +19,7 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
     merged_dataset = ad.read_h5ad(filepath)
 
     indices = merged_dataset.obs.groupby("batch").indices.values()
-    datasets = [merged_dataset[index] for index in indices]
+    datasets = [merged_dataset[index].copy() for index in indices]
    
     if replicate_names == None:
         replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
@@ -88,12 +88,13 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
 
     return datasets, replicate_names
 
-def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], replicate_names: Sequence[str], ignore_raw_data: bool = False):
+def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], ignore_raw_data: bool = False):
     """Save Popari state as AnnData object.
 
     """
     dataset_copies = []
-    for replicate, dataset in zip(replicate_names, datasets):
+    for dataset in datasets:
+        replicate = dataset.name
         replicate_string = f"{replicate}"
         if ignore_raw_data:
             X = csr_matrix(dataset.X.shape)

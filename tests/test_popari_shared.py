@@ -89,7 +89,7 @@ def test_louvain_clustering(popari_with_neighbors):
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
     expected_aris = [0.8153973232569635, 0.8555718914000724]
-    expected_silhouettes = [0.3064951308728855, 0.3437001914519185]
+    expected_silhouettes = [0.3064931220347512, 0.34369719634234436]
     
     for index, (r, X) in enumerate(popari_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')

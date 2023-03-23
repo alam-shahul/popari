@@ -2,7 +2,9 @@ import os, time, pickle, sys, datetime, logging
 from tqdm.auto import tqdm, trange
 
 import numpy as np
+from scipy.sparse import csr_matrix
 import pandas as pd
+
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import silhouette_score, adjusted_rand_score, accuracy_score, f1_score
@@ -550,3 +552,17 @@ def convert_numpy_to_pytorch_sparse_coo(numpy_coo, context):
     torch_coo = torch.sparse_coo_tensor(i, v, size=size, **context)
 
     return torch_coo
+
+def compute_neighborhood_enrichment(features: np.ndarray, adjacency_matrix: csr_matrix):
+    r"""Compute the normalized enrichment of features in direct neighbors on a graph.
+
+    Args:
+        features: attributes on the nodes of the graph on which to compute enrichment.
+        adjacency_matrix: sparse graph representation.
+    """
+
+    total_counts = np.einsum('ij,ij->j', features,features)
+    edges_per_node = adjacency_matrix.sum(axis=0)
+    normalized_enrichment = (1 / total_counts) @ features.T @ (1/ edges_per_node) @ adjacency_matrix @ features
+
+    return normalized_enrichment

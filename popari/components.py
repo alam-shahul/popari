@@ -1482,6 +1482,9 @@ class SpatialAffinityState(dict):
         Sigma_x_invs -= Sigma_x_invs.mean(dim=(1, 2), keepdims=True)
         Sigma_x_invs *= self.scaling
 
+        self.initialize_optimizers(Sigma_x_invs)
+
+    def initialize_optimizers(self, Sigma_x_invs):
         if self.mode == "shared lookup":
             for group_name, group_replicates in self.groups.items():
                 first_dataset = self.datasets[0]

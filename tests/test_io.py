@@ -43,8 +43,8 @@ def test_load_differential_from_shared(differential_from_shared):
 def test_save_anndata(trained_model):
     replicate_names = [dataset.name for dataset in trained_model.datasets]
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
-    save_anndata(path2dataset/ "mock_results.h5ad", trained_model.datasets, replicate_names)
-    save_anndata(path2dataset/ "mock_results_ignore_raw_data.h5ad", trained_model.datasets, replicate_names, ignore_raw_data=True)
+    save_anndata(path2dataset/ "mock_results.h5ad", trained_model.datasets)
+    save_anndata(path2dataset/ "mock_results_ignore_raw_data.h5ad", trained_model.datasets, ignore_raw_data=True)
 
 def test_load_anndata(trained_model):
     replicate_names=[0, 1]
