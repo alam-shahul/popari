@@ -14,8 +14,6 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
 
     """                                     
 
-    # TODO: make it so that replicate_names can rename the datasets
-
     merged_dataset = ad.read_h5ad(filepath)
 
     indices = merged_dataset.obs.groupby("batch").indices.values()

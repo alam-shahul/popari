@@ -12,7 +12,9 @@ import networkx as nx
 
 from scipy.stats import zscore
 
-from sklearn.metrics import adjusted_rand_score, silhouette_score, precision_score, accuracy_score, confusion_matrix
+from sklearn.metrics import adjusted_rand_score, silhouette_score, precision_score, \
+                            accuracy_score, confusion_matrix
+
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
@@ -21,6 +23,8 @@ import pandas as pd
 import seaborn as sns
 
 from popari.components import PopariDataset
+from popari.util import compute_neighborhood_enrichment, chunked_downsample_on_grid, \
+                        filter_gridpoints, bin_expression
 
 def setup_squarish_axes(num_axes, **subplots_kwargs):
     """Create matplotlib subplots as squarely as possible."""
@@ -40,7 +44,7 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
 
 def _preprocess_embeddings(datasets: Sequence[PopariDataset], normalized_key="normalized_X"):
     """Normalize embeddings per each cell.
-    
+
     This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.
 
     """
@@ -99,11 +103,11 @@ def _cluster(datasets: Sequence[PopariDataset], use_rep="normalized_X", joint: b
     for dataset in datasets:
         sc.pp.neighbors(dataset, use_rep=use_rep, n_neighbors=n_neighbors)
         clustering_function(dataset, resolution=resolution, random_state=random_state, **kwargs)
-    
+
         num_clusters = len(dataset.obs[method].unique())
-       
-        lower_bound = 0.1 * resolution 
-        upper_bound = 10 * resolution 
+
+        lower_bound = 0.1 * resolution
+        upper_bound = 10 * resolution
         while target_clusters and num_clusters != target_clusters and np.abs(lower_bound - upper_bound) > tolerance:
             effective_resolution = (lower_bound * upper_bound) ** 0.5
             clustering_function(dataset, resolution=effective_resolution)
@@ -132,13 +136,13 @@ def _pca(datasets: Sequence[PopariDataset], joint: bool = False, n_comps: int = 
         trained_model: the trained Popari model.
         joint: if `True`, jointly reduce dimensionality.
     """
-    
+
     if joint:
         original_datasets = datasets
         dataset_names = [dataset.name for dataset in datasets]
         merged_dataset = ad.concat(datasets, label="batch", keys=dataset_names, merge="unique", uns_merge="unique", pairwise=True)
         datasets = [merged_dataset]
-        
+
     for dataset in datasets:
         sc.pp.pca(dataset, n_comps=n_comps)
 
@@ -164,13 +168,13 @@ def _umap(datasets: Sequence[PopariDataset], joint: bool = False, n_neighbors: i
         trained_model: the trained Popari model.
         joint: if `True`, jointly reduce dimensionality.
     """
-    
+
     if joint:
         original_datasets = datasets
         dataset_names = [dataset.name for dataset in datasets]
         merged_dataset = ad.concat(datasets, label="batch", keys=dataset_names, merge="unique", uns_merge="unique", pairwise=True)
         datasets = [merged_dataset]
-        
+
     for dataset in datasets:
         sc.pp.neighbors(dataset, n_neighbors=n_neighbors)
         sc.tl.umap(dataset)
@@ -198,7 +202,7 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", axes = None
 
     sharex = False if "sharex" not in spatial_kwargs else spatial_kwargs.pop("sharex")
     sharey = False if "sharey" not in spatial_kwargs else spatial_kwargs.pop("sharey")
-        
+
     fig = None
     if axes is None:
         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
@@ -231,7 +235,7 @@ def _plot_umap(datasets: Sequence[PopariDataset], color="leiden", axes = None, *
 
     sharex = False if "sharex" not in kwargs else kwargs.pop("sharex")
     sharey = False if "sharey" not in kwargs else kwargs.pop("sharey")
-        
+
     fig = None
     if axes is None:
         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
@@ -254,14 +258,14 @@ def _multireplicate_heatmap(datasets: Sequence[PopariDataset],
     obsm: Optional[str] = None,
     obsp: Optional[str] = None,
     uns: Optional[str] = None,
+    label_values: bool = False,
+    label_font_size: int = None,
     nested: bool = True,
     **heatmap_kwargs
   ):
     r"""Plot 2D heatmap data across all datasets.
-
     Wrapper function to enable plotting of continuous 2D data across multiple replicates. Only
     one of ``obsm``, ``obsp`` or ``uns`` should be used.
-
     Args:
         trained_model: the trained Popari model.
         axes: A predefined set of matplotlib axes to plot on.
@@ -270,22 +274,22 @@ def _multireplicate_heatmap(datasets: Sequence[PopariDataset],
         uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
         **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
     """
-    
+
     sharex = True if "sharex" not in heatmap_kwargs else heatmap_kwargs.pop("sharex")
     sharey = True if "sharey" not in heatmap_kwargs else heatmap_kwargs.pop("sharey")
-        
+
     fig = None
     if axes is None:
         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
 
-    aspect = 1 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")    
-    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")    
+    aspect = 1 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")
+    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")
 
     for dataset_index, ax in enumerate(axes.flat):
         if dataset_index >= len(datasets):
             ax.set_visible(False)
             continue
-        
+
         dataset = datasets[dataset_index]
         key = None
         if obsm:
@@ -297,13 +301,18 @@ def _multireplicate_heatmap(datasets: Sequence[PopariDataset],
 
         if nested:
             image = image[dataset.name]
-       
+
+
         im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
         if title_font_size is not None:
-            ax.set_title(dataset.name, fontsize= title_font_size)
+            ax.set_title(dataset.name, fontsize=title_font_size)
+
+        if label_values:
+            truncated_image = image.astype(int)
+            for (j,i), label in np.ndenumerate(truncated_image):
+                ax.text(i, j, label, ha='center', va='center', fontsize=label_font_size)
 
         plt.colorbar(im, ax=ax, orientation='vertical')
-
 
     return fig
 
@@ -312,6 +321,8 @@ def _multigroup_heatmap(datasets: Sequence[PopariDataset],
     title_font_size: Optional[int] = None,
     axes: Optional[Sequence[Axes]] = None,
     key: Optional[str] = None,
+    label_values: bool = False,
+    label_font_size: int = None,
     **heatmap_kwargs
   ):
     r"""Plot 2D heatmap data across all datasets.
@@ -327,16 +338,16 @@ def _multigroup_heatmap(datasets: Sequence[PopariDataset],
         uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
         **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
     """
-    
+
     sharex = True if "sharex" not in heatmap_kwargs else heatmap_kwargs.pop("sharex")
     sharey = True if "sharey" not in heatmap_kwargs else heatmap_kwargs.pop("sharey")
-        
+
     fig = None
     if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
+        fig, axes = setup_squarish_axes(len(groups), sharex=sharex, sharey=sharey)
 
-    aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")    
-    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")    
+    aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")
+    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")
 
     for group_index, (ax, group_name) in enumerate(zip(axes.flat, groups)):
         first_dataset_name = groups[group_name][0]
@@ -345,12 +356,17 @@ def _multigroup_heatmap(datasets: Sequence[PopariDataset],
         if group_index > len(groups):
             ax.set_visible(False)
             continue
-        
+
         image = first_dataset.uns[key][group_name]
-       
+
         im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
         if title_font_size is not None:
             ax.set_title(group_name, fontsize= title_font_size)
+        if label_values:
+            truncated_image = image.astype(int)
+            for (j,i), label in np.ndenumerate(truncated_image):
+                ax.text(i, j, label, ha='center', va='center', fontsize=label_font_size)
+
         fig.colorbar(im, ax=ax, orientation='vertical')
 
     return fig
@@ -442,6 +458,39 @@ def _adjacency_permutation_test(dataset: PopariDataset, labels: str = "X", n_tri
 
     return dataset
 
+def _adjacency_permutation_test(dataset: PopariDataset, labels: str = "X", n_trials: int = 100,
+        random_state: int = 0, pvalue_key: str = "pvalue"):
+    r"""Compute p-values for neighborhood enrichment.
+
+    See `In silico tissue generation and power analysis for spatial omics
+    <https://www.nature.com/articles/s41592-023-01766-6#Sec13>`_ for details.
+
+    """
+
+    rng = np.random.default_rng(seed=random_state)
+    original_labels = dataset.obsm[labels]
+    adjacency_matrix = dataset.obsp["adjacency_matrix"]
+    _, K = original_labels.shape
+
+    original_enrichment = compute_neighborhood_enrichment(original_labels, adjacency_matrix)
+
+    neighborhood_enrichments = np.zeros((n_trials, K, K), dtype=np.float64)
+    for trial in range(n_trials):
+        permuted_labels = rng.permutation(original_labels)
+        neighborhood_enrichments[trial] = compute_neighborhood_enrichment(permuted_labels, adjacency_matrix)
+
+    adjacency = (neighborhood_enrichments > original_enrichment[np.newaxis, :]).sum(axis=0)
+    avoidance = (neighborhood_enrichments < original_enrichment[np.newaxis, :]).sum(axis=0)
+
+    p_adjacency = (n_trials - adjacency + 1) / (n_trials + 1)
+    p_avoidance = (n_trials - avoidance + 1) / (n_trials + 1)
+
+
+    dataset.uns[f"adjacency_{pvalue_key}"] = p_adjacency
+    dataset.uns[f"avoidance_{pvalue_key}"] = p_avoidance
+
+    return dataset
+
 def _compute_ari_score(dataset: PopariDataset, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth labels and an unsupervised clustering.
 
@@ -468,7 +517,7 @@ def _compute_silhouette_score(dataset: PopariDataset, labels: str, embeddings: s
         predictions: the key in the ``.obs`` dataframe for the predictions data.
         ari_key: the key in the ``.uns`` dictionary where the ARI score will be stored.
     """
-        
+
     silhouette = silhouette_score(dataset.obsm[embeddings], dataset.obs[labels])
     dataset.uns[silhouette_key] = silhouette
 
@@ -492,7 +541,7 @@ def _plot_all_embeddings(dataset: PopariDataset, embedding_key: str = "X", colum
 
     size = 0.1 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
     palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
-        
+
     axes = sq.pl.spatial_scatter(
         sq.pl.extract(dataset.copy(), embedding_key, prefix=f"{embedding_key}"),
         shape=None,
@@ -529,7 +578,7 @@ def _evaluate_classification_task(datasets: Sequence[PopariDataset], embeddings:
             y_hat = np.argmax(y_soft, 1)
             dataset.uns[f'microprecision_{split}'] = precision_score(y, y_hat, average='micro')
             dataset.uns[f'macroprecision_{split}'] = precision_score(y, y_hat, average='macro')
-        
+
     if joint:
         indices = merged_dataset.obs.groupby("batch").indices.values()
         unmerged_datasets = [merged_dataset[index] for index in indices]
@@ -630,3 +679,30 @@ def _compute_spatial_correlation(dataset: PopariDataset, spatial_key: str = "Sig
 
     dataset.uns[spatial_correlation_key] = spatial_correlation
     dataset.uns[neighbor_interactions_key] = neighbor_interactions
+
+def _spatial_binning(dataset: PopariDataset, chunks: int = 16, downsample_rate: float = 0.2, num_jobs: int = 2):
+    """Construct binned, low-resolution version of dataset.
+    
+    Args:
+        dataset: input, high-resolution data
+        chunks: number of equal-sized chunks to split horizontal axis
+        downsample_rate: approximate desired ratio of meta-spots to spots after downsampling
+        num_jobs: number of jobs to use for nearest neighbor computation
+    
+    """
+    coordinates = dataset.obsm["spatial"]
+    
+    bin_coordinates = chunked_downsample_on_grid(coordinates, chunks=chunks, downsample_rate=downsample_rate)
+    
+    filtered_bin_coordinates = filter_gridpoints(coordinates, bin_coordinates, num_jobs)
+    filtered_bin_expression = bin_expression(dataset.X, coordinates, filtered_bin_coordinates, num_jobs)
+        
+    binned_dataset = ad.AnnData(X=filtered_bin_expression)
+    binned_dataset.var_names = dataset.var_names
+    binned_dataset.obsm["spatial"] = filtered_bin_coordinates
+    binned_dataset.obs["library_size"] = binned_dataset.X.sum(axis=1)
+    
+    binned_dataset = PopariDataset(binned_dataset, f"{dataset.name}_binned")
+    binned_dataset.compute_spatial_neighbors()
+    
+    return binned_dataset

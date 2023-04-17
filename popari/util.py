@@ -1,3 +1,4 @@
+from typing import Optional
 import os, time, pickle, sys, datetime, logging
 from tqdm.auto import tqdm, trange
 
@@ -8,6 +9,7 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import silhouette_score, adjusted_rand_score, accuracy_score, f1_score
+from sklearn.neighbors import NearestNeighbors
 from umap import UMAP
 
 from anndata import AnnData
@@ -21,18 +23,19 @@ import matplotlib.patches as patches
 import seaborn as sns
 from collections import defaultdict
 
+
 def create_neighbor_groups(replicate_names, covariate_values, window_size = 1):
     if window_size == None:
         return None
-    
+
     unique_covariates = np.unique(covariate_values)
     covariate_to_replicate_name = defaultdict(list)
     for covariate_value, replicate_name in zip(covariate_values, replicate_names):
         covariate_to_replicate_name[covariate_value].append(replicate_name)
-        
+
     sort_indices = np.argsort(unique_covariates)
     sorted_covariates = unique_covariates[sort_indices]
-    
+
     groups = {}
     for index in range(window_size, len(sorted_covariates) - window_size):
         group_covariates = sorted_covariates[index - window_size : index + window_size + 1]
@@ -40,7 +43,7 @@ def create_neighbor_groups(replicate_names, covariate_values, window_size = 1):
         group_name = f"{sorted_covariates[index]}"
 
         groups[group_name] = list(group_replicates)
-        
+
     return groups
 
 def calc_modularity(adjacency_matrix, label, resolution=1):
@@ -175,7 +178,7 @@ def evaluate_embedding(obj, embedding='X', do_plot=True, do_sil=True):
             ).fit_predict(x)
             y = pd.Categorical(y, categories=np.unique(y))
             dataset.obs["spicemixplus_label"] = y
-            
+
             print(
                 f"replicate {replicate}"
                 f"hierarchical w/ K={n_clust}."
@@ -188,7 +191,7 @@ def evaluate_embedding(obj, embedding='X', do_plot=True, do_sil=True):
         #     kwargs_clustering=dict(),
         #     resolution_boundaries=(.1, 1.),
         # )
-        
+
     # obj.meta['label SpiceMixPlus'] = y
     # print('ari = {:.2f}'.format(adjusted_rand_score(*obj.meta[['cell type', 'label SpiceMixPlus']].values.T)))
     # for repli, df in obj.meta.groupby('repli'):
@@ -303,7 +306,7 @@ class NesterovGD:
         self.parameters = self.y
         # self.lam = lam_new
         self.y = y_new
-  
+
         return self.parameters
 
 
@@ -312,63 +315,6 @@ def print_datetime():
 
 def get_datetime():
     return datetime.datetime.now().strftime('[%Y/%m/%d %H:%M:%S]\t')
-
-
-def array2string(x):
-    return np.array2string(x, formatter={'all': '{:.2e}'.format})
-
-
-def parse_suffix(s):
-    return '' if s is None or s == '' else '_' + s
-
-
-def openH5File(filename, mode='a', num_attempts=5, duration=1):
-    for i in range(num_attempts):
-        try:
-            return h5py.File(filename, mode=mode)
-        except OSError as e:
-            logging.warning(str(e))
-            time.sleep(duration)
-    return None
-
-
-def encode4h5(v):
-    if isinstance(v, str): return v.encode('utf-8')
-    return v
-
-
-def parseIiter(g, iiter):
-    if iiter < 0: iiter += max(map(int, g.keys())) + 1
-    return iiter
-
-
-def a2i(a, order=None, ignores=()):
-    if order is None:
-        order = np.array(list(set(a) - set(ignores)))
-    else:
-        order = order[~np.isin(order, list(ignores))]
-    d = dict(zip(order, range(len(order))))
-    for k in ignores: d[k] = -1
-    a = np.fromiter(map(d.get, a), dtype=int)
-    return a, d, order
-
-
-def zipTensors(*tensors):
-    return np.concatenate([
-        np.array(a).flatten()
-        for a in tensors
-    ])
-
-
-def unzipTensors(arr, shapes):
-    assert np.all(arr.shape == (np.sum(list(map(np.prod, shapes))),))
-    tensors = []
-    for shape in shapes:
-        size = np.prod(shape)
-        tensors.append(arr[:size].reshape(*shape).squeeze())
-        arr = arr[size:]
-    return tensors
-
 
 def getRank(m, thr=0):
     rank = np.empty(m.shape, dtype=int)
@@ -420,9 +366,9 @@ def project2simplex(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Ten
         dim: dimension along which to project
         zero_threshold: threshold to treat as zero for numerical stability purposes
     """
-    
+
     num_components = y.shape[dim]
-    
+
     mu = (y.sum(dim=dim, keepdim=True) - 1) / num_components
     previous_derivative = derivative = None
     for _ in range(num_components):
@@ -437,14 +383,14 @@ def project2simplex(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Ten
 
         previous_derivative = derivative
     assert (derivative == previous_derivative).all()
-    
+
     assert not torch.isnan(y).any(), y
 
     y = (y - mu).clip(min=zero_threshold)
     assert not torch.isnan(y).any(), (mu, derivative)
 
     assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-3, y.sum(dim=dim).sub_(1).abs_().max()
-   
+
     return y
 
 def project2simplex_(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Tensor:
@@ -561,8 +507,218 @@ def compute_neighborhood_enrichment(features: np.ndarray, adjacency_matrix: csr_
         adjacency_matrix: sparse graph representation.
     """
 
-    total_counts = np.einsum('ij,ij->j', features,features)
-    edges_per_node = adjacency_matrix.sum(axis=0)
-    normalized_enrichment = (1 / total_counts) @ features.T @ (1/ edges_per_node) @ adjacency_matrix @ features
+    adjacency_matrix = (adjacency_matrix + adjacency_matrix.T).astype(bool).astype(adjacency_matrix.dtype)
+    edges_per_node = np.squeeze(np.asarray(adjacency_matrix.sum(axis=0)))
+    connected_mask = (edges_per_node > 0)
 
-    return normalized_enrichment
+    features = features[connected_mask]
+    adjacency_matrix = adjacency_matrix[connected_mask][:, connected_mask]
+
+    total_counts = features.sum(axis=0)[:, np.newaxis]
+    assert np.all(total_counts > 0)
+
+    normalized_enrichment = ((1 / total_counts) * features.T) @ (1/ edges_per_node[connected_mask][:, np.newaxis] * adjacency_matrix.toarray() @ features)
+
+    return np.asarray(normalized_enrichment)
+
+def chunked_coordinates(coordinates: np.ndarray, chunks: int):
+    """Split a list of 2D coordinates into local chunks.
+    
+    Args:
+        chunks: number of equal-sized chunks to split horizontal axis. Vertical chunks are constructed
+            with the same chunk size determined by splitting the horizontal axis.
+            
+    Yields:
+        The next chunk of coordinates, in row-major order.
+    """
+    
+    num_points, _ = coordinates.shape
+
+    horizontal_base, vertical_base = np.min(coordinates, axis=0)
+    horizontal_range, vertical_range = np.ptp(coordinates, axis=0)
+    
+    horizontal_borders, step_size = np.linspace(horizontal_base, horizontal_base + horizontal_range, chunks + 1, retstep=True)
+    vertical_borders = np.arange(vertical_base, vertical_base + vertical_range, step_size)
+    
+    # Adding endpoint
+    vertical_borders = np.append(vertical_borders, vertical_borders[-1] + step_size)
+    
+    for i in range(len(horizontal_borders)-1):
+        horizontal_low, horizontal_high = horizontal_borders[i:i+2]
+        for j in range(len(vertical_borders)-1):
+            vertical_low, vertical_high = vertical_borders[j:j+2]
+            horizontal_mask = (coordinates[:, 0] > horizontal_low) & (coordinates[:, 0] <= horizontal_high)
+            vertical_mask = (coordinates[:, 1] > vertical_low) & (coordinates[:, 1] <= vertical_high)
+            chunk_coordinates = coordinates[horizontal_mask & vertical_mask]
+            
+            chunk_data = {
+                'horizontal_low': horizontal_low,
+                'horizontal_high': horizontal_high,
+                'vertical_low': vertical_low,
+                'vertical_high': vertical_high,
+                'step_size': step_size,
+                'chunk_coordinates': chunk_coordinates
+            }
+            yield chunk_data
+
+def finetune_chunk_number(coordinates: np.ndarray, chunks: int, downsample_rate: float, max_nudge: Optional[int] = None):
+    """Heuristically search for a chunk number that cleanly splits up points.
+    
+    Using a linear search, searches for a better value of the ``chunks`` value such that
+    the average points-per-chunk is closer to the number of points that will be in the chunk.
+    
+    Args:
+        coordinates: original spot coordinates
+        chunks: number of equal-sized chunks to split horizontal axis
+        downsample_rate: approximate desired ratio of meta-spots to spots after downsampling
+    
+    Returns:
+        finetuned number of chunks
+    """
+    if max_nudge is None:
+        max_nudge = chunks // 2
+        
+    num_points, num_dimensions = coordinates.shape
+    target_points = num_points * downsample_rate
+
+    horizontal_base, vertical_base = np.min(coordinates, axis=0)
+    horizontal_range, vertical_range = np.ptp(coordinates, axis=0)
+
+    direction = 0
+    for chunk_nudge in range(max_nudge):
+        valid_chunks = []
+        for chunk_data in chunked_coordinates(coordinates, chunks=chunks + direction * chunk_nudge):
+            if len(chunk_data['chunk_coordinates']) > 0:
+                valid_chunks.append(chunk_data)
+
+        points_per_chunk = num_points * downsample_rate / len(valid_chunks)
+        downsampled_1d_density = int(np.round(np.sqrt(points_per_chunk)))
+        new_direction = 1 - 2 * ((downsampled_1d_density**2) > points_per_chunk)
+        if direction == 0:
+            direction = new_direction
+        else:
+            if direction != new_direction:
+                break
+    
+    return chunks + direction * chunk_nudge
+
+def chunked_downsample_on_grid(coordinates: np.ndarray, chunks: int, downsample_rate: float):
+    """Downsample spot coordinates to a square grid of meta-spots using chunks.
+    
+    By chunking the coordinates, we can:
+    
+    1. Remove unused chunks.
+    2. Estimate the density of spots at chunk-sized resolution.
+    
+    We use this information when downsampling in order to
+    
+    Args:
+        coordinates: original spot coordinates
+        chunks: number of equal-sized chunks to split horizontal axis
+        downsample_rate: approximate desired ratio of meta-spots to spots after downsampling
+        
+    Returns:
+        coordinates of downsampled meta-spots
+    
+    """
+    
+    num_points, num_dimensions = coordinates.shape
+
+    horizontal_base, vertical_base = np.min(coordinates, axis=0)
+    horizontal_range, vertical_range = np.ptp(coordinates, axis=0)
+    
+    chunks = finetune_chunk_number(coordinates, chunks, downsample_rate)
+    valid_chunks = []
+    for chunk_data in chunked_coordinates(coordinates, chunks=chunks):
+        if len(chunk_data['chunk_coordinates']) > 0:
+            valid_chunks.append(chunk_data)
+   
+ 
+    points_per_chunk = num_points * downsample_rate / len(valid_chunks)
+    downsampled_1d_density = int(np.round(np.sqrt(points_per_chunk)))
+    if points_per_chunk < 2:
+        raise ValueError("Chunk density is < 1")
+    
+    all_new_coordinates = []
+    for index, chunk_data in enumerate(valid_chunks):
+        horizontal_low =  chunk_data['horizontal_low']
+        horizontal_high =  chunk_data['horizontal_high']
+        vertical_low =  chunk_data['vertical_low']
+        vertical_high =  chunk_data['vertical_high']
+        step_size =  chunk_data['step_size']
+        
+        x = np.linspace(horizontal_low, horizontal_high, downsampled_1d_density, endpoint=False)
+        if np.allclose(horizontal_high, horizontal_base + horizontal_range):
+            x_gap = x[-1] - x[-2]
+            x = np.append(x, x.max() + x_gap)
+            
+        y = np.linspace(vertical_low, vertical_high, downsampled_1d_density, endpoint=False)
+        if np.allclose(vertical_high, vertical_base + vertical_range):
+            y_gap = y[-1] - y[-2]
+            y = np.append(y, y.max() + y_gap)
+          
+
+        xv, yv = np.meshgrid(x, y)
+          
+        new_coordinates = np.array(list(zip(xv.flat, yv.flat)))
+        all_new_coordinates.append(new_coordinates)
+    
+    new_coordinates = np.vstack(all_new_coordinates)
+    new_coordinates = np.unique(new_coordinates, axis=0)
+    
+    return new_coordinates
+
+def filter_gridpoints(spot_coordinates: np.ndarray, grid_coordinates: np.ndarray, num_jobs: int):
+    """Use nearest neighbors approach to filter out relevant grid coordinates.
+    
+    Keeps only the grid coordinates that are mapped to at least a single original spot.
+    
+    Args:
+        spot_coordinates: coordinates of original spots
+        grid_coordinates: coordinates of downsampled grid
+        
+    Returns:
+        metaspots that meet the filtering criterion
+    """
+        
+    spot_to_metaspot_mapper = NearestNeighbors(n_neighbors=1, n_jobs=num_jobs)
+    spot_to_metaspot_mapper.fit(grid_coordinates)
+    
+    indices = spot_to_metaspot_mapper.kneighbors(spot_coordinates, return_distance=False)
+    
+    used_bins = set(indices.flat)
+    
+    filtered_bin_coordinates = grid_coordinates[list(used_bins)]
+    
+    return filtered_bin_coordinates
+
+def bin_expression(spot_expression: np.ndarray, spot_coordinates: np.ndarray, bin_coordinates: np.ndarray, num_jobs: int):
+    """Bin spot expressions into filtered coordinates.
+    
+    Args:
+        spot_expression: expression of original spots
+        spot_coordinates: coordinates of original spots
+        bin_coordinates: coordinates of downsampled bin spots
+        
+    Returns:
+        binned expression for metaspots
+    """
+    
+    num_spots, num_genes = spot_expression.shape    
+    num_bins, _ = bin_coordinates.shape
+    
+    bin_expression = np.zeros((num_bins, num_genes))
+    
+    neigh = NearestNeighbors(n_neighbors=1, n_jobs=num_jobs)
+    neigh.fit(bin_coordinates)
+    indices = neigh.kneighbors(spot_coordinates, return_distance=False)
+    
+    bin_to_spots = defaultdict(list)
+    for i in range(num_spots):
+        bin_to_spots[indices[i].item()].append(i)
+        
+    for i in range(num_bins):
+        bin_spots = bin_to_spots[i]
+        bin_expression[i] = np.sum(spot_expression[bin_spots], axis=0)
+    
+    return bin_expression

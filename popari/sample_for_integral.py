@@ -53,7 +53,7 @@ def test_project2simplex_basic():
     x = torch.tensor([1/2, 1/4, 1/4])
     assert x.allclose(project2simplex(x.clone(), dim=0))
 
-def integrate_of_exponential_over_simplex(eta, eps=1e-15):
+def integrate_of_exponential_over_simplex(eta, eps=1e-30):
     assert torch.isfinite(eta).all()
     N, K = eta.shape
     log_abs = torch.empty_like(eta)

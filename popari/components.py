@@ -398,14 +398,14 @@ class EmbeddingOptimizer():
             pbar = trange(N, leave=False, disable=True, desc='Updating Z w/ nbrs via Nesterov GD')
            
             func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
-            for idx in IndependentSet(E_adjacency_list, device=self.context["device"], batch_size=256):
+            for idx in IndependentSet(E_adjacency_list, device=self.context["device"], batch_size=1024):
                 quad_batch = MTM
                 linear_batch_spatial = - torch.index_select(adjacency_matrix, 0, idx) @ Z @ Sigma_x_inv
                 Z_batch = Z[idx].contiguous()
                 S_batch = S[idx].contiguous()
                     
                 optimizer = NesterovGD(Z_batch, base_step_size / S_batch.square())
-                ppbar = trange(10000, leave=False, disable=not (self.verbose > 3))
+                ppbar = trange(100, leave=False, disable=not (self.verbose > 3))
                 for i_iter in ppbar:
                     if self.embedding_acceleration_trick:
                         update_s() # TODO: update S_batch directly
