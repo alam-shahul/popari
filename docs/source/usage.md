@@ -3,7 +3,8 @@
 ```{toctree}
 
 quickstart
-cli
+tutorial_gallery/preprocessing_demo
 tutorial_gallery/analysis_demo
+cli
 
 ```
