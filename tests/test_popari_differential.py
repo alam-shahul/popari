@@ -37,20 +37,20 @@ def popari_with_neighbors():
         
 def test_Sigma_x_inv(popari_with_neighbors):
     Sigma_x_inv = list(popari_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].detach().cpu().numpy()
-    np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy", Sigma_x_inv)
+    # jnp.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy", Sigma_x_inv)
     test_Sigma_x_inv = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/Sigma_x_inv_differential.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
     
 def test_M(popari_with_neighbors):
     first_group_name = list(popari_with_neighbors.metagene_groups.keys())[0]
     M_bar = popari_with_neighbors.parameter_optimizer.metagene_state.M_bar[first_group_name].detach().cpu().numpy()
-    np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy", M_bar)
+    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy", M_bar)
     test_M = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/M_bar_differential.npy")
     assert np.allclose(test_M, M_bar)
     
 def test_X_0(popari_with_neighbors):
     X_0 = popari_with_neighbors.embedding_optimizer.embedding_state["0"].detach().cpu().numpy()
-    np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_differential.npy", X_0)
+    # np.save("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_differential.npy", X_0)
     test_X_0 = np.load("tests/test_data/synthetic_500_100_20_15_0_0_i4/outputs/X_0_differential.npy")
     assert np.allclose(test_X_0, X_0)
     

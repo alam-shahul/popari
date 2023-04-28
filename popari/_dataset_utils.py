@@ -695,12 +695,13 @@ def _spatial_binning(dataset: PopariDataset, chunks: int = 16, downsample_rate: 
     bin_coordinates = chunked_downsample_on_grid(coordinates, chunks=chunks, downsample_rate=downsample_rate)
     
     filtered_bin_coordinates = filter_gridpoints(coordinates, bin_coordinates, num_jobs)
-    filtered_bin_expression = bin_expression(dataset.X, coordinates, filtered_bin_coordinates, num_jobs)
+    filtered_bin_expression, bin_assignments = bin_expression(dataset.X, coordinates, filtered_bin_coordinates, num_jobs)
         
     binned_dataset = ad.AnnData(X=filtered_bin_expression)
     binned_dataset.var_names = dataset.var_names
     binned_dataset.obsm["spatial"] = filtered_bin_coordinates
     binned_dataset.obs["library_size"] = binned_dataset.X.sum(axis=1)
+    binned_dataset.obsm["bin_assignments"] = bin_assignments
     
     binned_dataset = PopariDataset(binned_dataset, f"{dataset.name}_binned")
     binned_dataset.compute_spatial_neighbors()

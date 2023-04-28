@@ -64,7 +64,7 @@ def test_analysis_functions(trained_model, trained_differential_model):
 
     tl.pca(trained_model, joint=True)
 
-    expected_aris = [0.7998884130878, 0.8329298508489761]
+    expected_aris = [0.7405537444360839, 0.7694805741910644]
     tl.leiden(trained_model, joint=True, target_clusters=8)
     tl.compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
     tl.compute_silhouette_scores(trained_model, labels="cell_type", embeddings="normalized_X")

@@ -701,13 +701,14 @@ def bin_expression(spot_expression: np.ndarray, spot_coordinates: np.ndarray, bi
         bin_coordinates: coordinates of downsampled bin spots
         
     Returns:
-        binned expression for metaspots
+        A tuple of (binned expression for metaspots, assignment matrix of bins to spots)
     """
     
     num_spots, num_genes = spot_expression.shape    
     num_bins, _ = bin_coordinates.shape
     
     bin_expression = np.zeros((num_bins, num_genes))
+    bin_assignments = np.zeros((num_bins, num_spots))
     
     neigh = NearestNeighbors(n_neighbors=1, n_jobs=num_jobs)
     neigh.fit(bin_coordinates)
@@ -719,6 +720,7 @@ def bin_expression(spot_expression: np.ndarray, spot_coordinates: np.ndarray, bi
         
     for i in range(num_bins):
         bin_spots = bin_to_spots[i]
+        bin_assignments[i, bin_spots] = 1
         bin_expression[i] = np.sum(spot_expression[bin_spots], axis=0)
     
-    return bin_expression
+    return bin_expression, bin_assignments
