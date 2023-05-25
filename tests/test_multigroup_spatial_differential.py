@@ -1,4 +1,4 @@
-from popari.model import SpiceMixPlus
+from popari.model import Popari
 from popari.util import clustering_louvain_nclust
 
 import os
@@ -23,7 +23,7 @@ def popari_with_neighbors():
         "central": ["central"]
     }
 
-    obj = SpiceMixPlus(
+    obj = Popari(
         K=K,
         lambda_Sigma_x_inv=lambda_Sigma_x_inv,
         dataset_path=path2dataset/ "multigroup_spatial_noise_dataset.h5ad",
@@ -82,8 +82,8 @@ def test_louvain_clustering(popari_with_neighbors):
             resolution_boundaries=(.1, 1.),
         )
         
-        df['label SpiceMixPlus'] = y
-        ari = adjusted_rand_score(*df[['cell_type', 'label SpiceMixPlus']].values.T)
+        df['label Popari'] = y
+        ari = adjusted_rand_score(*df[['cell_type', 'label Popari']].values.T)
         print(ari)
         assert expected_aris[index] == pytest.approx(ari)
             
@@ -106,8 +106,8 @@ def test_louvain_clustering(popari_with_neighbors):
     #     resolution_boundaries=(.1, 1.),
     # )
     # 
-    # df_meta['label SpiceMixPlus'] = y
-    # ari = adjusted_rand_score(*df_meta[['cell type', 'label SpiceMixPlus']].values.T)
+    # df_meta['label Popari'] = y
+    # ari = adjusted_rand_score(*df_meta[['cell type', 'label Popari']].values.T)
     # print(ari)
     # assert 0.3731545260146673 == pytest.approx(ari)
     #     
