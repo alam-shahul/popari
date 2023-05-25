@@ -521,7 +521,7 @@ def compute_neighborhood_enrichment(features: np.ndarray, adjacency_matrix: csr_
 
     return np.asarray(normalized_enrichment)
 
-def chunked_coordinates(coordinates: np.ndarray, chunks: int):
+def chunked_coordinates(coordinates: np.ndarray, chunks: int = None, step_size: float = None):
     """Split a list of 2D coordinates into local chunks.
     
     Args:
@@ -536,8 +536,18 @@ def chunked_coordinates(coordinates: np.ndarray, chunks: int):
 
     horizontal_base, vertical_base = np.min(coordinates, axis=0)
     horizontal_range, vertical_range = np.ptp(coordinates, axis=0)
-    
-    horizontal_borders, step_size = np.linspace(horizontal_base, horizontal_base + horizontal_range, chunks + 1, retstep=True)
+  
+    if step_size is None and chunks is None:
+        raise ValueError("One of `chunks` or `step_size` must be specified.")
+
+    if step_size is None:
+        horizontal_borders, step_size = np.linspace(horizontal_base, horizontal_base + horizontal_range, chunks + 1, retstep=True)
+    elif chunks is None:
+        horizontal_borders = np.arange(horizontal_base, horizontal_base + horizontal_range, step_size)
+        
+        # Adding endpoint
+        horizontal_borders = np.append(horizontal_borders, horizontal_borders[-1] + step_size)
+
     vertical_borders = np.arange(vertical_base, vertical_base + vertical_range, step_size)
     
     # Adding endpoint
@@ -602,7 +612,8 @@ def finetune_chunk_number(coordinates: np.ndarray, chunks: int, downsample_rate:
     
     return chunks + direction * chunk_nudge
 
-def chunked_downsample_on_grid(coordinates: np.ndarray, chunks: int, downsample_rate: float):
+def chunked_downsample_on_grid(coordinates: np.ndarray, downsample_rate: float, chunks: Optional[int] = None,
+        chunk_size: Optional[float] = None, downsampled_1d_density: Optional[int] = None):
     """Downsample spot coordinates to a square grid of meta-spots using chunks.
     
     By chunking the coordinates, we can:
@@ -629,13 +640,15 @@ def chunked_downsample_on_grid(coordinates: np.ndarray, chunks: int, downsample_
     
     chunks = finetune_chunk_number(coordinates, chunks, downsample_rate)
     valid_chunks = []
-    for chunk_data in chunked_coordinates(coordinates, chunks=chunks):
+    for chunk_data in chunked_coordinates(coordinates, chunks=chunks, step_size=chunk_size):
         if len(chunk_data['chunk_coordinates']) > 0:
             valid_chunks.append(chunk_data)
-   
- 
+
     points_per_chunk = num_points * downsample_rate / len(valid_chunks)
-    downsampled_1d_density = int(np.round(np.sqrt(points_per_chunk)))
+
+    if downsampled_1d_density is None:
+        downsampled_1d_density = int(np.round(np.sqrt(points_per_chunk)))
+
     if points_per_chunk < 2:
         raise ValueError("Chunk density is < 1")
     
@@ -657,7 +670,6 @@ def chunked_downsample_on_grid(coordinates: np.ndarray, chunks: int, downsample_
             y_gap = y[-1] - y[-2]
             y = np.append(y, y.max() + y_gap)
           
-
         xv, yv = np.meshgrid(x, y)
           
         new_coordinates = np.array(list(zip(xv.flat, yv.flat)))
@@ -666,7 +678,7 @@ def chunked_downsample_on_grid(coordinates: np.ndarray, chunks: int, downsample_
     new_coordinates = np.vstack(all_new_coordinates)
     new_coordinates = np.unique(new_coordinates, axis=0)
     
-    return new_coordinates
+    return new_coordinates, chunk_size, downsampled_1d_density
 
 def filter_gridpoints(spot_coordinates: np.ndarray, grid_coordinates: np.ndarray, num_jobs: int):
     """Use nearest neighbors approach to filter out relevant grid coordinates.

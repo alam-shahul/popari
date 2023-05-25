@@ -15,6 +15,12 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
     """                                     
 
     merged_dataset = ad.read_h5ad(filepath)
+    datasets, replicate_names = unmerge_anndata(merged_dataset)
+
+    return datasets, replicate_names
+
+def unmerge_anndata(merged_dataset: ad.AnnData, replicate_names: Sequence[str] = None):
+    """Unmerge composite AnnData object into constituent datasets."""
 
     indices = merged_dataset.obs.groupby("batch").indices.values()
     datasets = [merged_dataset[index].copy() for index in indices]
@@ -38,7 +44,7 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
             dataset.uns["Sigma_x_inv"] = {
                 replicate_string: replicate_Sigma_x_inv
             }
-        
+
         if "Sigma_x_inv_bar" in dataset.uns:
             # Keep only Sigma_x_inv_bar corresponding to a particular replicate
             replicate_Sigma_x_inv_bar = dataset.uns["Sigma_x_inv_bar"][replicate_string]
@@ -76,6 +82,52 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
             if "prior_x" in dataset.uns["popari_hyperparameters"]:
                 prior_x = make_hdf5_compatible(dataset.uns["popari_hyperparameters"]["prior_x"])
                 dataset.uns["popari_hyperparameters"]["prior_x"] = prior_x
+
+            if "spatial_affinity_groups" in dataset.uns["popari_hyperparameters"]:
+                name_parts = dataset.name.split("_level_")
+                if len(name_parts) > 1:
+                    _, level = name_parts
+                    level = int(level)
+                else:
+                    level = 0
+
+                groups = dataset.uns["popari_hyperparameters"]["spatial_affinity_groups"]
+                filtered_groups = {}
+                for group, group_replicates in groups.items():
+                    group_name_parts = group.split("_level_")
+                    if len(group_name_parts) > 1:
+                        _, group_level = group_name_parts
+                        group_level = int(group_level)
+                    else:
+                        group_level = 0
+
+                    if group_level == level:
+                        filtered_groups[group] = group_replicates
+
+                dataset.uns["popari_hyperparameters"]["spatial_affinity_groups"] = filtered_groups
+            
+            if "metagene_groups" in dataset.uns["popari_hyperparameters"]:
+                name_parts = dataset.name.split("_level_")
+                if len(name_parts) > 1:
+                    _, level = name_parts
+                    level = int(level)
+                else:
+                    level = 0
+
+                groups = dataset.uns["popari_hyperparameters"]["metagene_groups"]
+                filtered_groups = {}
+                for group, group_replicates in groups.items():
+                    group_name_parts = group.split("_level_")
+                    if len(group_name_parts) > 1:
+                        _, group_level = group_name_parts
+                        group_level = int(group_level)
+                    else:
+                        group_level = 0
+
+                    if group_level == level:
+                        filtered_groups[group] = group_replicates
+
+                dataset.uns["popari_hyperparameters"]["metagene_groups"] = filtered_groups
  
         if "X" in dataset.obsm:
             replicate_X = make_hdf5_compatible(dataset.obsm["X"])
@@ -86,10 +138,9 @@ def load_anndata(filepath: Union[str, Path], replicate_names: Sequence[str] = No
 
     return datasets, replicate_names
 
-def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], ignore_raw_data: bool = False):
-    """Save Popari state as AnnData object.
+def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = False):
+    """Merge multiple PopariDatasets into a single AnnData object (for storage)."""
 
-    """
     dataset_copies = []
     for dataset in datasets:
         replicate = dataset.name
@@ -109,6 +160,12 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], 
         if "adjacency_matrix" in dataset.obsp:
             adjacency_matrix = make_hdf5_compatible(dataset.obsp["adjacency_matrix"])
             dataset_copy.uns["adjacency_matrix"] = {replicate_string: adjacency_matrix }
+        elif "adjacency_matrix" in dataset.uns:
+            dataset_copy.uns["adjacency_matrix"] = {
+                replicate_string: make_hdf5_compatible(adjacency_matrix)
+                for replicate_string, adjacency_matrix in dataset.uns["adjacency_matrix"]
+            }
+
         
         if "Sigma_x_inv" in dataset_copy.uns:
             replicate_Sigma_x_inv = dataset_copy.uns["Sigma_x_inv"][replicate_string]
@@ -158,6 +215,13 @@ def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], 
 
     dataset_names = [dataset.name for dataset in datasets]
     merged_dataset = ad.concat(dataset_copies, label="batch", keys=dataset_names, merge="unique", uns_merge="unique")
+
+    return merged_dataset
+
+def save_anndata(filepath: Union[str, Path], datasets: Sequence[PopariDataset], ignore_raw_data: bool = False):
+    """Save Popari state as AnnData object."""
+
+    merged_dataset = merge_anndata(datasets, ignore_raw_data=ignore_raw_data)
     merged_dataset.write(filepath)
 
     return merged_dataset

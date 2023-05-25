@@ -50,7 +50,7 @@ def initialize_kmeans(datasets: Sequence[PopariDataset], K: int, context: dict, 
 
     return M, Xs
 
-def initialize_louvain(datasets: Sequence[PopariDataset], K: int, context: dict, kwargs_louvain:dict, n_neighbors: int = 20, n_components: int = 50, eps: float = 1e-10) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+def initialize_louvain(datasets: Sequence[PopariDataset], K: int, context: dict, kwargs_louvain:dict, n_neighbors: int = 20, n_components: int = 50, eps: float = 1e-10, verbose: bool = True) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states using k-means clustering.
 
     Args:
@@ -73,7 +73,7 @@ def initialize_louvain(datasets: Sequence[PopariDataset], K: int, context: dict,
     # Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
 
     while True:
-        _cluster([merged_dataset], method="louvain", use_rep="X_pca", target_clusters=K, n_neighbors=n_neighbors)
+        _cluster([merged_dataset], method="louvain", use_rep="X_pca", target_clusters=K, n_neighbors=n_neighbors, verbose=verbose)
 
         labels = merged_dataset.obs["louvain"].astype(int)
         num_clusters = len(labels.unique())

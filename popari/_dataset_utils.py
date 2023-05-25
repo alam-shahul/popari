@@ -84,7 +84,7 @@ def _plot_metagene_embedding(datasets: Sequence[PopariDataset], metagene_index: 
         dataset.plot_metagene_embedding(metagene_index, legend=legend, s=s, linewidth=linewidth, palette=palette, ax=ax, **scatterplot_kwargs)
 
 def _cluster(datasets: Sequence[PopariDataset], use_rep="normalized_X", joint: bool = False, method: str = "leiden",
-             n_neighbors:int = 20, resolution: float = 1.0, target_clusters: Optional[int] = None, random_state: int = 0, tolerance: float = 0.01, **kwargs):
+             n_neighbors:int = 20, resolution: float = 1.0, target_clusters: Optional[int] = None, random_state: int = 0, tolerance: float = 0.01, verbose: bool = False, **kwargs):
     r"""Compute clustering for all datasets.
 
     Args:
@@ -116,8 +116,10 @@ def _cluster(datasets: Sequence[PopariDataset], use_rep="normalized_X", joint: b
                 lower_bound = effective_resolution
             elif num_clusters >= target_clusters:
                 upper_bound = effective_resolution
-            print(f"Current number of clusters: {num_clusters}")
-            print(f"Resolution: {effective_resolution}")
+       
+            if verbose: 
+                print(f"Current number of clusters: {num_clusters}")
+                print(f"Resolution: {effective_resolution}")
 
     if joint:
         indices = merged_dataset.obs.groupby("batch").indices.values()
@@ -680,7 +682,8 @@ def _compute_spatial_correlation(dataset: PopariDataset, spatial_key: str = "Sig
     dataset.uns[spatial_correlation_key] = spatial_correlation
     dataset.uns[neighbor_interactions_key] = neighbor_interactions
 
-def _spatial_binning(dataset: PopariDataset, chunks: int = 16, downsample_rate: float = 0.2, num_jobs: int = 2):
+def _spatial_binning(dataset: PopariDataset, level: Optional[int] = None, chunks: int = 16, downsample_rate: float = 0.2,
+        chunk_size: Optional[int] = None, chunk_1d_density: Optional[int] = None, num_jobs: int = 2):
     """Construct binned, low-resolution version of dataset.
     
     Args:
@@ -692,7 +695,10 @@ def _spatial_binning(dataset: PopariDataset, chunks: int = 16, downsample_rate: 
     """
     coordinates = dataset.obsm["spatial"]
     
-    bin_coordinates = chunked_downsample_on_grid(coordinates, chunks=chunks, downsample_rate=downsample_rate)
+    bin_coordinates, chunk_size, chunk_1d_density = chunked_downsample_on_grid(coordinates,
+            chunks=chunks, chunk_size=chunk_size, downsampled_1d_density=chunk_1d_density,
+            downsample_rate=downsample_rate
+    )
     
     filtered_bin_coordinates = filter_gridpoints(coordinates, bin_coordinates, num_jobs)
     filtered_bin_expression, bin_assignments = bin_expression(dataset.X, coordinates, filtered_bin_coordinates, num_jobs)
@@ -700,10 +706,13 @@ def _spatial_binning(dataset: PopariDataset, chunks: int = 16, downsample_rate: 
     binned_dataset = ad.AnnData(X=filtered_bin_expression)
     binned_dataset.var_names = dataset.var_names
     binned_dataset.obsm["spatial"] = filtered_bin_coordinates
-    binned_dataset.obs["library_size"] = binned_dataset.X.sum(axis=1)
+    binned_dataset.obs["total_transformed_counts"] = binned_dataset.X.sum(axis=1)
     binned_dataset.obsm["bin_assignments"] = bin_assignments
+
+    binned_dataset.uns["chunk_size"] = chunk_size
+    binned_dataset.uns["chunk_1d_density"] = chunk_1d_density
     
-    binned_dataset = PopariDataset(binned_dataset, f"{dataset.name}_binned")
+    binned_dataset = PopariDataset(binned_dataset, f"{dataset.name}_level_{level}")
     binned_dataset.compute_spatial_neighbors()
     
     return binned_dataset

@@ -12,7 +12,6 @@ from pathlib import Path
 def trained_model():
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     replicate_names=[0, 1]
-    trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad", replicate_names)
     trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad")
 
     return trained_model
@@ -21,7 +20,6 @@ def trained_model():
 def trained_differential_model():
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     replicate_names=[0, 1]
-    trained_model = load_trained_model(path2dataset / "trained_differential_metagenes_4_iterations.h5ad", replicate_names)
     trained_model = load_trained_model(path2dataset / "trained_differential_metagenes_4_iterations.h5ad")
 
     return trained_model
@@ -46,11 +44,15 @@ def test_save_anndata(trained_model):
     save_anndata(path2dataset/ "mock_results.h5ad", trained_model.datasets)
     save_anndata(path2dataset/ "mock_results_ignore_raw_data.h5ad", trained_model.datasets, ignore_raw_data=True)
 
-def test_load_anndata(trained_model):
+def test_load_anndata():
     replicate_names=[0, 1]
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
-    load_anndata(path2dataset/ "trained_4_iterations.h5ad", replicate_names)
     load_anndata(path2dataset/ "trained_4_iterations.h5ad")
+
+def test_load_hierarchical_model():
+    replicate_names=[0, 1]
+    path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    load_trained_model(path2dataset/ "superresolved_results.h5ad")
 
 def test_analysis_functions(trained_model, trained_differential_model):
     tl.preprocess_embeddings(trained_model)

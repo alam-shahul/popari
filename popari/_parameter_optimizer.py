@@ -442,7 +442,7 @@ class ParameterOptimizer():
                 M = self.metagene_state[first_dataset_name]
                 updated_M = self.estimate_M(M, replicate_mask, simplex_projection_mode=simplex_projection_mode)
                 for dataset_name in group_replicates:
-                    self.metagene_state[dataset_name] = updated_M
+                    self.metagene_state[dataset_name][:] = updated_M
 
         elif self.metagene_mode == "differential":
             for dataset_index, dataset in enumerate(self.datasets):
@@ -454,7 +454,7 @@ class ParameterOptimizer():
                 M = self.metagene_state[dataset.name]
                 replicate_mask = [False] * len(self.datasets)
                 replicate_mask[dataset_index] = True
-                self.metagene_state[dataset.name]= self.estimate_M(M, replicate_mask, M_bar=M_bars, simplex_projection_mode=simplex_projection_mode)
+                self.metagene_state[dataset.name][:] = self.estimate_M(M, replicate_mask, M_bar=M_bars, simplex_projection_mode=simplex_projection_mode)
 
             self.metagene_state.reaverage()
 
@@ -566,7 +566,7 @@ class ParameterOptimizer():
 
         G, K = M.shape
         quadratic_factor = torch.zeros([K, K], **self.context)
-        linear_term = torch.zeros_like(M)
+        linear_factor = torch.zeros_like(M)
         # TODO: replace below (and any reference to dataset)
        
         tol /= G
@@ -582,41 +582,42 @@ class ParameterOptimizer():
         scaled_betas = betas / (sigma_yxs**2)
         
         # ||Y||_2^2
-        constant_magnitude = np.array([torch.linalg.norm(Y).item()**2 for Y in Ys]).sum()
+        constant = np.array([torch.linalg.norm(Y).item()**2 / (sigma_yx ** 2) for Y, sigma_yx in zip(Ys, sigma_yxs)]).sum()
+        # constant_magnitude = np.array([torch.linalg.norm(Y).item()**2 for Y in Ys]).sum()
     
-        constant = (np.array([torch.linalg.norm(self.embedding_optimizer.embedding_state[dataset.name]).item()**2 for dataset in datasets]) * scaled_betas).sum()
+        # constant = (np.array([torch.linalg.norm(self.embedding_optimizer.embedding_state[dataset.name]).item()**2 for dataset in datasets]) * scaled_betas).sum()
         if self.verbose > 1:
-            print(f"M constant term: {constant: .1e}")
-            print(f"M constant magnitude: {constant_magnitude:.1e}")
+            print(f"M constant: {constant: .1e}")
+            # print(f"M constant magnitude: {constant_magnitude:.1e}")
 
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
         for dataset, X, Y, scaled_beta in zip(datasets, Xs, Ys, scaled_betas):
             # X_c^TX_c
             quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
             # MX_c^TY_c
-            linear_term.addmm_(Y.T, X, alpha=scaled_beta)
+            linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
     
         # if self.lambda_M > 0 and M_bar is not None:
         #     quadratic_factor.diagonal().add_(self.lambda_M)
-        #     linear_term += self.lambda_M * M_bar
+        #     linear_factor += self.lambda_M * M_bar
         differential_regularization_quadratic_factor = torch.zeros((K, K), **self.context)
-        differential_regularization_linear_term = torch.zeros(1, **self.context)
+        differential_regularization_linear_factor = torch.zeros(1, **self.context)
         if self.lambda_M > 0 and M_bar is not None:
             differential_regularization_quadratic_factor = self.lambda_M * torch.eye(K, **self.context)
         
             
-            differential_regularization_linear_term = torch.zeros_like(M, **self.context)
+            differential_regularization_linear_factor = torch.zeros_like(M, **self.context)
             group_weighting = 1 / len(M_bar)
             for group_M_bar in M_bar:
-                differential_regularization_linear_term += group_weighting * self.lambda_M * group_M_bar
+                differential_regularization_linear_factor += group_weighting * self.lambda_M * group_M_bar
         #     quadratic_factor.diagonal().add_(self.lambda_M)
-        #     linear_term += self.lambda_M * M_bar
+        #     linear_factor += self.lambda_M * M_bar
 
         if self.verbose > 1:
             print(f"{get_datetime()} Eigenvalue difference: {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - torch.max(torch.linalg.eigvals(quadratic_factor).abs())}")
-            print(f"M linear term: {torch.linalg.norm(linear_term)}")
-            print(f"M regularization linear term: {torch.linalg.norm(differential_regularization_linear_term)}")
-            print(f"M linear regularization term ratio: {torch.linalg.norm(differential_regularization_linear_term) / torch.linalg.norm(linear_term)}")
+            print(f"M linear term: {torch.linalg.norm(linear_factor)}")
+            print(f"M regularization linear term: {torch.linalg.norm(differential_regularization_linear_factor)}")
+            print(f"M linear regularization term ratio: {torch.linalg.norm(differential_regularization_linear_factor) / torch.linalg.norm(linear_factor)}")
         loss_prev, loss = np.inf, np.nan
 
         verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format='{desc}{postfix}')
@@ -628,15 +629,14 @@ class ParameterOptimizer():
             verbose_description = ""
             if self.verbose > 2:
                 verbose_description += f"M quadratic term: {loss:.1e}"
-            grad = quadratic_factor_grad
-            linear_term_grad = linear_term + differential_regularization_linear_term
+            linear_term_grad = linear_factor + differential_regularization_linear_factor
             loss -= 2 * (linear_term_grad * M).sum()
-            grad -= linear_term_grad
+            grad = quadratic_factor_grad - linear_term_grad
         
             loss += constant
 
             if self.metagene_mode == "differential" and M_bar is not None:
-                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum()
+                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_factor * M).sum()
                 group_weighting = 1 / len(M_bar)
                 for group_M_bar in M_bar:
                     differential_regularization_term += group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
