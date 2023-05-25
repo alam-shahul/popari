@@ -95,6 +95,7 @@ def test_analysis_functions(trained_model, trained_differential_model):
     pl.umap(trained_model, color="leiden")
 
     pl.multireplicate_heatmap(trained_model, uns="Sigma_x_inv")
+    pl.multireplicate_heatmap(trained_model, uns="Sigma_x_inv", label_values=True)
     pl.metagene_embedding(trained_model, 0)
     pl.all_embeddings(trained_model, embedding_key="normalized_X")
     tl.compute_empirical_correlations(trained_model, output="empirical_correlation")
