@@ -327,6 +327,19 @@ class Popari:
         
         self.synchronize_datasets()
 
+    def set_superresolution_lr(self, new_lr: float, target_level: Optional[int] = None):
+        """Change learning rate for superresolution optimization.
+
+        Can be used to change learning rate for all hierarchical levels (by default) or just
+        the learning rate for a certain resolution.
+
+        """
+
+        change_all = (target_level == None)
+        for level in self.hierarchy:
+            if change_all or (level == target_level):
+                self.hierarchy[level].superresolution_lr = new_lr
+
     def synchronize_datasets(self):
         """Synchronize datasets across all hierarchical levels."""
 

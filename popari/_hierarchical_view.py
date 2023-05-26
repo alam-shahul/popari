@@ -485,6 +485,7 @@ def construct_hierarchy(base_view: HierarchicalView, chunks: int = 16,
     hierarchy = {0: base_view}
     context = base_view.context
     previous_view = base_view
+    original_names = [dataset.name for dataset in previous_view.datasets]
     for level in range(1, levels):
         print(f"{get_datetime()} Initializing hierarchy level {level}")
         previous_datasets = previous_view.datasets
@@ -492,8 +493,8 @@ def construct_hierarchy(base_view: HierarchicalView, chunks: int = 16,
         binned_datasets = []
         binned_Ys = []
         previous_Ys = previous_view.Ys
-        for previous_Y, dataset in zip(previous_Ys, previous_datasets):
-            binned_dataset = _spatial_binning(dataset, level=level, chunks=chunks, chunk_size=chunk_size, chunk_1d_density=chunk_1d_density)
+        for previous_Y, dataset, original_name in zip(previous_Ys, previous_datasets, original_names):
+            binned_dataset = _spatial_binning(PopariDataset(dataset, original_name), level=level, chunks=chunks, chunk_size=chunk_size, chunk_1d_density=chunk_1d_density)
             print(f"{get_datetime()} Downsized dataset from {len(dataset)} to {len(binned_dataset)} spots.")
             chunk_size = binned_dataset.uns["chunk_size"]
             chunk_1d_density = binned_dataset.uns["chunk_1d_density"]
