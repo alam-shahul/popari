@@ -214,7 +214,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
             del dataset_copy.obs["adjacency_list"]
 
     dataset_names = [dataset.name for dataset in datasets]
-    merged_dataset = ad.concat(dataset_copies, label="batch", keys=dataset_names, merge="unique", uns_merge="unique")
+    merged_dataset = ad.concat(dataset_copies, join="outer", label="batch", keys=dataset_names, merge="unique", uns_merge="unique")
 
     return merged_dataset
 

@@ -30,9 +30,11 @@ class Popari:
         replicate_names: names of spatial datasets
         datasets: list of input AnnData spatial datasets for Popari.
         dataset_path: path to AnnData merged dataset on disk. Ignored if ``datasets`` is specified.
+        reloaded_hierarchy: data from previous hierarchical run of Popari.
         lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: ``1e-4``
         pretrained: if set, attempts to load model state from input files. Default: ``False``
         initialization_method: algorithm to use for initializing metagenes and embeddings. Default: ``louvain``
+        hierarchical_levels: if set, number of hierarchical levels to use. Default: ``None`` (non-hierarchical mode)
         metagene_groups: defines a grouping of replicates for the metagene optimization. If
             ``metagene_mode == "shared"``, then one set of metagenes will be created for each group;
             if ``metagene_mode == "differential",  then all replicates will have their own set of metagenes,
@@ -70,6 +72,8 @@ class Popari:
         embedding_mini_iterations: number of mini-iterations to use during each iteration of embedding optimization. Default: ``1000``
         embedding_acceleration_trick: if set, use trick to accelerate convergence of embedding optimization. Default: ``True``
         embedding_step_size_multiplier: controls relative step size during embedding optimization. Default: ``1.0``
+        binning_downsample_rate: ratio of number of spots at low resolution to high resolution when
+            using hierarchical mode
         superresolution_lr: learning rate for optimization of ``X`` from low-res embeddings
         use_inplace_ops: if set, inplace PyTorch operations will be used to speed up computation
         random_state: seed for reproducibility of randomized computations. Default: ``0``
@@ -107,6 +111,7 @@ class Popari:
         embedding_mini_iterations: int = 1000,
         embedding_acceleration_trick: bool = True,
         embedding_step_size_multiplier: float = 1.0,
+        binning_downsample_rate: float = 0.2,
         superresolution_lr: float = 1e-3,
         use_inplace_ops: bool = True,
         random_state: int = 0,
@@ -162,6 +167,7 @@ class Popari:
         self.hierarchical_levels = hierarchical_levels
         self.reloaded_hierarchy = reloaded_hierarchy
         self.superresolution_lr = superresolution_lr
+        self.binning_downsample_rate = binning_downsample_rate
 
         if dataset_path:
             self.load_dataset(dataset_path)
@@ -245,19 +251,21 @@ class Popari:
                 "embedding_optimizer_hyperparameters": self.embedding_optimizer_hyperparameters,
         }
 
-        
+       
         self.base_view = HierarchicalView(self.datasets, superresolution_lr=self.superresolution_lr,
                 level=0, **hierarchical_view_kwargs)
 
-        self.active_view = self.base_view
         if self.hierarchical_levels is not None:
             if self.pretrained:
                 self.hierarchy = reconstruct_hierarchy(self.reloaded_hierarchy, 
                         superresolution_lr=self.superresolution_lr, **hierarchical_view_kwargs)
             else:
                 self.hierarchy = construct_hierarchy(self.base_view, chunks=2, levels=self.hierarchical_levels, 
-                        superresolution_lr=self.superresolution_lr, **hierarchical_view_kwargs)
-            self.active_view = self.hierarchy[self.hierarchical_levels - 1]
+                        superresolution_lr=self.superresolution_lr, downsample_rate=self.binning_downsample_rate,
+                        **hierarchical_view_kwargs)
+            self.base_view = self.hierarchy[self.hierarchical_levels - 1]
+        
+        self.active_view = self.base_view
 
         self.datasets = self.active_view.datasets
         self.parameter_optimizer = self.active_view.parameter_optimizer
@@ -321,7 +329,10 @@ class Popari:
             view.parameter_optimizer.update_sigma_yx()
                 
             view._superresolve_embeddings(n_epochs=n_epochs, tol=tol)
-            
+        
+            pretrained_embeddings = [view.embedding_optimizer.embedding_state[dataset.name].clone() for dataset in view.datasets]
+            view.parameter_optimizer.spatial_affinity_state.initialize(pretrained_embeddings)
+    
             if update_spatial_affinities:
                 view.parameter_optimizer.update_spatial_affinity(differentiate_spatial_affinities=differentiate_spatial_affinities, subsample_rate=edge_subsample_rate)
         
@@ -348,7 +359,7 @@ class Popari:
             for level, view in self.hierarchy.items():
                 view.synchronize_datasets()
 
-    def save_results(self, path2dataset: str, ignore_raw_data: bool =True):
+    def save_results(self, path2dataset: str, ignore_raw_data: bool = True):
         """Save datasets and learned Popari parameters to .h5ad file.
 
         Args:
@@ -364,11 +375,13 @@ class Popari:
             for level in level_names:
                 view = self.hierarchy[level]
                 datasets = view.datasets
+                print(f"Metagenes at level {level} : {[dataset.uns['M'] for dataset in datasets]}")
                 merged_dataset = merge_anndata(datasets, ignore_raw_data=ignore_raw_data)
                 merged_datasets.append(merged_dataset)
 
-            total_dataset = ad.concat(merged_datasets, label="hierarchical_level", keys=level_names, merge="unique", uns_merge="unique")
-            total_dataset.uns["hierarchical_levels"] = self.hierarchical_levels
+            # Note: this relies on the dictionary .keys() method being in the same order
+            total_dataset = ad.concat(merged_datasets, join="outer", label="hierarchical_level", keys=level_names, merge="unique", uns_merge="unique")
+            total_dataset.uns["total_hierarchical_levels"] = self.hierarchical_levels
 
             total_dataset.write(path2dataset)
 
@@ -383,7 +396,7 @@ def load_trained_model(dataset_path: Union[str, Path], context=dict(device="cpu"
 
     merged_dataset = ad.read_h5ad(dataset_path)
     datasets = reloaded_hierarchy = hierarchical_levels = None
-    if "hierarchical_levels" in merged_dataset.uns:
+    if "total_hierarchical_levels" in merged_dataset.uns:
         indices = merged_dataset.obs.groupby("hierarchical_level").indices.values()
         unmerged_views = [merged_dataset[index].copy() for index in indices]
         reloaded_hierarchy = {}
@@ -393,6 +406,7 @@ def load_trained_model(dataset_path: Union[str, Path], context=dict(device="cpu"
             reloaded_hierarchy[level] = unmerged_datasets
         
         datasets = reloaded_hierarchy[0]
+        print(f"Metagenes: {[dataset.uns['M'] for dataset in datasets]}")
         replicate_names = [dataset.name for dataset in datasets]
     else:
         datasets, replicate_names = unmerge_anndata(merged_dataset)
@@ -447,3 +461,27 @@ def load_pretrained(datasets: Sequence[PopariDataset], replicate_names: Sequence
     )
 
     return trained_model
+
+def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambda_Sigma_bar: float = 1e-4):
+    """Initialize Popari object from a SpiceMix pretrained model.
+    
+    """
+
+    pretrained_datasets = pretrained_model.datasets if pretrained_model.hierarchical_levels == None else  pretrained_model.hierarchy[0].datasets
+    datasets = [PopariDataset(dataset, dataset.name) for dataset in pretrained_datasets]
+    replicate_names = [dataset.name for dataset in datasets]
+    
+    reloaded_hierarchy = None
+    if pretrained_model.hierarchical_levels is not None:
+        reloaded_hierarchy = {}
+        for level in pretrained_model.hierarchy:
+            level_datasets = pretrained_model.hierarchy[level].datasets
+            reloaded_hierarchy[level] = [PopariDataset(level_dataset, level_dataset.name) for level_dataset in level_datasets]
+
+    return load_pretrained(datasets,
+               replicate_names,
+               reloaded_hierarchy=reloaded_hierarchy,
+               spatial_affinity_mode="differential lookup",
+               context=popari_context,
+               lambda_Sigma_bar=lambda_Sigma_bar
+           )

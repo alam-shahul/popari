@@ -638,7 +638,9 @@ def chunked_downsample_on_grid(coordinates: np.ndarray, downsample_rate: float, 
     horizontal_base, vertical_base = np.min(coordinates, axis=0)
     horizontal_range, vertical_range = np.ptp(coordinates, axis=0)
     
-    chunks = finetune_chunk_number(coordinates, chunks, downsample_rate)
+    if chunks is not None:
+        chunks = finetune_chunk_number(coordinates, chunks, downsample_rate)
+
     valid_chunks = []
     for chunk_data in chunked_coordinates(coordinates, chunks=chunks, step_size=chunk_size):
         if len(chunk_data['chunk_coordinates']) > 0:
@@ -678,7 +680,7 @@ def chunked_downsample_on_grid(coordinates: np.ndarray, downsample_rate: float, 
     new_coordinates = np.vstack(all_new_coordinates)
     new_coordinates = np.unique(new_coordinates, axis=0)
     
-    return new_coordinates, chunk_size, downsampled_1d_density
+    return new_coordinates, step_size, downsampled_1d_density
 
 def filter_gridpoints(spot_coordinates: np.ndarray, grid_coordinates: np.ndarray, num_jobs: int):
     """Use nearest neighbors approach to filter out relevant grid coordinates.

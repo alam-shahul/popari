@@ -36,18 +36,40 @@ def hierarchical_model():
         torch_context=dict(device='cuda:0', dtype=torch.float64),
         initial_context=dict(device='cuda:0', dtype=torch.float64),
         initialization_method="svd",
+        spatial_affinity_mode="differential lookup",
         dataset_path=path2dataset / "all_data.h5",
         replicate_names=replicate_names,
-        hierarchical_levels=2,
+        hierarchical_levels=3,
+        binning_downsample_rate=0.5,
         superresolution_lr=1e-2,
         verbose=4
     )
 
     return obj
 
+@pytest.fixture(scope="module")
+def coarser_model():
+    path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    replicate_names=[0, 1]
+    obj = Popari(
+        K=10, lambda_Sigma_x_inv=1e-3,
+        metagene_mode="shared",
+        torch_context=dict(device='cuda:0', dtype=torch.float64),
+        initial_context=dict(device='cuda:0', dtype=torch.float64),
+        initialization_method="svd",
+        spatial_affinity_mode="differential lookup",
+        dataset_path=path2dataset / "all_data.h5",
+        replicate_names=replicate_names,
+        hierarchical_levels=2,
+        binning_downsample_rate=0.2,
+        superresolution_lr=1e-2,
+        verbose=4
+    )
 def test_hierarchical_initialization(hierarchical_model):
     pass
 
+def test_coarser_initialization(coarser_model):
+    pass
 
 def test_superresolution(hierarchical_model):
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
@@ -66,7 +88,11 @@ def test_superresolution(hierarchical_model):
         print(f"Overall loss: {hierarchical_model.base_view.nll()}")
 
     hierarchical_model.superresolve()
-    hierarchical_model.superresolve(n_epochs=1000, tol=1e-8)
+    
+    hierarchical_model.superresolve(n_epochs=100, tol=1e-8)
+    hierarchical_model.set_superresolution_lr(new_lr=1e-1)
+    hierarchical_model.superresolve(n_epochs=100, tol=1e-8)
 
     hierarchical_model.save_results(path2dataset / "superresolved_results.h5ad")
+
     reloaded_model = load_trained_model(path2dataset / "superresolved_results.h5ad")

@@ -1,6 +1,5 @@
 from typing import Sequence, Tuple
 
-from popari.util import print_datetime
 import torch
 
 import numpy as np
@@ -91,6 +90,15 @@ def initialize_louvain(datasets: Sequence[PopariDataset], K: int, context: dict,
 
     Xs = []
     for unmerged_label in unmerged_labels:
+        unique_labels = np.unique(unmerged_label)
+        if len(unique_labels) == 1:
+            raise ValueError("All spots from a replicate are being assigned to a single cluster "
+                             "during Louvain initialization. This indicates that there is a "
+                             "noticeable batch effect. This may be due to 1) too few spots, "
+                             "2) too few metagenes (i.e. clusters), or a truly significant batch "
+                             "effect. Try addressing these issues, or switch to a different "
+                             "initialization method."
+                            )
         N = len(unmerged_label)
         X = np.full([N, K], eps)
         X[np.arange(N), unmerged_label] = 1

@@ -40,11 +40,8 @@ def popari_with_neighbors():
         print(f"Embedding loss: {nll_embeddings}")
         print(f"Overall loss: {obj.base_view.nll()}")
 
-    print(obj.datasets[0].uns["losses"]["nll"])
-
     for dataset in obj.datasets:
         dataset.uns["multigroup_heatmap"] = {group_name: np.arange(4).reshape((2, 2)) for group_name in obj.metagene_groups}
-        print(dataset.uns)
 
     obj.save_results(path2dataset / 'trained_4_iterations.h5ad')
     return obj

@@ -7,14 +7,14 @@ name = "popari"
 dynamic = ["version"]
 
 authors = [
-  { name="Shahul Alam", email="alam.shahul@gmail.com.com" },
+  { name="Shahul Alam", email="alam.shahul@gmail.com" },
 ]
 dependencies = [
     "numpy>=1.20.1",
     "scipy>=1.7.1",
     "scikit-learn>=0.24.1",
     "pandas>=1.5.2",
-    "anndata>=0.8.0",
+    "anndata>=0.9.1",
     "torch>=1.13.0",
     "tqdm>=4.60.0",
     "umap-learn>=0.5.1",
