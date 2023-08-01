@@ -43,7 +43,8 @@ path = "popari/__about__.py"
 
 [project.scripts]
 popari = "popari:main"
-popari-mlflow = "mlflow.train:main"
+popari-mlflow = "popari.mlflow.train:main"
+popari-grid-search= "popari.mlflow.grid_search:run"
 
 [project.optional-dependencies]
 simulation = [
@@ -51,7 +52,8 @@ simulation = [
   "ipycanvas",
 ]
 mlflow = [
-  "mlflow",
+  "mlflow>=2.5.0",
+  "toml>=0.10.2"
 ]
 
 [tool]
@@ -59,9 +61,11 @@ mlflow = [
 [tool.hatch.build.targets.sdist]
 include = [
   "popari/*.py",
+  "popari/mlflow/*.py",
 ]
 
 [tool.hatch.build.targets.wheel]
 include = [
   "popari/*.py",
+  "popari/mlflow/*.py",
 ]
