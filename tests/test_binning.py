@@ -71,6 +71,10 @@ def test_hierarchical_initialization(hierarchical_model):
 def test_coarser_initialization(coarser_model):
     pass
 
+def test_nll_hierarchical(hierarchical_model):
+    nll = hierarchical_model.nll()
+    level_0_nll = hierarchical_model.nll(level=0)
+
 def test_superresolution(hierarchical_model):
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     for iteration in range(1, 2):

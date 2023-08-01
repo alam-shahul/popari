@@ -9,7 +9,7 @@ import pandas as pd
 import torch
 import anndata as ad
 
-from popari.util import get_datetime, convert_numpy_to_pytorch_sparse_coo
+from popari.util import get_datetime, convert_numpy_to_pytorch_sparse_coo, compute_nll
 from popari.io import load_anndata, save_anndata, merge_anndata, unmerge_anndata
 
 from popari.components import PopariDataset, HierarchicalView
@@ -40,8 +40,8 @@ class Popari:
             if ``metagene_mode == "differential",  then all replicates will have their own set of metagenes,
             but each group will share an ``M_bar``.
         spatial_affinity_groups: defines a grouping of replicates for the spatial affinity optimization.
-            If ``spatial_affinity_mode == "shared"``, then one set of spatial_affinities will be created for each group;
-            if ``spatial_affinity_mode == "differential"``,  then all replicates will have their own set of spatial
+            If ``spatial_affinity_mode == "shared lookup"``, then one set of spatial_affinities will be created for each group;
+            if ``spatial_affinity_mode == "differential lookup"``,  then all replicates will have their own set of spatial
             affinities, but each group will share a ``spatial_affinity_bar``.
         betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
         prior_x_modes: family of prior distribution for embeddings of each dataset
@@ -101,7 +101,7 @@ class Popari:
         metagene_mode: str = "shared",
         spatial_affinity_mode: str = "shared lookup",
         lambda_M: float = 0.5,
-        lambda_Sigma_bar: float = 0.5,
+        lambda_Sigma_bar: float = 1e-3,
         spatial_affinity_lr: float = 1e-2,
         spatial_affinity_tol: float = 2e-3,
         spatial_affinity_constraint: Optional[str] = None,
@@ -268,6 +268,8 @@ class Popari:
         self.active_view = self.base_view
 
         self.datasets = self.active_view.datasets
+        self.Ys = self.active_view.Ys
+        self.betas = self.active_view.betas
         self.parameter_optimizer = self.active_view.parameter_optimizer
         self.embedding_optimizer = self.active_view.embedding_optimizer
         self.metagene_groups = self.active_view.metagene_groups
@@ -337,6 +339,13 @@ class Popari:
                 view.parameter_optimizer.update_spatial_affinity(differentiate_spatial_affinities=differentiate_spatial_affinities, subsample_rate=edge_subsample_rate)
         
         self.synchronize_datasets()
+
+    def nll(self, level: int = None, use_spatial: bool = False):
+        """Compute the nll for the current configuration of model parameters.
+    
+        """
+    
+        return compute_nll(self, level=level, use_spatial=use_spatial)
 
     def set_superresolution_lr(self, new_lr: float, target_level: Optional[int] = None):
         """Change learning rate for superresolution optimization.
@@ -462,7 +471,7 @@ def load_pretrained(datasets: Sequence[PopariDataset], replicate_names: Sequence
 
     return trained_model
 
-def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambda_Sigma_bar: float = 1e-4):
+def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambda_Sigma_bar: float = 1e-3):
     """Initialize Popari object from a SpiceMix pretrained model.
     
     """

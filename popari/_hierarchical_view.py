@@ -156,7 +156,7 @@ class HierarchicalView():
                 kwargs_louvain = {
                     "random_state": self.random_state
                 }
-                self.M, self.Xs = initialize_louvain(self.datasets, self.K, self.initial_context, kwargs_louvain=kwargs_louvain)
+                self.M, self.Xs = initialize_louvain(self.datasets, self.K, self.initial_context, kwargs_louvain=kwargs_louvain, verbose=self.verbose)
             else:
                 raise NotImplementedError
           
@@ -182,6 +182,8 @@ class HierarchicalView():
             initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
 
             # Initializing spatial affinities
+            if self.verbose:
+                print(f"{get_datetime()} Initializing Sigma_x_inv with empirical correlations") 
             self.parameter_optimizer.spatial_affinity_state.initialize(initial_embeddings)
             
             for dataset_index, dataset in enumerate(self.datasets):
@@ -247,15 +249,16 @@ class HierarchicalView():
         
         self.synchronize_datasets()
         
-    def _superresolve_embeddings(self, n_epochs=10000, tol=1e-4, update_alg='gd'):
+    def _superresolve_embeddings(self, n_epochs=10000, tol=1e-4, update_alg='gd', verbose=None):
         """Superresolve embeddings using embeddings for lower resolution spots."""
 
         for dataset_index, (dataset, low_res_name) in enumerate(zip(self.datasets, self.low_res_view.replicate_names)):
+            low_res_dataset = self.low_res_view.datasets[dataset_index]
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
             X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
             X_B = self.low_res_view.embedding_optimizer.embedding_state[low_res_name].to(self.context["device"])
-            B = torch.from_numpy(self.low_res_view.datasets[dataset_index].obsm["bin_assignments"]).to(self.context["device"])
+            B = torch.from_numpy(low_res_dataset.obsm[f"bin_assignments_{low_res_dataset.name}"]).to(self.context["device"])
 
             M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
@@ -271,17 +274,22 @@ class HierarchicalView():
             X_Bnorm = torch.linalg.norm(X_B, ord='fro').item() ** 2
             step_size = 1e-3
             loss_prev, loss = np.inf, np.nan
-           
+          
+            decay_period = n_epochs // 4
+
             X = X.clone().detach().requires_grad_(True) 
             superresolution_optimizer = torch.optim.Adam(
                 [X],
                 lr=self.superresolution_lr,
                 betas=(.5, .9),
             )
-            superresolution_scheduler = torch.optim.lr_scheduler.StepLR(superresolution_optimizer, step_size=n_epochs//2, gamma=0.1)
+            superresolution_scheduler = torch.optim.lr_scheduler.StepLR(superresolution_optimizer, step_size=decay_period, gamma=0.1)
 
             self.superresolution_optimizers[dataset.name] = superresolution_optimizer
             self.superresolution_schedulers[dataset.name] = superresolution_scheduler
+
+            if verbose is None:
+                verbose = self.verbose
 
             def gradient_update(X, iteration=None):
                 """
@@ -307,7 +315,7 @@ class HierarchicalView():
                 self.superresolution_optimizers[dataset.name].step()
                 self.superresolution_schedulers[dataset.name].step()
 
-                if self.verbose > 4 and (iteration % 5 == 0):
+                if verbose > 4 and (iteration % 5 == 0):
                     # print(f'NMF component: {((X @ MTM - YM) * X).sum().item() / 2 + Ynorm / 2}')
                     # print(f'Superresolution component: {((BTB @ X - X_BTB.T) * X).sum().item() / 2 + X_Bnorm / 2}')
                     # print(f'Total loss (recomputed): {((X @ MTM - YM + BTB @ X - X_BTB.T) * X).sum().item() / 2 + (Ynorm + X_Bnorm) / 2}')
@@ -324,7 +332,7 @@ class HierarchicalView():
                 
                 return X, loss
                 
-            progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, miniters=10000)
+            progress_bar = trange(n_epochs, leave=True, disable=not verbose, miniters=10000)
             for epoch in progress_bar:
                 X_prev = X.clone()
                 if update_alg == 'mu':
@@ -333,6 +341,10 @@ class HierarchicalView():
                     X, loss = gradient_update(X, iteration=epoch)
     
                 dX = torch.abs((X_prev - X) / torch.linalg.norm(X, dim=1, ord=1, keepdim=True)).max().item()
+
+                if epoch % decay_period:
+                    tol /= 10
+                    
                 do_stop = dX < tol
                 description = f'Updating weights hierarchically: loss = {loss:.1e} ' \
                     f'%δloss = {(loss_prev - loss) / loss:.1e} ' \
@@ -476,7 +488,7 @@ class HierarchicalView():
 
         return total_loss.cpu().numpy()
 
-def construct_hierarchy(base_view: HierarchicalView, chunks: int = 16, 
+def construct_hierarchy(base_view: HierarchicalView, chunks: int = 16, downsample_rate: float = 0.2,
         superresolution_lr: float = 1e-3, levels: int = 2, **hierarchical_view_kwargs):
     """Construct a hierarchy of multi-resolution views from a base view.
 
@@ -493,14 +505,20 @@ def construct_hierarchy(base_view: HierarchicalView, chunks: int = 16,
         binned_datasets = []
         binned_Ys = []
         previous_Ys = previous_view.Ys
+        chunks_for_level = chunks
         for previous_Y, dataset, original_name in zip(previous_Ys, previous_datasets, original_names):
-            binned_dataset = _spatial_binning(PopariDataset(dataset, original_name), level=level, chunks=chunks, chunk_size=chunk_size, chunk_1d_density=chunk_1d_density)
+            binned_dataset = _spatial_binning(PopariDataset(dataset, original_name), level=level,
+                                              chunks=chunks_for_level, chunk_size=chunk_size, chunk_1d_density=chunk_1d_density,
+                                              downsample_rate=downsample_rate)
+
+            chunks_for_level = None
+
             print(f"{get_datetime()} Downsized dataset from {len(dataset)} to {len(binned_dataset)} spots.")
             chunk_size = binned_dataset.uns["chunk_size"]
             chunk_1d_density = binned_dataset.uns["chunk_1d_density"]
 
             binned_datasets.append(binned_dataset)
-            binned_Y = torch.from_numpy(binned_dataset.obsm["bin_assignments"]).to(context["device"]) @ previous_Y
+            binned_Y = torch.from_numpy(binned_dataset.obsm[f"bin_assignments_{binned_dataset.name}"]).to(context["device"]) @ previous_Y
             binned_Ys.append(binned_Y)
 
         level_view = HierarchicalView(binned_datasets, superresolution_lr=superresolution_lr,
@@ -518,12 +536,26 @@ def reconstruct_hierarchy(reloaded_hierarchy: dict, superresolution_lr: float = 
     """
 
     hierarchy = {}
+    context = hierarchical_view_kwargs["context"]
     levels = len(reloaded_hierarchy)
+    binned_Ys = None
+    previous_view = None
     for level in range(levels):
         datasets = reloaded_hierarchy[level]
+        if previous_view is not None:
+            binned_Ys = []
+            for dataset, previous_Y in zip(datasets, previous_view.Ys):
+                binned_Y = torch.from_numpy(dataset.obsm[f"bin_assignments_{dataset.name}"]).to(context["device"]) @ previous_Y
+                binned_Ys.append(binned_Y)
+
         level_view = HierarchicalView(datasets, superresolution_lr=superresolution_lr,
-                level=level, **hierarchical_view_kwargs)
+                level=level, binned_Ys=binned_Ys, **hierarchical_view_kwargs)
+
+        if previous_view is not None:
+            previous_view.link(level_view)
 
         hierarchy[level] = level_view
+
+        previous_view = level_view
 
     return hierarchy

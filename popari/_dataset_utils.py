@@ -3,6 +3,11 @@ from typing import Optional, Sequence, Callable
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
+from matplotlib.transforms import Affine2D
+import mpl_toolkits.axisartist.floating_axes as floating_axes
+import mpl_toolkits.axisartist.angle_helper as angle_helper
+from matplotlib.projections import PolarAxes
+from mpl_toolkits.axisartist.grid_finder import (FixedLocator, MaxNLocator, DictFormatter)
 
 import numpy as np
 import anndata as ad
@@ -42,7 +47,7 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
 
     return fig, axes
 
-def _preprocess_embeddings(datasets: Sequence[PopariDataset], normalized_key="normalized_X"):
+def _preprocess_embeddings(datasets: Sequence[PopariDataset], joint: bool = False, normalized_key="normalized_X"):
     """Normalize embeddings per each cell.
 
     This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.
@@ -70,7 +75,7 @@ def _plot_metagene_embedding(datasets: Sequence[PopariDataset], metagene_index: 
     """
 
     legend = False if "legend" not in scatterplot_kwargs else scatterplot_kwargs.pop("legend")
-    s = 0.5 if "legend" not in scatterplot_kwargs else scatterplot_kwargs.pop("s")
+    s = 0.5 if "s" not in scatterplot_kwargs else scatterplot_kwargs.pop("s")
     linewidth= 0 if "linewidth" not in scatterplot_kwargs else scatterplot_kwargs.pop("linewidth")
     palette = "viridis" if "palette" not in scatterplot_kwargs else scatterplot_kwargs.pop("palette")
     if axes is None:
@@ -211,16 +216,16 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", axes = None
 
     edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
     size = 0.04 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
-    edges = True if "edges" not in spatial_kwargs else spatial_kwargs.pop("edges")
     palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
     legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
+    edgecolors = "none" if "edgecolors" not in spatial_kwargs else spatial_kwargs.pop("edgecolors")
 
     neighbors_key = "spatial_neighbors" if "spatial_neighbors" not in spatial_kwargs else spatial_kwargs.pop("neighbors_key")
     for dataset, ax in zip(datasets, axes.flat):
         ax.set_aspect('equal', 'box')
         sq.pl.spatial_scatter(dataset, shape=None, size=size, connectivity_key="adjacency_matrix",
             color=color, edges_width=edges_width, legend_fontsize=legend_fontsize,
-            ax=ax, palette=palette, **spatial_kwargs)
+            ax=ax, palette=palette, edgecolors=edgecolors, **spatial_kwargs)
 
     return fig
 
@@ -263,6 +268,7 @@ def _multireplicate_heatmap(datasets: Sequence[PopariDataset],
     label_values: bool = False,
     label_font_size: int = None,
     nested: bool = True,
+    mask: Optional[np.ndarray] = None,
     **heatmap_kwargs
   ):
     r"""Plot 2D heatmap data across all datasets.
@@ -304,6 +310,8 @@ def _multireplicate_heatmap(datasets: Sequence[PopariDataset],
         if nested:
             image = image[dataset.name]
 
+        if mask is not None:
+            image = np.ma.masked_where(mask, image)    
 
         im = ax.imshow(image, cmap=cmap, interpolation='nearest', aspect=aspect, **heatmap_kwargs)
         if title_font_size is not None:
@@ -312,7 +320,8 @@ def _multireplicate_heatmap(datasets: Sequence[PopariDataset],
         if label_values:
             truncated_image = image.astype(int)
             for (j,i), label in np.ndenumerate(truncated_image):
-                ax.text(i, j, label, ha='center', va='center', fontsize=label_font_size)
+                if mask is None or not mask[j, i]:
+                    ax.text(i, j, label, ha='center', va='center', fontsize=label_font_size)
 
         plt.colorbar(im, ax=ax, orientation='vertical')
 
@@ -541,6 +550,7 @@ def _plot_all_embeddings(dataset: PopariDataset, embedding_key: str = "X", colum
         # TODO: remove dependence on trained_model
         column_names = [f"{embedding_key}_{index}" for index in range(K)]
 
+    edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
     size = 0.1 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
     palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
 
@@ -548,6 +558,8 @@ def _plot_all_embeddings(dataset: PopariDataset, embedding_key: str = "X", colum
         sq.pl.extract(dataset.copy(), embedding_key, prefix=f"{embedding_key}"),
         shape=None,
         color=column_names,
+        edges_width=edges_width,
+        connectivity_key="adjacency_matrix",
         size=size,
         wspace=0.2,
         ncols=2,
@@ -665,7 +677,7 @@ def _compute_columnwise_autocorrelation(dataset: PopariDataset, uns:str = "groun
 def _plot_confusion_matrix(dataset: PopariDataset, labels: str, confusion_matrix_key: str = "confusion_matrix"):
 
     ordered_labels = sorted(dataset.obs[labels].unique())
-    sns.heatmap(dataset.uns[confusion_matrix_key], xticklabels=ordered_labels, yticklabels=ordered_labels, annot=True)
+    sns.heatmap(dataset.uns[confusion_matrix_key], xticklabels=ordered_labels, yticklabels=ordered_labels, annot=True, fmt="3d")
     plt.show()
 
 def _compute_spatial_correlation(dataset: PopariDataset, spatial_key: str = "Sigma_x_inv", metagene_key: str = "M", spatial_correlation_key: str = "spatial_correlation", neighbor_interactions_key: str = "neighbor_interactions"):
@@ -704,15 +716,131 @@ def _spatial_binning(dataset: PopariDataset, level: Optional[int] = None, chunks
     filtered_bin_expression, bin_assignments = bin_expression(dataset.X, coordinates, filtered_bin_coordinates, num_jobs)
         
     binned_dataset = ad.AnnData(X=filtered_bin_expression)
+    binned_dataset_name = f"{dataset.name}_level_{level}"
     binned_dataset.var_names = dataset.var_names
     binned_dataset.obsm["spatial"] = filtered_bin_coordinates
     binned_dataset.obs["total_transformed_counts"] = binned_dataset.X.sum(axis=1)
-    binned_dataset.obsm["bin_assignments"] = bin_assignments
+    binned_dataset.obsm[f"bin_assignments_{binned_dataset_name}"] = bin_assignments
 
     binned_dataset.uns["chunk_size"] = chunk_size
     binned_dataset.uns["chunk_1d_density"] = chunk_1d_density
     
-    binned_dataset = PopariDataset(binned_dataset, f"{dataset.name}_level_{level}")
+    binned_dataset = PopariDataset(binned_dataset, binned_dataset_name)
     binned_dataset.compute_spatial_neighbors()
     
     return binned_dataset
+
+def _metagene_neighbor_interactions(dataset: PopariDataset, interaction_key: str = "metagene_neighbor_interactions"):
+    """Compute pairwise interactions between every cell in terms of learned metagene embeddings.
+    
+    Can be used to visualize the empirical spatial correlations between metagenes.
+    
+    Args:
+        dataset: 
+    """
+    embeddings = dataset.obsm["X"]
+    X = embeddings
+    adjacency_matrix = dataset.obsp["adjacency_matrix"].toarray()
+
+    adjacency_list = dataset.obs["adjacency_list"]
+    num_cells, num_metagenes = embeddings.shape
+        
+    Z = X / np.linalg.norm(X, axis=1, keepdims=True, ord=1)                                                                                                                                                                                                            
+    edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])         
+
+    x = Z[edges[:, 0]]                                                      
+    y = Z[edges[:, 1]]
+    
+    pair_interactions = np.zeros((num_cells, num_cells, num_metagenes, num_metagenes))
+    cell_i, cell_j = adjacency_matrix.nonzero()
+    for i in range(num_metagenes):
+        for j in range(i, num_metagenes):
+            pair_interactions[cell_i, cell_j, i, j] =  1 - x[:, i] * y[:, j]
+            
+    dataset.obsp[interaction_key] = pair_interactions
+
+def _pretty_plot_spatial_affinities(datasets,
+                                    metagene_key: str = "M",
+                                    metagene_label_key: str = "metagene_labels",
+                                    spatial_affinity_key: str = "Sigma_x_inv",
+                                    ):
+    """Rotate and plot spatial affinities matrix.
+    
+    """
+
+    transform_skew = Affine2D().skew_deg(15, 15)
+    transform_rotate = Affine2D().rotate_deg(-45)
+    transform = transform_skew + transform_rotate
+    
+    height = (len(datasets)// 2 + len(datasets) % 2)
+    width = 2
+    fig = plt.figure(dpi=1200, figsize=(width, height))
+    
+    first_dataset = datasets[0]
+    _, K = first_dataset.uns[metagene_key][first_dataset.name].shape
+    def setup_axes(fig, rect, metagene_ticks):
+        """Setup axes for rotated heatmap plot.
+        
+        """
+        
+        grid_locator = FixedLocator([v for v, s in metagene_ticks])
+        tick_formatter = DictFormatter(dict(metagene_ticks))
+    
+        grid_helper = floating_axes.GridHelperCurveLinear(
+            transform,
+            extremes=(-0.5, K-0.5, -0.5, K-0.5), # TODO: adjust to fit number of metagenes K
+            grid_locator1=grid_locator,
+            tick_formatter1=tick_formatter,
+            grid_locator2=grid_locator,
+            tick_formatter2=tick_formatter,
+        )
+        ax = floating_axes.FloatingSubplot(fig, *rect, grid_helper=grid_helper)
+        fig.add_subplot(ax)
+
+
+        ax.axis["left"].toggle(ticklabels=False, label=False, ticks=False)
+
+        ax.axis["right"].toggle(ticklabels=True, label=True, ticks=False)
+        ax.axis["top"].toggle(ticks=False)
+
+        ax.axis["bottom"].toggle(ticks=False)
+         
+        ax.axis["left"].line.set_linewidth(0)
+        ax.axis["top"].line.set_linewidth(0)
+        
+        ax.axis["bottom"].line.set_linewidth(0.1)
+        ax.axis["right"].line.set_linewidth(0.1)
+
+        ax.axis["right"].major_ticklabels.set_axis_direction("right")
+        ax.axis["bottom"].major_ticklabels.set_axis_direction("left")
+        
+        aux_ax = ax.get_aux_axes(transform)
+
+        grid_helper.grid_finder.grid_locator1._nbins = 4
+        grid_helper.grid_finder.grid_locator2._nbins = 4
+        
+        ax.axis[:].major_ticklabels.set_fontsize(2)
+    
+        return ax, aux_ax
+
+    axes = []
+    for index, dataset in enumerate(datasets):
+        metagene_labels = dataset.uns[metagene_label_key]
+        
+        metagene_ticks = [(k, f"{metagene_labels[k]}" if k in metagene_labels else "N/A") for k in range(K)]
+            
+        rect = (height, width, index + 1)
+        ax, aux_ax = setup_axes(fig, rect, metagene_ticks)
+        ax.set_title(dataset.name, fontsize=2, y=0.5)
+        axes.append(aux_ax)
+
+    mask = np.ones((K, K), dtype=np.bool)
+    mask[np.triu_indices_from(mask)] = 0
+
+    _multireplicate_heatmap(datasets, uns=spatial_affinity_key, cmap="bwr", label_values=False, label_font_size=1.5, vmin=-10, vmax=10, mask=mask, axes=np.array(axes))
+    for ax in axes:
+        im = ax.images        
+        cb = im[-1].colorbar
+        cb.remove()
+        
+    fig.subplots_adjust(hspace=-0.5, wspace=-0.25)

@@ -139,6 +139,7 @@ def multireplicate_heatmap(trained_model: Popari,
 
 def spatial_affinities(trained_model: Popari,
     title_font_size: Optional[int] = None,
+    spatial_affinity_key: Optional[str] = "Sigma_x_inv",
     axes: Optional[Sequence[Axes]] = None,
     level=None,
     **heatmap_kwargs
@@ -163,7 +164,7 @@ def spatial_affinities(trained_model: Popari,
   
     # Override following kwargs with
     cmap = heatmap_kwargs.pop("cmap") if "cmap" in heatmap_kwargs else "bwr"
-    max_value = round(np.max(np.abs(np.array([dataset.uns["Sigma_x_inv"][dataset.name] for dataset in datasets]))))
+    max_value = round(np.max(np.abs(np.array([dataset.uns[spatial_affinity_key][dataset.name] for dataset in datasets]))))
     vmin = -max_value
     vmax = max_value
     

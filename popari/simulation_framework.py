@@ -28,7 +28,7 @@ from matplotlib.colors import ListedColormap
         
 import seaborn as sns
 
-from _canvas import DomainCanvas, MetageneCanvas
+from popari._canvas import DomainCanvas, MetageneCanvas
 
 def sample_gaussian(sigma: np.ndarray, means: np.ndarray, N: int = 1, random_state=0):
     """Sample multivariate Gaussian from covariance matrix.
@@ -91,7 +91,10 @@ def sample_2D_points(num_points, minimum_distance: float, width: float = 1.0, he
                 
     return points
 
-def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_metagene_parameter, noise_metagene_parameter,  metagene_variation_probabilities, original_metagenes=None, replicate_variability=None, normalize=True, random_state=0):
+def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_metagene_parameter,
+                         noise_metagene_parameter,  metagene_variation_probabilities,
+                         original_metagenes=None, replicate_variability=None, normalize=True,
+                         random_state=0):
     """Synthesize related metagenes according to the metagene_variation_probabilities vector.
     
     Creates num_real_metagenes synthetic metagenes using a random Gamma distribution with
@@ -188,11 +191,12 @@ def sample_normalized_embeddings(Z, sigma_x):
     
     return X
 
-def synthesize_cell_embeddings(layer_labels, distributions, cell_type_definitions, num_cells, num_real_metagenes, n_noise_metagenes=3, signal_sigma_x=0.1, background_sigma_x=0.03, sigma_x_scale=1.0):
+def synthesize_cell_embeddings(layer_labels, distributions, cell_type_definitions, num_cells, num_real_metagenes, n_noise_metagenes=3, signal_sigma_x=0.1, background_sigma_x=0.03, sigma_x_scale=1.0, random_state=None):
     """Generate synthetic cell embeddings.
     
     """
     
+    rng = np.random.default_rng(random_state)
     num_metagenes = num_real_metagenes + n_noise_metagenes
     
     cell_type_assignments = np.zeros((num_cells), dtype='int')
@@ -342,7 +346,7 @@ class SyntheticDataset(ad.AnnData):
             return self.simulate_nsf_expression(predefined_metagenes=predefined_metagenes, **simulation_parameters)
     
     def simulate_metagene_based_expression(self, num_real_metagenes, num_noise_metagenes, real_metagene_parameter, noise_metagene_parameter,
-                                           sigY_scale, sigX_scale, lambda_s, predefined_metagenes=None):
+                                           sigY_scale, sigX_scale, lambda_s, metagene_magnitudes=None, predefined_metagenes=None):
         """Simulate metagenes and embeddings following metagene-based SpiceMix model.
 
         
@@ -362,13 +366,20 @@ class SyntheticDataset(ad.AnnData):
             
             self.variance_y = {cell_type: cell_specific_sig_y ** 2 for cell_type, cell_specific_sig_y in self.sig_y.items()}
         
+        magnitudes = None
         if predefined_metagenes is None:
             metagenes = synthesize_metagenes(self.num_genes, num_real_metagenes,
                 num_noise_metagenes, real_metagene_parameter, noise_metagene_parameter, metagene_variation_probabilities=self.uns["metagene_variation_probabilities"][self.name], random_state=self.rng)
-            self.uns["ground_truth_M"] = {self.name: metagenes.T}
+
+            self.magnitudes = np.sum(metagenes, axis=1)
+            metagenes = metagenes / self.magnitudes[:, np.newaxis]
+            metagenes = metagenes.T
         else:
-            self.uns["ground_truth_M"] = {self.name: predefined_metagenes}
+            metagenes = predefined_metagenes
+            self.magnitudes = metagene_magnitudes
         
+        self.uns["ground_truth_M"] = {self.name: metagenes}
+
         X_i, C_i = synthesize_cell_embeddings(self.obs["layer"].to_numpy(), self.uns["domain_distributions"][self.name], self.uns["cell_type_definitions"][self.name],
                        self.num_cells, num_real_metagenes, sigma_x_scale=sigX_scale, n_noise_metagenes=num_noise_metagenes, random_state=self.rng)
 
@@ -378,8 +389,6 @@ class SyntheticDataset(ad.AnnData):
         cell_type = [self.uns["cell_type_names"][index] for index in cell_type_encoded]
         self.obs["cell_type"] = cell_type
         self.obs["cell_type_encoded"] = cell_type_encoded
-
-        self.X = np.matmul(self.obsm["ground_truth_X"], self.uns["ground_truth_M"][self.name].T)
 
         self.sample_noisy_expression()
     
@@ -426,12 +435,9 @@ class SyntheticDataset(ad.AnnData):
         self.obs["cell_type"] = cell_type
         self.obs["cell_type_encoded"] = cell_type_encoded
 
-        self.X = np.matmul(self.obsm["ground_truth_X"], self.uns["ground_truth_M"][self.name].T)
-        self.X += background_expression
-
-        self.sample_noisy_expression(rate=rate)
+        self.sample_noisy_expression(background_expression=background_expression, rate=rate)
             
-    def sample_noisy_expression(self, rate=10.0):
+    def sample_noisy_expression(self, background_expression:float = 0.2, rate=10.0):
         """Samples gene expression from Negative Binomial distribution according to SyntheticDataset attributes.
 
         Uses ``self.variance_y``.
@@ -440,6 +446,8 @@ class SyntheticDataset(ad.AnnData):
         not mutate mean expression).
 
         """
+        
+        self.X = np.matmul(self.obsm["ground_truth_X"], self.uns["ground_truth_M"][self.name].T)
 
         if self.annotation_mode == "layer":
             for cell, cell_type in zip(range(self.num_cells), self.obs["cell_type_encoded"].to_numpy()):
@@ -452,6 +460,7 @@ class SyntheticDataset(ad.AnnData):
                 self.X[cell] = np.abs(sample_gaussian(cell_type_variance_y, self.X[cell]))
 
         elif self.annotation_mode == "metagene": 
+            self.X += background_expression
             self.X =  self.rng.negative_binomial(rate, rate/(self.X + rate))
 
             self.raw = self
@@ -520,10 +529,9 @@ class MultiReplicateSyntheticDataset():
         for replicate_name, replicate_dataset in self.datasets.items():
             print(replicate_name)
             simulation_parameters = replicate_simulation_parameters[replicate_name]
-            if replicate_dataset.annotation_mode == "layer":
-                replicate_dataset.simulate_expression(predefined_metagenes=metagenes, **simulation_parameters)
-            elif replicate_dataset.annotation_mode == "metagene":
-                replicate_dataset.simulate_expression(predefined_metagenes=metagenes, metagene_magnitudes=metagene_magnitudes, **simulation_parameters)
+            # if replicate_dataset.annotation_mode == "layer":
+            #     replicate_dataset.simulate_expression(predefined_metagenes=metagenes, metagene_magnitudes=metagene_magnitudes, **simulation_parameters)
+            replicate_dataset.simulate_expression(predefined_metagenes=metagenes, metagene_magnitudes=metagene_magnitudes, **simulation_parameters)
 
             metagenes = replicate_dataset.uns["ground_truth_M"][replicate_name]
             metagene_magnitudes = replicate_dataset.magnitudes

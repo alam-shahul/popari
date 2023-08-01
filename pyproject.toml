@@ -43,6 +43,7 @@ path = "popari/__about__.py"
 
 [project.scripts]
 popari = "popari:main"
+popari-mlflow = "mlflow.train:main"
 
 [project.optional-dependencies]
 simulation = [

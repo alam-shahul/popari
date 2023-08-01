@@ -54,6 +54,9 @@ def test_load_hierarchical_model():
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     load_trained_model(path2dataset/ "superresolved_results.h5ad")
 
+def test_nll(trained_model):
+    nll = trained_model.nll()
+
 def test_analysis_functions(trained_model, trained_differential_model):
     tl.preprocess_embeddings(trained_model)
 

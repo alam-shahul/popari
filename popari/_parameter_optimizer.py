@@ -410,6 +410,12 @@ class ParameterOptimizer():
                     self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
             
             self.spatial_affinity_state.reaverage()
+            
+    def reinitialize_spatial_affinities(self):
+        pretrained_embeddings = [self.embedding_optimizer.embedding_state[dataset.name].clone() for dataset in self.datasets]
+        self.spatial_affinity_state.initialize(pretrained_embeddings)
+
+        # TODO: add code to synchronize new spatial affinities after reinitialization update here
     
     def nll_spatial_affinities(self):
         with torch.no_grad():
@@ -904,7 +910,7 @@ class SpatialAffinityState(dict):
 
         num_replicates = len(self.datasets)
         Sigma_x_invs = torch.zeros([num_replicates, self.K, self.K], **self.initial_context)
-        for replicate, (beta, initial_embedding, is_spatial_replicate, dataset) in enumerate(zip(self.betas, initial_embeddings, use_spatial_info, self.datasets)):
+        for replicate, (initial_embedding, is_spatial_replicate, dataset) in enumerate(zip(initial_embeddings, use_spatial_info, self.datasets)):
             if not is_spatial_replicate:
                 continue
             
@@ -920,7 +926,7 @@ class SpatialAffinityState(dict):
             y_std = y.std(dim=0, keepdim=True)
             x_std = x.std(dim=0, keepdim=True)
             corr = (y / y_std).T @ (x / x_std) / len(x)
-            Sigma_x_invs[replicate] = -beta * corr
+            Sigma_x_invs[replicate] = -corr
     
         # Symmetrizing and zero-centering Sigma_x_inv
         Sigma_x_invs = (Sigma_x_invs + torch.transpose(Sigma_x_invs, 1, 2)) / 2
@@ -933,12 +939,15 @@ class SpatialAffinityState(dict):
         if self.mode == "shared lookup":
             for group_name, group_replicates in self.groups.items():
                 first_dataset = self.datasets[0]
-                shared_affinity = self.__getitem__(first_dataset.name)
+                shared_affinity = torch.zeros([self.K, self.K], **self.initial_context)
+                for dataset_index, (beta, dataset) in enumerate(zip(self.betas, self.datasets)):
+                    if dataset.name in group_replicates:
+                        shared_affinity += beta * Sigma_x_invs[dataset_index]
+
                 for dataset_index, dataset in enumerate(self.datasets):
                     if dataset.name in group_replicates:
-                        shared_affinity[:] += Sigma_x_invs[dataset_index]
+                        self.__setitem__(dataset.name, shared_affinity)
 
-                shared_affinity.div_(len(group_replicates))
                 optimizer = torch.optim.Adam(
                     [shared_affinity],
                     lr=self.lr,
@@ -955,8 +964,8 @@ class SpatialAffinityState(dict):
                 self.spatial_affinity_bar[group_name].div_(len(group_replicates))
 
             for dataset_index, dataset in enumerate(self.datasets):
-                differential_affinity = self.__getitem__(dataset.name)
-                differential_affinity[:] = Sigma_x_invs[dataset_index]
+                differential_affinity = Sigma_x_invs[dataset_index]
+                self.__setitem__(dataset.name, differential_affinity)
                 optimizer = torch.optim.Adam(
                     [differential_affinity],
                     lr=self.lr,

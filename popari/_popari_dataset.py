@@ -1,4 +1,6 @@
 from typing import Sequence
+from copy import deepcopy
+
 from tqdm.auto import tqdm, trange
 
 import anndata as ad
@@ -29,7 +31,7 @@ class PopariDataset(ad.AnnData):
             obsm = dataset.obsm, 
             var = dataset.var, 
             varp = dataset.varp,
-            uns = dataset.uns
+            uns = deepcopy(dataset.uns)
         )
       
         self.coordinates_key = coordinates_key 
