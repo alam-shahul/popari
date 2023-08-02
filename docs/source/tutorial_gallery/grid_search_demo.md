@@ -2,7 +2,7 @@
 
 Using MLflow, we can effectively grid search for the best combination of Popari hyperparameters. Note that you must have {ref}`installed <installation>` the optional MLflow-related dependencies first. 
 
-# Configuring your grid search
+## Configuring your grid search
 In order to specify the range of Popari hyperparameters over which to grid search, we have designed a [TOML](https://en.wikipedia.org/wiki/TOML)-formatted configuration file. Below is an example config, annotated with comments explaining the purpose of each setting:  
 
 ```
