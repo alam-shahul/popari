@@ -23,6 +23,7 @@ import matplotlib.patches as patches
 import seaborn as sns
 from collections import defaultdict
 
+from popari.sample_for_integral import integrate_of_exponential_over_simplex
 
 def create_neighbor_groups(replicate_names, covariate_values, window_size = 1):
     if window_size == None:

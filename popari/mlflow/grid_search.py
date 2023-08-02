@@ -18,15 +18,15 @@ from popari.mlflow.util import generate_mlproject_file
 def run():
     parser = argparse.ArgumentParser(description='Run Popari hyperparameter grid search.')
     parser.add_argument('--configuration_filepath', type=str, required=True, help="Path to configuration file.")
-    parser.add_argument('--output_path', type=str, default=".", help="Where to output MLflow results.")
+    parser.add_argument('--mlflow_output_path', type=str, default=".", help="Where to output MLflow results.")
 
     args = parser.parse_args()
 
-    with open(args.configuration_filepath, "rb") as f:
+    with open(args.configuration_filepath, "r") as f:
         configuration = toml.load(f)
 
-    output_path = Path(args.output_path)
-    generate_mlproject_file("mouse_heart_development", output_path / "MLproject")
+    mlflow_output_path = Path(args.mlflow_output_path)
+    generate_mlproject_file(configuration['runtime']['project_name'], mlflow_output_path / "MLproject")
 
     hyperparameter_names = ('K', 'lambda_Sigma_x_inv', 'lambda_Sigma_bar', 'hierarchical_levels', 'binning_downsample_rate')
     spatial_affinity_groups = configuration['spatial_affinity_groups'] if 'spatial_affinity_groups' in configuration else "null"
@@ -34,7 +34,7 @@ def run():
     spatial_preiterations = configuration['hyperparameters']['spatial_preiterations']
     num_iterations = configuration['hyperparameters']['num_iterations']
 
-    max_p = configuration['max_p']
+    max_p = configuration['runtime']['max_p']
 
     tracking_client = MlflowClient()
 
@@ -51,27 +51,28 @@ def run():
             """
 
             # (K, lambda_Sigma_x_inv, lambda_M, lambda_Sigma_bar) = hyperparams
-           
+          
             device = device_status.index(False)
             device_status[device] = True 
             child_run = tracking_client.create_run(experiment_id, tags={"mlflow.parentRunId": parent_run.info.run_id})
             # with mlflow.start_run(nested=True) as child_run:
             p = mlflow.projects.run(
                 run_id=child_run.info.run_id,
-                uri=output_path,
+                uri=str(mlflow_output_path),
                 entry_point="train_debug",
-                hyperparameters={
-                    **{hyperhyperparameter_name: hyperparams[hyperhyperparameter_name] for hyperhyperparameter_name in hyperhyperparameter_names},
-                    "spatial_affinity_mode": "shared lookup" if lambda_Sigma_bar == 0 else "differential lookup",
-                    "spatial_affinity_groups": "null" if lambda_Sigma_bar == 0 else spatial_affinity_groups,
-                    "dataset_path": args.dataset_path,
-                    "output_path": args.output_path,
+                parameters={
+                    **{hyperparameter_name: hyperparams[hyperparameter_name] for hyperparameter_name in hyperparameter_names},
+                    "spatial_affinity_mode": "shared lookup" if hyperparams['lambda_Sigma_bar'] == 0 else "differential lookup",
+                    "spatial_affinity_groups": "null" if hyperparams['lambda_Sigma_bar'] == 0 else spatial_affinity_groups,
+                    "dataset_path": configuration['runtime']['dataset_path'],
+                    "output_path": configuration['runtime']['output_path'],
                     "num_iterations": num_iterations,
                     "spatial_preiterations": spatial_preiterations,
                     "dtype": "float64",
                     "torch_device": f"cuda:{device}",
                     "initial_device": f"cuda:{device}",
                     "nmf_preiterations": nmf_preiterations,
+                    "verbose": 1,
                     "random_state": 0,
                 },
                 env_manager="local",
@@ -117,7 +118,7 @@ def run():
             end = search_space['end']
             scale = search_space['scale']
             gridpoints = search_space['gridpoints']
-            dtype = search_space['dtype'] if 'dtype' in search_space else 'float'
+            dtype = search_space['dtype']
 
             if scale == 'log':
                 gridspace = np.logspace
@@ -127,20 +128,22 @@ def run():
             hyperparameter_options = gridspace(start, end, num=gridpoints)
 
             if dtype == 'int':
-                hyperparameter_options = np.round(hyperparameter_options)
+                hyperparameter_options = np.rint(hyperparameter_options).astype(int)
 
             hyperparameter_options_list.append(hyperparameter_options)
 
         options = list(dict(zip(hyperparameter_names, hyperparameter_choice)) for hyperparameter_choice in itertools.product(*hyperparameter_options_list))
 
-        evaluate = generate_evaluate_function(parent_run, nmf_preiterations, spatial_preiterations, num_iterations, experiment_id, null_nll),
+        print(f"Number of grid search candidates: {len(options)}")
+
+        evaluate = generate_evaluate_function(parent_run, nmf_preiterations, spatial_preiterations, num_iterations, experiment_id, null_nll)
         with ThreadPoolExecutor(max_workers=max_p) as executor:
             _ = executor.map(evaluate, options,)
 
         # find the best run, log its metrics as the final metrics of this run.
         client = MlflowClient()
         runs = client.search_runs(
-            [experiment_id], f"tags.mlflow.parentRunId = '{run.info.run_id}' "
+            [experiment_id], f"tags.mlflow.parentRunId = '{parent_run.info.run_id}' "
         )
         best_nll = np.finfo(np.float64).max
         best_run = None

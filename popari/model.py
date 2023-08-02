@@ -384,7 +384,6 @@ class Popari:
             for level in level_names:
                 view = self.hierarchy[level]
                 datasets = view.datasets
-                print(f"Metagenes at level {level} : {[dataset.uns['M'] for dataset in datasets]}")
                 merged_dataset = merge_anndata(datasets, ignore_raw_data=ignore_raw_data)
                 merged_datasets.append(merged_dataset)
 
@@ -415,7 +414,6 @@ def load_trained_model(dataset_path: Union[str, Path], context=dict(device="cpu"
             reloaded_hierarchy[level] = unmerged_datasets
         
         datasets = reloaded_hierarchy[0]
-        print(f"Metagenes: {[dataset.uns['M'] for dataset in datasets]}")
         replicate_names = [dataset.name for dataset in datasets]
     else:
         datasets, replicate_names = unmerge_anndata(merged_dataset)
