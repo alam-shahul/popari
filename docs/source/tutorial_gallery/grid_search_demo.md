@@ -9,7 +9,6 @@ In order to specify the range of Popari hyperparameters over which to grid searc
 [runtime]
 project_name = "example_project" # Name of the project
 dataset_path = "/path/to/dataset.h5ad" # Path to the preprocessed Popari input
-output_path =  "./result.h5ad" # Name of Popari output file
 max_p = 4 # Max number of parallel Popari jobs to run at once; limited by number of available CUDA-enabled devices
 
 [hyperparameters]
@@ -56,7 +55,7 @@ num_iterations = 200 # Number of Popari iterations to use
 
 The above configuration would yield `3 * 1 * 3 * 2 * 1 = 12` hyperparameter combinations, implying that `12` Popari jobs will be executed by the MLflow framework. Furthermore, according to the `max_p` setting, a maximum of `4` of these processes will be running at any single moment in time.
 
-To start a grid search, navigate to the folder where you want to store your grid search results (e.g. `example_grid_search`, and then run the `popari-grid-search` script:
+To start a grid search, navigate to the folder where you want to store your grid search results (e.g. `example_grid_search`), and then run the `popari-grid-search` script:
 
 ```console
 mkdir example_grid_search
@@ -65,7 +64,7 @@ popari-grid-search --configuration_filepath=/path/to/config_file.toml
 ```
 
 ## View results
-To view the results of your grid search (included relevant metrics), run the following command from the same folder
+To view the results of your grid search (including relevant metrics), run the following command from the same folder
 
 ```console
 mlflow ui --port=5000
