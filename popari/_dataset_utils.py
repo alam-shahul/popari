@@ -16,6 +16,7 @@ import squidpy as sq
 import networkx as nx
 
 from scipy.stats import zscore
+from scipy.sparse import issparse
 
 from sklearn.metrics import adjusted_rand_score, silhouette_score, precision_score, \
                             accuracy_score, confusion_matrix
@@ -75,13 +76,18 @@ def _plot_metagene_embedding(datasets: Sequence[PopariDataset], metagene_index: 
     """
 
     legend = False if "legend" not in scatterplot_kwargs else scatterplot_kwargs.pop("legend")
-    s = 0.5 if "s" not in scatterplot_kwargs else scatterplot_kwargs.pop("s")
+    default_s = None if "s" not in scatterplot_kwargs else scatterplot_kwargs.pop("s")
     linewidth= 0 if "linewidth" not in scatterplot_kwargs else scatterplot_kwargs.pop("linewidth")
     palette = "viridis" if "palette" not in scatterplot_kwargs else scatterplot_kwargs.pop("palette")
     if axes is None:
         fig, axes = setup_squarish_axes(len(datasets), sharex=False, sharey=False)
 
     for dataset, ax in zip(datasets, axes.flat):
+        if default_s is None:
+            s = round(40000 / len(dataset))
+        else:
+            s = default_s
+
         ax.set_aspect('equal', 'box')
         ax.invert_yaxis()
         ax.set_xticks([], [])  # note you need two lists one for the positions and one for the labels
@@ -215,7 +221,7 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", axes = None
         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
 
     edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
-    size = 0.04 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
+    default_size = None if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
     palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
     legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
     edgecolors = "none" if "edgecolors" not in spatial_kwargs else spatial_kwargs.pop("edgecolors")
@@ -223,6 +229,11 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", axes = None
     neighbors_key = "spatial_neighbors" if "spatial_neighbors" not in spatial_kwargs else spatial_kwargs.pop("neighbors_key")
     for dataset, ax in zip(datasets, axes.flat):
         ax.set_aspect('equal', 'box')
+        if default_size is None:
+            size = round(40000 / len(dataset))
+        else:
+            size = default_size
+
         sq.pl.spatial_scatter(dataset, shape=None, size=size, connectivity_key="adjacency_matrix",
             color=color, edges_width=edges_width, legend_fontsize=legend_fontsize,
             ax=ax, palette=palette, edgecolors=edgecolors, **spatial_kwargs)
@@ -551,8 +562,13 @@ def _plot_all_embeddings(dataset: PopariDataset, embedding_key: str = "X", colum
         column_names = [f"{embedding_key}_{index}" for index in range(K)]
 
     edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
-    size = 0.1 if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
+    default_size = None if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
     palette = ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
+
+    if default_size is None:
+        size = round(len(dataset) / 100)
+    else:
+        size = default_size
 
     axes = sq.pl.spatial_scatter(
         sq.pl.extract(dataset.copy(), embedding_key, prefix=f"{embedding_key}"),
@@ -844,3 +860,26 @@ def _pretty_plot_spatial_affinities(datasets,
         cb.remove()
         
     fig.subplots_adjust(hspace=-0.5, wspace=-0.25)
+
+def plot_sparsity(dataset):
+    """Plot overall sparsity of dataset."""
+    
+    raw_data = dataset.X
+    
+    if issparse(raw_data):
+        raw_data = raw_data.toarray()
+        
+    raw_data = raw_data.flatten()
+    raw_data_clipped = raw_data
+    raw_data_clipped = raw_data_clipped[(raw_data_clipped > 1e-6) & (raw_data_clipped < np.percentile(raw_data_clipped, 99.9))]
+
+    fig, axes = plt.subplots(1, 2, sharey=True, tight_layout=True)
+    axes[0].hist(raw_data, bins=20)
+    axes[0].set_title("Count histogram")
+
+    heights, *_ = axes[1].hist(raw_data_clipped, bins=20)
+    axes[1].set_title("Clipped count histogram")
+    axes[1].set_ylim([0, max(heights)])
+
+    sparsity = (raw_data == 0).sum() / raw_data.size
+    fig.suptitle(f"Overall sparsity: {sparsity}")
