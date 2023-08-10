@@ -78,7 +78,7 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
                                      --spatial_preiterations={{spatial_preiterations}}
                                      --nmf_preiterations={{nmf_preiterations}}
                                      --verbose={{verbose}}
-                                     --random_state={{random_state}} output.txt 2>&1"
+                                     --random_state={{random_state}} > output.txt 2>&1"
       
       popari:
         parameters:

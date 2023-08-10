@@ -19,6 +19,7 @@ def run():
     parser = argparse.ArgumentParser(description='Run Popari hyperparameter grid search.')
     parser.add_argument('--configuration_filepath', type=str, required=True, help="Path to configuration file.")
     parser.add_argument('--mlflow_output_path', type=str, default=".", help="Where to output MLflow results.")
+    parser.add_argument('--debug', action='store_true', help="Whether to dump print statements to console or to file.")
 
     args = parser.parse_args()
 
@@ -59,13 +60,13 @@ def run():
             p = mlflow.projects.run(
                 run_id=child_run.info.run_id,
                 uri=str(mlflow_output_path),
-                entry_point="train_debug",
+                entry_point="train_debug" if args.debug else "train",
                 parameters={
                     **{hyperparameter_name: hyperparams[hyperparameter_name] for hyperparameter_name in hyperparameter_names},
                     "spatial_affinity_mode": "shared lookup" if hyperparams['lambda_Sigma_bar'] == 0 else "differential lookup",
                     "spatial_affinity_groups": "null" if hyperparams['lambda_Sigma_bar'] == 0 else spatial_affinity_groups,
                     "dataset_path": configuration['runtime']['dataset_path'],
-                    "output_path": configuration['runtime']['output_path'],
+                    "output_path": f"./device_{device}_result.h5ad",
                     "num_iterations": num_iterations,
                     "spatial_preiterations": spatial_preiterations,
                     "dtype": "float64",

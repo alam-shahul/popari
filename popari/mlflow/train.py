@@ -122,6 +122,12 @@ def main():
                 if spatial_preiteration % 10 == 0:
                     model.save_results(output_path)
                     mlflow.log_artifact(output_path)
+                    
+                    if model.hierarchical_levels is not None:
+                        for hierarchical_level in range(model.hierarchical_levels):
+                            save_popari_figs(model, level=hierarchical_level, save_spatial_figs=True)
+                    else:
+                        save_popari_figs(model, save_spatial_figs=True)
 
             for iteration in range(num_iterations):
                 print(f"----- Iteration {iteration} -----")
@@ -133,8 +139,12 @@ def main():
                     checkpoint_path = f"checkpoint_{iteration}_iterations.h5ad"
                     model.save_results(checkpoint_path)
                     mlflow.log_artifact(checkpoint_path)
-        
-                    save_popari_figs(model, save_spatial_figs=True)
+       
+                    if model.hierarchical_levels is not None:
+                        for hierarchical_level in range(model.hierarchical_levels):
+                            save_popari_figs(model, level=hierarchical_level, save_spatial_figs=True)
+                    else:
+                        save_popari_figs(model, save_spatial_figs=True)
 
             if model.spatial_affinity_mode == "differential lookup":
                 model.superresolve(n_epochs=superresolution_epochs)
@@ -153,29 +163,33 @@ def save_popari_figs(model: Popari, level: int = None, save_spatial_figs: bool =
     """Save Popari figures.
 
     """
+    if level is None:
+        suffix = ".png"
+    else:
+        suffix = f"_level_{level}.png"
 
     tl.preprocess_embeddings(model, level=level)
     tl.leiden(model, level=level, joint=True)
-    pl.in_situ(model, level=level)
+    pl.in_situ(model, level=level, color="leiden")
 
-    plt.savefig("leiden.png")
-    mlflow.log_artifact("leiden.png")
-    
+    plt.savefig(f"leiden{suffix}")
+    mlflow.log_artifact(f"leiden{suffix}")
+   
     if save_spatial_figs:
         pl.spatial_affinities(model, level=level)
    
-        plt.savefig("Sigma_x_inv.png")
-        mlflow.log_artifact("Sigma_x_inv.png")
+        plt.savefig(f"Sigma_x_inv{suffix}")
+        mlflow.log_artifact(f"Sigma_x_inv{suffix}")
         
-        pl.multireplicate_heatmap(model, level=level, uns="M", aspect=model.K / len(model.datasets[0]), cmap="hot")
+        pl.multireplicate_heatmap(model, level=level, uns="M", aspect=model.K / model.datasets[0].shape[1], cmap="hot")
         
-        plt.savefig("metagenes.png")
-        mlflow.log_artifact("metagenes.png")
+        plt.savefig(f"metagenes{suffix}")
+        mlflow.log_artifact(f"metagenes{suffix}")
     
     for metagene in range(model.K): 
-        pl.metagene_embedding(model, metagene)
-        plt.savefig(f"metagene_{metagene}_in_situ.png")
-        mlflow.log_artifact(f"metagene_{metagene}_in_situ.png")
+        pl.metagene_embedding(model, metagene, level=level)
+        plt.savefig(f"metagene_{metagene}_in_situ{suffix}")
+        mlflow.log_artifact(f"metagene_{metagene}_in_situ{suffix}")
 
 if __name__ == "__main__":
     main()
