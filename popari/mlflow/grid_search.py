@@ -66,7 +66,7 @@ def run():
                     "spatial_affinity_mode": "shared lookup" if hyperparams['lambda_Sigma_bar'] == 0 else "differential lookup",
                     "spatial_affinity_groups": "null" if hyperparams['lambda_Sigma_bar'] == 0 else spatial_affinity_groups,
                     "dataset_path": configuration['runtime']['dataset_path'],
-                    "output_path": f"./device_{device}_result.h5ad",
+                    "output_path": f"./device_{device}_result",
                     "num_iterations": num_iterations,
                     "spatial_preiterations": spatial_preiterations,
                     "dtype": "float64",
@@ -103,10 +103,10 @@ def run():
         experiment_id = parent_run.info.experiment_id
         null_evaluate = generate_evaluate_function(parent_run, 0, 0, 0, experiment_id)
         null_hyperparameters = {
-            "K": 2,
+            "K": 10,
             "lambda_Sigma_x_inv": 0,
             "lambda_Sigma_bar": 0,
-            "hierarchical_levels": 1,
+            "hierarchical_levels": 2,
             "binning_downsample_rate": 0.5
         }
         _, null_nll = null_evaluate(null_hyperparameters)

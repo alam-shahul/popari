@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Sequence
+from typing import Sequence, Optional
 
 from tqdm.auto import trange
 
@@ -30,14 +30,14 @@ class HierarchicalView():
             use_inplace_ops: bool, pretrained: bool, verbose: str, metagene_groups: dict,
             spatial_affinity_groups: dict, parameter_optimizer_hyperparameters: dict,
             embedding_optimizer_hyperparameters: dict, binned_Ys: list = None,
-            superresolution_lr: float = 1e-3, level: int = None, hierarchical_levels: int = None):
+            superresolution_lr: float = 1e-3, level: int = 0, hierarchical_levels: Optional[int] = None):
 
         self.datasets = datasets
         self.replicate_names = [dataset.name for dataset in datasets]
         self.K = K
         self.level = level
         self.hierarchical_levels = hierarchical_levels
-        self.level_suffix = "" if (self.level == 0 or self.level is None) else f"_level_{self.level}"
+        self.level_suffix = "" if self.level == 0 else f"_level_{self.level}"
         self.context = context
         self.initial_context = initial_context
         self.use_inplace_ops = use_inplace_ops
@@ -69,7 +69,7 @@ class HierarchicalView():
             return groups, tags
        
         def add_level_suffix(groups):
-            if self.level == 0 or self.level is None:
+            if self.level == 0:
                 return groups
 
             suffixed_groups = {}
@@ -149,10 +149,13 @@ class HierarchicalView():
             self.parameter_optimizer.update_sigma_yx()
             self.parameter_optimizer.spatial_affinity_state.initialize_optimizers(spatial_affinity_copy)
         else:
+            if self.hierarchical_levels is not None and self.level < self.hierarchical_levels - 1:
+                method = 'dummy'
+
             if self.verbose:
                 print(f"{get_datetime()} Initializing metagenes and hidden states using {method} method")
 
-            if self.level is not None and self.level < self.hierarchical_levels - 1:
+            if method == 'dummy':
                 self.M, self.Xs = initialize_dummy(self.datasets, self.K, self.initial_context)
             elif method == 'kmeans':
                 self.M, self.Xs = initialize_kmeans(self.datasets, self.K, self.initial_context, kwargs_kmeans=dict(random_state=self.random_state))

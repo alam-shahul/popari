@@ -253,9 +253,8 @@ class Popari:
         }
 
       
-        base_level = None if self.hierarchical_levels is None else 0
         self.base_view = HierarchicalView(self.datasets, superresolution_lr=self.superresolution_lr,
-                level=base_level, **hierarchical_view_kwargs)
+                level=0, **hierarchical_view_kwargs)
 
         if self.hierarchical_levels is not None:
             if self.pretrained:

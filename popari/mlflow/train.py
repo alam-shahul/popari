@@ -136,7 +136,7 @@ def main():
                 nll_spatial = model.nll(use_spatial=True)
                 mlflow.log_metric("nll_spatial", nll_spatial, step=iteration)
                 if iteration % 10 == 0:
-                    checkpoint_path = f"checkpoint_{iteration}_iterations.h5ad"
+                    checkpoint_path = f"checkpoint_{iteration}_iterations"
                     model.save_results(checkpoint_path)
                     mlflow.log_artifact(checkpoint_path)
        
