@@ -10,7 +10,7 @@ import torch
 from collections import defaultdict
 
 from popari.util import get_datetime, convert_numpy_to_pytorch_sparse_coo
-from popari.initialization import initialize_kmeans, initialize_svd, initialize_louvain
+from popari.initialization import initialize_kmeans, initialize_svd, initialize_leiden, initialize_dummy
 from popari._dataset_utils import _spatial_binning
 
 from popari._popari_dataset import PopariDataset
@@ -26,15 +26,18 @@ class HierarchicalView():
     """
 
     def __init__(self, datasets: Sequence[PopariDataset], betas: list, prior_x_modes: list,
-            method: str, random_state: int, K: int, context: dict, initial_context: dict, use_inplace_ops: bool,
-            pretrained: bool, verbose: str, metagene_groups: dict, spatial_affinity_groups: dict, parameter_optimizer_hyperparameters: dict,
-            embedding_optimizer_hyperparameters: dict, binned_Ys: list = None, superresolution_lr: float = 1e-3, level: int = 0):
+            method: str, random_state: int, K: int, context: dict, initial_context: dict,
+            use_inplace_ops: bool, pretrained: bool, verbose: str, metagene_groups: dict,
+            spatial_affinity_groups: dict, parameter_optimizer_hyperparameters: dict,
+            embedding_optimizer_hyperparameters: dict, binned_Ys: list = None,
+            superresolution_lr: float = 1e-3, level: int = None, hierarchical_levels: int = None):
 
         self.datasets = datasets
         self.replicate_names = [dataset.name for dataset in datasets]
         self.K = K
         self.level = level
-        self.level_suffix = "" if self.level == 0 else f"_level_{self.level}"
+        self.hierarchical_levels = hierarchical_levels
+        self.level_suffix = "" if (self.level == 0 or self.level is None) else f"_level_{self.level}"
         self.context = context
         self.initial_context = initial_context
         self.use_inplace_ops = use_inplace_ops
@@ -66,7 +69,7 @@ class HierarchicalView():
             return groups, tags
        
         def add_level_suffix(groups):
-            if self.level == 0:
+            if self.level == 0 or self.level is None:
                 return groups
 
             suffixed_groups = {}
@@ -147,16 +150,19 @@ class HierarchicalView():
             self.parameter_optimizer.spatial_affinity_state.initialize_optimizers(spatial_affinity_copy)
         else:
             if self.verbose:
-                print(f"{get_datetime()} Initializing metagenes and hidden states")
-            if method == 'kmeans':
+                print(f"{get_datetime()} Initializing metagenes and hidden states using {method} method")
+
+            if self.level is not None and self.level < self.hierarchical_levels - 1:
+                self.M, self.Xs = initialize_dummy(self.datasets, self.K, self.initial_context)
+            elif method == 'kmeans':
                 self.M, self.Xs = initialize_kmeans(self.datasets, self.K, self.initial_context, kwargs_kmeans=dict(random_state=self.random_state))
             elif method == 'svd':
                 self.M, self.Xs = initialize_svd(self.datasets, self.K, self.initial_context, M_nonneg=(self.parameter_optimizer.M_constraint == 'simplex'), X_nonneg=True)
-            elif method == 'louvain':
-                kwargs_louvain = {
+            elif method == 'leiden':
+                kwargs_leiden = {
                     "random_state": self.random_state
                 }
-                self.M, self.Xs = initialize_louvain(self.datasets, self.K, self.initial_context, kwargs_louvain=kwargs_louvain, verbose=self.verbose)
+                self.M, self.Xs = initialize_leiden(self.datasets, self.K, self.initial_context, kwargs_leiden=kwargs_leiden, verbose=self.verbose)
             else:
                 raise NotImplementedError
           
@@ -537,10 +543,10 @@ def reconstruct_hierarchy(reloaded_hierarchy: dict, superresolution_lr: float = 
 
     hierarchy = {}
     context = hierarchical_view_kwargs["context"]
-    levels = len(reloaded_hierarchy)
     binned_Ys = None
     previous_view = None
-    for level in range(levels):
+    for level in range(hierarchical_view_kwargs["hierarchical_levels"]):
+        print(f"{get_datetime()} Reloading level {level}")
         datasets = reloaded_hierarchy[level]
         if previous_view is not None:
             binned_Ys = []

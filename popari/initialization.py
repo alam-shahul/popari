@@ -49,7 +49,7 @@ def initialize_kmeans(datasets: Sequence[PopariDataset], K: int, context: dict, 
 
     return M, Xs
 
-def initialize_louvain(datasets: Sequence[PopariDataset], K: int, context: dict, kwargs_louvain:dict, n_neighbors: int = 20, n_components: int = 50, eps: float = 1e-10, verbose: bool = True) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+def initialize_leiden(datasets: Sequence[PopariDataset], K: int, context: dict, kwargs_leiden:dict, n_neighbors: int = 20, n_components: int = 50, eps: float = 1e-10, verbose: bool = True) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states using k-means clustering.
 
     Args:
@@ -65,16 +65,16 @@ def initialize_louvain(datasets: Sequence[PopariDataset], K: int, context: dict,
 
     """
     
-    assert 'random_state' in kwargs_louvain
+    assert 'random_state' in kwargs_leiden
 
     _, merged_dataset = _pca(datasets, n_comps=n_components, joint=True)
 
     # Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
 
     while True:
-        _cluster([merged_dataset], method="louvain", use_rep="X_pca", target_clusters=K, n_neighbors=n_neighbors, verbose=verbose)
+        _cluster([merged_dataset], method="leiden", use_rep="X_pca", target_clusters=K, n_neighbors=n_neighbors, verbose=verbose)
 
-        labels = merged_dataset.obs["louvain"].astype(int)
+        labels = merged_dataset.obs["leiden"].astype(int)
         num_clusters = len(labels.unique())
         if num_clusters == K:
             break
@@ -84,7 +84,7 @@ def initialize_louvain(datasets: Sequence[PopariDataset], K: int, context: dict,
     # Initialize based on clustering
     indices = merged_dataset.obs.groupby("batch").indices.values()
     unmerged_datasets = [merged_dataset[index] for index in indices]
-    unmerged_labels = [unmerged_dataset.obs["louvain"].astype(int).values for unmerged_dataset in unmerged_datasets]
+    unmerged_labels = [unmerged_dataset.obs["leiden"].astype(int).values for unmerged_dataset in unmerged_datasets]
     
     M = np.stack([merged_dataset[labels == cluster].X.mean(axis=0) for cluster in labels.unique()]).T
 
@@ -176,5 +176,31 @@ def initialize_svd(datasets: Sequence[PopariDataset], K: int, context: dict, M_n
 
     M = torch.tensor(M, **context)
     Xs = [torch.tensor(X, **context) for X in Xs]
+
+    return M, Xs
+
+def initialize_dummy(datasets: Sequence[PopariDataset], K: int, context: dict) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+    """Initialize metagenes and hidden states with random values.
+
+    Internal method used simply for code 
+
+    Args:
+        datasets: input ST replicates to use for initialization
+        K: dimension of latent states for cell embeddings
+        context: context to use for creating PyTorch tensors
+        M_nonneg: if specified, initial M estimate will contain only non-negative values
+        X_nonneg: if specified, initial X estimate will contain only non-negative values
+
+    Returns:
+        A tuple (M, Xs), where M is the initial estimate of the metagene
+        values and Xs is the list of initial estimates of the hidden states
+        of each replicate.
+    """
+
+    first_dataset = datasets[0]
+    _, num_genes = first_dataset.shape
+
+    M = torch.rand((num_genes, K), **context)
+    Xs = [torch.rand((dataset.shape[0], K), **context) for dataset in datasets]
 
     return M, Xs

@@ -47,7 +47,7 @@ def popari_with_neighbors():
     return obj
 
 @pytest.fixture(scope="module")
-def popari_with_louvain_initialization():
+def popari_with_leiden_initialization():
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     replicate_names=[0, 1]
     obj = Popari(
@@ -60,7 +60,7 @@ def popari_with_louvain_initialization():
         verbose=4
     )
 
-def test_louvain_initialization(popari_with_louvain_initialization):
+def test_leiden_initialization(popari_with_leiden_initialization):
     pass
 
 def test_Sigma_x_inv(popari_with_neighbors):

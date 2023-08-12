@@ -52,7 +52,7 @@ def test_load_anndata():
 def test_load_hierarchical_model():
     replicate_names=[0, 1]
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
-    load_trained_model(path2dataset/ "superresolved_results.h5ad")
+    load_trained_model(path2dataset/ "superresolved_results")
 
 def test_nll(trained_model):
     nll = trained_model.nll()
