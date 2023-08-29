@@ -34,7 +34,7 @@ class Popari:
         lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: ``1e-4``
         pretrained: if set, attempts to load model state from input files. Default: ``False``
         initialization_method: algorithm to use for initializing metagenes and embeddings. Default: ``leiden``
-        hierarchical_levels: if set, number of hierarchical levels to use. Default: ``None`` (non-hierarchical mode)
+        hierarchical_levels: number of hierarchical levels to use. Default: ``1`` (non-hierarchical mode)
         metagene_groups: defines a grouping of replicates for the metagene optimization. If
             ``metagene_mode == "shared"``, then one set of metagenes will be created for each group;
             if ``metagene_mode == "differential",  then all replicates will have their own set of metagenes,
@@ -89,7 +89,7 @@ class Popari:
         lambda_Sigma_x_inv: float = 1e-4,
         pretrained: bool = False,
         initialization_method: str = "leiden",
-        hierarchical_levels: Optional[int] = None,
+        hierarchical_levels: int = 1,
         metagene_groups: Optional[dict] = None,
         spatial_affinity_groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
@@ -112,7 +112,7 @@ class Popari:
         embedding_acceleration_trick: bool = True,
         embedding_step_size_multiplier: float = 1.0,
         binning_downsample_rate: float = 0.2,
-        superresolution_lr: float = 1e-3,
+        superresolution_lr: float = 1e-1,
         use_inplace_ops: bool = True,
         random_state: int = 0,
         verbose: int = 0
@@ -256,15 +256,15 @@ class Popari:
         self.base_view = HierarchicalView(self.datasets, superresolution_lr=self.superresolution_lr,
                 level=0, **hierarchical_view_kwargs)
 
-        if self.hierarchical_levels is not None:
-            if self.pretrained:
-                self.hierarchy = reconstruct_hierarchy(self.reloaded_hierarchy, 
-                        superresolution_lr=self.superresolution_lr, **hierarchical_view_kwargs)
-            else:
-                self.hierarchy = construct_hierarchy(self.base_view, chunks=2, levels=self.hierarchical_levels, 
-                        superresolution_lr=self.superresolution_lr, downsample_rate=self.binning_downsample_rate,
-                        **hierarchical_view_kwargs)
-            self.base_view = self.hierarchy[self.hierarchical_levels - 1]
+        if self.pretrained:
+            self.hierarchy = reconstruct_hierarchy(self.reloaded_hierarchy, 
+                    superresolution_lr=self.superresolution_lr, **hierarchical_view_kwargs)
+        else:
+            self.hierarchy = construct_hierarchy(self.base_view, chunks=2, levels=self.hierarchical_levels, 
+                    superresolution_lr=self.superresolution_lr, downsample_rate=self.binning_downsample_rate,
+                    **hierarchical_view_kwargs)
+
+        self.base_view = self.hierarchy[self.hierarchical_levels - 1]
         
         self.active_view = self.base_view
 
@@ -318,20 +318,26 @@ class Popari:
         self.parameter_optimizer.update_sigma_yx()
         self.synchronize_datasets()
 
-    def superresolve(self, differentiate_spatial_affinities: bool = True,
-            update_spatial_affinities: bool = True, edge_subsample_rate: Optional[float] = None,
-            n_epochs: int = 10000, tol: float = 1e-5):
+    def superresolve(self,
+            differentiate_spatial_affinities: bool = True,
+            update_spatial_affinities: bool = True,
+            edge_subsample_rate: Optional[float] = None,
+            use_manual_gradients: bool = True,
+            n_epochs: int = 10000,
+            tol: float = 1e-5):
         """Superresolve embeddings in hierarchical case.
         
         Works in a cascading manner, by superresolving the embeddings from lowest to highest resolutions in order.
         """
 
         for level in range(self.hierarchical_levels-2, -1, -1):
+            if self.verbose:
+                print(f"{get_datetime()} Superresolving level {level} embeddings")
             view = self.hierarchy[level]
             view._propagate_parameters()
             view.parameter_optimizer.update_sigma_yx()
                 
-            view._superresolve_embeddings(n_epochs=n_epochs, tol=tol)
+            view._superresolve_embeddings(n_epochs=n_epochs, tol=tol, use_manual_gradients=use_manual_gradients, verbose=self.verbose)
         
             pretrained_embeddings = [view.embedding_optimizer.embedding_state[dataset.name].clone() for dataset in view.datasets]
             view.parameter_optimizer.spatial_affinity_state.initialize(pretrained_embeddings)
@@ -341,7 +347,7 @@ class Popari:
         
         self.synchronize_datasets()
 
-    def nll(self, level: int = None, use_spatial: bool = False):
+    def nll(self, level: int = 0, use_spatial: bool = False):
         """Compute the nll for the current configuration of model parameters.
     
         """
@@ -365,7 +371,7 @@ class Popari:
         """Synchronize datasets across all hierarchical levels."""
 
         self.base_view.synchronize_datasets()
-        if self.hierarchical_levels is not None:
+        if self.hierarchical_levels > 1:
             for level, view in self.hierarchy.items():
                 view.synchronize_datasets()
 
@@ -383,7 +389,9 @@ class Popari:
         path2dataset = Path(path2dataset)
         path_without_extension = path2dataset.parent / path2dataset.stem
 
-        if self.hierarchical_levels is None:
+        if self.hierarchical_levels == 1:
+            if self.verbose:
+                print(f"{get_datetime()} Writing results to {path_without_extension}.h5ad")
             save_anndata(f"{path_without_extension}.h5ad", self.datasets, ignore_raw_data=ignore_raw_data)
         else:
             path_without_extension.mkdir(exist_ok=True)
@@ -393,6 +401,9 @@ class Popari:
             for level in level_names:
                 view = self.hierarchy[level]
                 datasets = view.datasets
+                if self.verbose:
+                    print(f"{get_datetime()} Writing hierarchical results to {path_without_extension / f'level_{level}.h5ad'}")
+
                 save_anndata(path_without_extension / f"level_{level}.h5ad", datasets, ignore_raw_data=ignore_raw_data)
 
 def load_trained_model(dataset_path: Union[str, Path], context=dict(device="cpu", dtype=torch.float64), **popari_kwargs):
@@ -409,11 +420,16 @@ def load_trained_model(dataset_path: Union[str, Path], context=dict(device="cpu"
     path_without_extension = dataset_path.parent / dataset_path.stem
 
     datasets = reloaded_hierarchy = hierarchical_levels = None
+    reloaded_hierarchy = {}
     if Path(f"{path_without_extension}.h5ad").is_file():
+        level = 0
         merged_dataset = ad.read_h5ad(dataset_path)
         datasets, replicate_names = unmerge_anndata(merged_dataset)
+        reloaded_hierarchy[level] = datasets
+
+        popari_kwargs["hierarchical_levels"] = 1
+
     elif path_without_extension.is_dir():
-        reloaded_hierarchy = {}
         for level_path in path_without_extension.iterdir():
             path_parts = level_path.stem.split("_")
             if len(path_parts) != 2:
@@ -424,10 +440,10 @@ def load_trained_model(dataset_path: Union[str, Path], context=dict(device="cpu"
             datasets, replicate_names = unmerge_anndata(merged_dataset)
             reloaded_hierarchy[level] = datasets
         
-        datasets = reloaded_hierarchy[0]
-        replicate_names = [dataset.name for dataset in datasets]
-
         popari_kwargs["hierarchical_levels"] = len(reloaded_hierarchy)
+
+    datasets = reloaded_hierarchy[0]
+    replicate_names = [dataset.name for dataset in datasets]
 
     return load_pretrained(datasets, replicate_names, reloaded_hierarchy=reloaded_hierarchy, context=context, **popari_kwargs)
 
@@ -480,16 +496,16 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
     
     """
 
-    pretrained_datasets = pretrained_model.datasets if pretrained_model.hierarchical_levels == None else  pretrained_model.hierarchy[0].datasets
+    pretrained_datasets = pretrained_model.hierarchy[0].datasets
     datasets = [PopariDataset(dataset, dataset.name) for dataset in pretrained_datasets]
     replicate_names = [dataset.name for dataset in datasets]
     
     reloaded_hierarchy = None
-    if pretrained_model.hierarchical_levels is not None:
-        reloaded_hierarchy = {}
-        for level in pretrained_model.hierarchy:
-            level_datasets = pretrained_model.hierarchy[level].datasets
-            reloaded_hierarchy[level] = [PopariDataset(level_dataset, level_dataset.name) for level_dataset in level_datasets]
+
+    reloaded_hierarchy = {}
+    for level in pretrained_model.hierarchy:
+        level_datasets = pretrained_model.hierarchy[level].datasets
+        reloaded_hierarchy[level] = [PopariDataset(level_dataset, level_dataset.name) for level_dataset in level_datasets]
 
     return load_pretrained(datasets,
                replicate_names,

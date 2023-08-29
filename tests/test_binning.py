@@ -117,9 +117,15 @@ def test_superresolution(hierarchical_model):
     hierarchical_model.superresolve(n_epochs=10, tol=1e-8)
     hierarchical_model.set_superresolution_lr(new_lr=1e-1)
     hierarchical_model.superresolve(n_epochs=10, tol=1e-8)
+    
+    hierarchical_model.superresolve(n_epochs=10, tol=1e-8, use_manual_gradients=True)
+    hierarchical_model.nll(level=1, use_spatial=True)
+    hierarchical_model.nll(level=0, use_spatial=True)
 
-    hierarchical_model.save_results(path2dataset / "superresolved_results")
+    hierarchical_model.save_results(path2dataset / "superresolved_results", ignore_raw_data=False)
+    hierarchical_model.nll(level=0, use_spatial=True)
 
 def test_hierarchical_load():
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
-    reloaded_model = load_trained_model(path2dataset / "superresolved_results")
+    reloaded_model = load_trained_model(path2dataset / "superresolved_results", context=dict(device='cuda:0', dtype=torch.float64))
+    reloaded_model.superresolve(n_epochs=10, tol=1e-8)

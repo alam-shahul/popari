@@ -1,5 +1,6 @@
 import argparse
 import json
+import traceback
 from pathlib import Path
 
 from matplotlib import pyplot as plt
@@ -79,6 +80,8 @@ def main():
     output_path = filtered_args.pop("output_path")
     output_path = Path(output_path)
 
+    checkpoint_iterations = 50
+
     with mlflow.start_run():
         trackable_hyperparameters = (
             'K',
@@ -86,7 +89,9 @@ def main():
             'lambda_Sigma_x_inv',
             'hierarchical_levels',
             'binning_downsample_rate',
-            'spatial_affinity_mode'
+            'spatial_affinity_mode',
+            'random_state',
+            'dataset_path'
         )
                                             
         mlflow.log_params({
@@ -97,6 +102,12 @@ def main():
         })
         try:
             model = Popari(**filtered_args)
+    
+            is_hierarchical = (model.hierarchical_levels > 1)
+
+            if not is_hierarchical:
+                path_without_extension = output_path.parent / output_path.stem
+                output_path = f"{path_without_extension}.h5ad"
 
             nll = model.nll()
             mlflow.log_metric("nll", nll, step=-1)
@@ -119,15 +130,15 @@ def main():
                 model.estimate_weights()
                 nll_spatial = model.nll(use_spatial=True)
                 mlflow.log_metric("nll_spatial_preiteration", nll_spatial, step=spatial_preiteration)
-                if spatial_preiteration % 10 == 0:
+                if spatial_preiteration % checkpoint_iterations == 0:
                     model.save_results(output_path)
                     mlflow.log_artifact(output_path)
                     
-                    if model.hierarchical_levels is not None:
-                        for hierarchical_level in range(model.hierarchical_levels):
-                            save_popari_figs(model, level=hierarchical_level, save_spatial_figs=True)
-                    else:
-                        save_popari_figs(model, save_spatial_figs=True)
+                    for hierarchical_level in range(model.hierarchical_levels):
+                        save_popari_figs(model, level=hierarchical_level, save_spatial_figs=True)
+
+                    if Path(f"./output_{torch_device}.txt").is_file():
+                        mlflow.log_artifact(f"output_{torch_device}.txt")
 
             for iteration in range(num_iterations):
                 print(f"----- Iteration {iteration} -----")
@@ -135,35 +146,46 @@ def main():
                 model.estimate_weights()
                 nll_spatial = model.nll(use_spatial=True)
                 mlflow.log_metric("nll_spatial", nll_spatial, step=iteration)
-                if iteration % 10 == 0:
-                    checkpoint_path = f"checkpoint_{iteration}_iterations"
+                if iteration % checkpoint_iterations == 0:
+                    checkpoint_path = f"{torch_device}_checkpoint_{iteration}_iterations"
+                    if not is_hierarchical:
+                        checkpoint_path = f"{checkpoint_path}.h5ad"
+
                     model.save_results(checkpoint_path)
                     mlflow.log_artifact(checkpoint_path)
        
-                    if model.hierarchical_levels is not None:
-                        for hierarchical_level in range(model.hierarchical_levels):
-                            save_popari_figs(model, level=hierarchical_level, save_spatial_figs=True)
-                    else:
-                        save_popari_figs(model, save_spatial_figs=True)
+                    for hierarchical_level in range(model.hierarchical_levels):
+                        save_popari_figs(model, level=hierarchical_level, save_spatial_figs=True)
 
-            if model.spatial_affinity_mode == "differential lookup":
+                    if Path(f"./output_{torch_device}.txt").is_file():
+                        mlflow.log_artifact(f"output_{torch_device}.txt")
+
+            if is_hierarchical:
                 model.superresolve(n_epochs=superresolution_epochs)
             
-            model.save_results(output_path)
+            model.save_results(output_path, ignore_raw_data=False)
             mlflow.log_artifact(output_path)
 
             if nmf_preiterations + num_iterations > 0:
-                save_popari_figs(model, save_spatial_figs=(num_iterations > 0))
+                for hierarchical_level in range(model.hierarchical_levels):
+                    save_popari_figs(model, level=hierarchical_level, save_spatial_figs=True)
 
+        except Exception as e:
+            with open(Path(f"./output_{torch_device}.txt"), 'a') as f:
+                tb = traceback.format_exc()
+                f.write(f'\n{tb}')
         finally:
-            if Path("./output.txt").is_file():
-                mlflow.log_artifact("output.txt")
+            if Path(f"./output_{torch_device}.txt").is_file():
+                mlflow.log_artifact(f"output_{torch_device}.txt")
 
-def save_popari_figs(model: Popari, level: int = None, save_spatial_figs: bool = False):
+def save_popari_figs(model: Popari, level: int = 0, save_spatial_figs: bool = False):
     """Save Popari figures.
 
     """
-    if level is None:
+    
+    is_hierarchical = (model.hierarchical_levels > 1)
+
+    if is_hierarchical:
         suffix = ".png"
     else:
         suffix = f"_level_{level}.png"

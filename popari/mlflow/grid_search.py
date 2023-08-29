@@ -20,6 +20,8 @@ def run():
     parser.add_argument('--configuration_filepath', type=str, required=True, help="Path to configuration file.")
     parser.add_argument('--mlflow_output_path', type=str, default=".", help="Where to output MLflow results.")
     parser.add_argument('--debug', action='store_true', help="Whether to dump print statements to console or to file.")
+    parser.add_argument('--include_benchmarks', action='store_true', help="Whether to include NMF and SpiceMix benchmarks for each hyperparameter combination.")
+    parser.add_argument('--only_benchmarks', action='store_true', help="Whether to only run benchmarks.")
 
     args = parser.parse_args()
 
@@ -29,32 +31,46 @@ def run():
     mlflow_output_path = Path(args.mlflow_output_path)
     generate_mlproject_file(configuration['runtime']['project_name'], mlflow_output_path / "MLproject")
 
-    hyperparameter_names = ('K', 'lambda_Sigma_x_inv', 'lambda_Sigma_bar', 'hierarchical_levels', 'binning_downsample_rate')
+    hyperparameter_names = [
+        'K',
+        'lambda_Sigma_x_inv',
+        'lambda_Sigma_bar',
+        'random_state',
+        'hierarchical_levels',
+        'binning_downsample_rate',
+        'nmf_preiterations',
+        'num_iterations',
+        'spatial_preiterations',
+    ]
+
     spatial_affinity_groups = configuration['spatial_affinity_groups'] if 'spatial_affinity_groups' in configuration else "null"
-    nmf_preiterations = configuration['hyperparameters']['nmf_preiterations']
-    spatial_preiterations = configuration['hyperparameters']['spatial_preiterations']
-    num_iterations = configuration['hyperparameters']['num_iterations']
+
+    if "dataset_paths" in configuration['runtime']:
+        dataset_paths = configuration['runtime']['dataset_paths']
+    elif "dataset_path" in configuration['runtime']:
+        dataset_paths = [configuration['runtime']['dataset_path']]
+
+    configuration['hyperparameters']['dataset_path'] = dataset_paths
 
     max_p = configuration['runtime']['max_p']
 
     tracking_client = MlflowClient()
 
     device_status = [False for _ in range(max_p)]
-    def generate_evaluate_function(parent_run, nmf_preiterations, spatial_preiterations, num_iterations, experiment_id, null_nll=0):
+    def generate_evaluate_function(parent_run, experiment_id, null_nll=0):
         """Generates function to evaluate Popari.
 
         """
 
-        def evaluate(hyperparams):
+        def evaluate(params):
             """Start parallel Popari run and track progress.
 
 
             """
-
-            # (K, lambda_Sigma_x_inv, lambda_M, lambda_Sigma_bar) = hyperparams
-          
+            
             device = device_status.index(False)
             device_status[device] = True 
+
             child_run = tracking_client.create_run(experiment_id, tags={"mlflow.parentRunId": parent_run.info.run_id})
             # with mlflow.start_run(nested=True) as child_run:
             p = mlflow.projects.run(
@@ -62,19 +78,16 @@ def run():
                 uri=str(mlflow_output_path),
                 entry_point="train_debug" if args.debug else "train",
                 parameters={
-                    **{hyperparameter_name: hyperparams[hyperparameter_name] for hyperparameter_name in hyperparameter_names},
-                    "spatial_affinity_mode": "shared lookup" if hyperparams['lambda_Sigma_bar'] == 0 else "differential lookup",
-                    "spatial_affinity_groups": "null" if hyperparams['lambda_Sigma_bar'] == 0 else spatial_affinity_groups,
-                    "dataset_path": configuration['runtime']['dataset_path'],
+                    **{parameter_name: params[parameter_name] for parameter_name in params if params[parameter_name] is not None },
+                    "spatial_affinity_mode": "shared lookup" if params['lambda_Sigma_bar'] == 0 else "differential lookup",
+                    "spatial_affinity_groups": "null" if params['lambda_Sigma_bar'] == 0 else spatial_affinity_groups,
+                    # "dataset_path": configuration['runtime']['dataset_path'],
                     "output_path": f"./device_{device}_result",
-                    "num_iterations": num_iterations,
-                    "spatial_preiterations": spatial_preiterations,
                     "dtype": "float64",
                     "torch_device": f"cuda:{device}",
                     "initial_device": f"cuda:{device}",
-                    "nmf_preiterations": nmf_preiterations,
+                    "spatial_affinity_mode": "shared lookup" if params['lambda_Sigma_bar'] == 0 else "differential lookup",
                     "verbose": 1,
-                    "random_state": 0,
                 },
                 env_manager="local",
                 experiment_id=experiment_id,
@@ -101,18 +114,46 @@ def run():
 
     with mlflow.start_run() as parent_run:
         experiment_id = parent_run.info.experiment_id
-        null_evaluate = generate_evaluate_function(parent_run, 0, 0, 0, experiment_id)
+        null_evaluate = generate_evaluate_function(parent_run, experiment_id)
         null_hyperparameters = {
             "K": 10,
+            "dataset_path": dataset_paths[0],
             "lambda_Sigma_x_inv": 0,
             "lambda_Sigma_bar": 0,
-            "hierarchical_levels": 2,
-            "binning_downsample_rate": 0.5
+            "hierarchical_levels": 1,
+            "binning_downsample_rate": 0.5,
+            "random_state": 0,
+            "nmf_preiterations": 0,
+            "spatial_preiterations": 0,
+            "num_iterations": 0,
         }
         _, null_nll = null_evaluate(null_hyperparameters)
 
+        benchmarks = {
+            'nmf_benchmark': {
+                'nmf_preiterations': 200,
+                'spatial_preiterations': 0,
+                'num_iterations': 0,
+                'lambda_Sigma_bar': 0,
+                'lambda_Sigma_x_inv': 0,
+            },
+            'spicemix_benchmark': {
+                'nmf_preiterations': 5,
+                'spatial_preiterations': 200,
+                'num_iterations': 0,
+                'lambda_Sigma_bar': 0,
+            },
+        }
+        if not args.include_benchmarks:
+            benchmarks = {}
+
         hyperparameter_options_list = []
         for hyperparameter_name in hyperparameter_names:
+            if hyperparameter_name not in configuration['hyperparameters']:
+                default_options = [null_hyperparameters[hyperparameter_name]]
+                hyperparameter_options_list.append(default_options)
+                continue
+            
             search_space = configuration['hyperparameters'][hyperparameter_name]
 
             start = search_space['start']
@@ -133,11 +174,26 @@ def run():
 
             hyperparameter_options_list.append(hyperparameter_options)
 
+        hyperparameter_names.append('dataset_path')
+        hyperparameter_options_list.append(dataset_paths)
+
         options = list(dict(zip(hyperparameter_names, hyperparameter_choice)) for hyperparameter_choice in itertools.product(*hyperparameter_options_list))
+
+        special_options = []
+        for benchmark_name, benchmark in benchmarks.items():
+            is_novel = [True if hyperparameter_name in benchmark else False for hyperparameter_name in hyperparameter_names]
+          
+            special_options_list = [hyperparameter_options if not is_novel[index] else [benchmark[hyperparameter_name]] for index, (hyperparameter_name, hyperparameter_options) in enumerate(zip(hyperparameter_names, hyperparameter_options_list))]
+            special_options.extend(list(dict(zip(hyperparameter_names, hyperparameter_choice)) for hyperparameter_choice in itertools.product(*special_options_list)))
+
+        if args.only_benchmarks:
+            options = special_options
+        else:
+            options.extend(special_options)
 
         print(f"Number of grid search candidates: {len(options)}")
 
-        evaluate = generate_evaluate_function(parent_run, nmf_preiterations, spatial_preiterations, num_iterations, experiment_id, null_nll)
+        evaluate = generate_evaluate_function(parent_run, experiment_id, null_nll)
         with ThreadPoolExecutor(max_workers=max_p) as executor:
             _ = executor.map(evaluate, options,)
 

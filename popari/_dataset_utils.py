@@ -60,7 +60,11 @@ def _preprocess_embeddings(datasets: Sequence[PopariDataset], joint: bool = Fals
         if "X" not in dataset.obsm:
             raise ValueError("Must initialize embeddings before normalizing them.")
 
-        dataset.obsm[normalized_key] = zscore(dataset.obsm["X"])
+        normalized_embeddings = zscore(dataset.obsm["X"])
+        nan_mask = np.isnan(normalized_embeddings)
+        normalized_embeddings[nan_mask] = 0
+
+        dataset.obsm[normalized_key] = normalized_embeddings
         sc.pp.neighbors(dataset, use_rep=normalized_key)
 
     return datasets
@@ -93,6 +97,8 @@ def _plot_metagene_embedding(datasets: Sequence[PopariDataset], metagene_index: 
         ax.set_xticks([], [])  # note you need two lists one for the positions and one for the labels
         ax.set_yticks([], [])  # same for y ticks
         dataset.plot_metagene_embedding(metagene_index, legend=legend, s=s, linewidth=linewidth, palette=palette, ax=ax, **scatterplot_kwargs)
+
+    return fig
 
 def _cluster(datasets: Sequence[PopariDataset], use_rep="normalized_X", joint: bool = False, method: str = "leiden",
              n_neighbors:int = 20, resolution: float = 1.0, target_clusters: Optional[int] = None, random_state: int = 0, tolerance: float = 0.01, verbose: bool = False, **kwargs):
@@ -393,7 +399,11 @@ def _multigroup_heatmap(datasets: Sequence[PopariDataset],
 
     return fig
 
-def _compute_empirical_correlations(datasets: Sequence[PopariDataset], scaling: float, feature: str = "X", output: str = "empirical_correlation"):
+def _compute_empirical_correlations(datasets: Sequence[PopariDataset],
+                                    scaling: float,
+                                    sample_size: int = None,
+                                    feature: str = "X",
+                                    output: str = "empirical_correlation"):
     """Compute the empirical spatial correlation for a feature set across all datasets.
 
     Args:
@@ -421,6 +431,9 @@ def _compute_empirical_correlations(datasets: Sequence[PopariDataset], scaling: 
         x_std = x.std(axis=0, keepdims=True)
         corr = (y / y_std).T @ (x / x_std) / len(x)
         empirical_correlations[replicate] = - corr
+
+    # Convert nan values to 0
+    empirical_correlations = np.nan_to_num(empirical_correlations)
 
     # Symmetrizing and zero-centering empirical_correlation
     empirical_correlations = (empirical_correlations + np.transpose(empirical_correlations, (0, 2, 1))) / 2
@@ -710,7 +723,7 @@ def _compute_spatial_correlation(dataset: PopariDataset, spatial_key: str = "Sig
     dataset.uns[spatial_correlation_key] = spatial_correlation
     dataset.uns[neighbor_interactions_key] = neighbor_interactions
 
-def _spatial_binning(dataset: PopariDataset, level: Optional[int] = None, chunks: int = 16, downsample_rate: float = 0.2,
+def _spatial_binning(dataset: PopariDataset, level: int = 0, chunks: int = 16, downsample_rate: float = 0.2,
         chunk_size: Optional[int] = None, chunk_1d_density: Optional[int] = None, num_jobs: int = 2):
     """Construct binned, low-resolution version of dataset.
     

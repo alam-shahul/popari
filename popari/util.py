@@ -3,7 +3,7 @@ import os, time, pickle, sys, datetime, logging
 from tqdm.auto import tqdm, trange
 
 import numpy as np
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, csr_array
 import pandas as pd
 
 from sklearn.preprocessing import StandardScaler
@@ -723,7 +723,7 @@ def bin_expression(spot_expression: np.ndarray, spot_coordinates: np.ndarray, bi
     num_bins, _ = bin_coordinates.shape
     
     bin_expression = np.zeros((num_bins, num_genes))
-    bin_assignments = np.zeros((num_bins, num_spots))
+    bin_assignments = csr_array((num_bins, num_spots), dtype=np.int32)
     
     neigh = NearestNeighbors(n_neighbors=1, n_jobs=num_jobs)
     neigh.fit(bin_coordinates)
@@ -740,22 +740,16 @@ def bin_expression(spot_expression: np.ndarray, spot_coordinates: np.ndarray, bi
     
     return bin_expression, bin_assignments
 
-def compute_nll(model, level: Optional[int] = None, use_spatial=False):
+def compute_nll(model, level: int = 0, use_spatial=False):
     """Compute overall negative log-likelihood for current model parameters.
 
     """
-    if level is None:
-        datasets = model.datasets
-        parameter_optimizer = model.parameter_optimizer
-        embedding_optimizer = model.embedding_optimizer
-        Ys = model.Ys
-        betas = model.betas
-    else:
-        datasets = model.hierarchy[level].datasets
-        parameter_optimizer = model.hierarchy[level].parameter_optimizer
-        embedding_optimizer = model.hierarchy[level].embedding_optimizer
-        Ys = model.hierarchy[level].Ys
-        betas = model.hierarchy[level].betas
+
+    datasets = model.hierarchy[level].datasets
+    parameter_optimizer = model.hierarchy[level].parameter_optimizer
+    embedding_optimizer = model.hierarchy[level].embedding_optimizer
+    Ys = model.hierarchy[level].Ys
+    betas = model.hierarchy[level].betas
 
     with torch.no_grad():
         total_loss  = torch.zeros(1, **model.context)
@@ -815,7 +809,7 @@ def compute_nll(model, level: Optional[int] = None, use_spatial=False):
 
                 spatial_affinity_bars = None
                 if model.spatial_affinity_mode == "differential lookup":
-                    spatial_affinity_bars = [parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in model.spatial_affinity_tags[dataset.name]]
+                    spatial_affinity_bars = [parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in model.hierarchy[level].spatial_affinity_tags[dataset.name]]
 
                 regularization = torch.zeros(1, **model.context)
                 if spatial_affinity_bars is not None:
@@ -834,7 +828,7 @@ def compute_nll(model, level: Optional[int] = None, use_spatial=False):
             differential_regularization_term = torch.zeros(1, **model.context)
             M_bar = None
             if model.metagene_mode == "differential":
-                M_bar = [parameter_optimizer.metagene_state.M_bar[group_name] for group_name in model.metagene_tags[dataset.name]]
+                M_bar = [parameter_optimizer.metagene_state.M_bar[group_name] for group_name in model.hierarchy[level].metagene_tags[dataset.name]]
                
             if model.lambda_M > 0 and M_bar is not None:
                 differential_regularization_quadratic_factor = model.lambda_M * torch.eye(model.K, **model.context)

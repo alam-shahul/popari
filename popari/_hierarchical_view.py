@@ -4,6 +4,7 @@ from typing import Sequence, Optional
 from tqdm.auto import trange
 
 import numpy as np
+from scipy.sparse import csr_array
 
 import torch
 
@@ -30,7 +31,7 @@ class HierarchicalView():
             use_inplace_ops: bool, pretrained: bool, verbose: str, metagene_groups: dict,
             spatial_affinity_groups: dict, parameter_optimizer_hyperparameters: dict,
             embedding_optimizer_hyperparameters: dict, binned_Ys: list = None,
-            superresolution_lr: float = 1e-3, level: int = 0, hierarchical_levels: Optional[int] = None):
+            superresolution_lr: float = 1e-3, level: int = 0, hierarchical_levels: Optional[int] = 1):
 
         self.datasets = datasets
         self.replicate_names = [dataset.name for dataset in datasets]
@@ -69,9 +70,6 @@ class HierarchicalView():
             return groups, tags
        
         def add_level_suffix(groups):
-            if self.level == 0:
-                return groups
-
             suffixed_groups = {}
             for group, group_replicates in groups.items():
                 suffixed_groups[group] = [f"{group_replicate}{self.level_suffix}" for group_replicate in group_replicates]
@@ -82,6 +80,7 @@ class HierarchicalView():
             metagene_groups = add_level_suffix(metagene_groups)
         if spatial_affinity_groups is not None:
             spatial_affinity_groups = add_level_suffix(spatial_affinity_groups)
+
         self.metagene_groups, self.metagene_tags = fill_groups(metagene_groups, are_exclusive=(parameter_optimizer_hyperparameters["metagene_mode"]=="shared"))
         self.spatial_affinity_groups, self.spatial_affinity_tags = fill_groups(spatial_affinity_groups, are_exclusive=(parameter_optimizer_hyperparameters["spatial_affinity_mode"]=="shared lookup"))
        
@@ -149,7 +148,7 @@ class HierarchicalView():
             self.parameter_optimizer.update_sigma_yx()
             self.parameter_optimizer.spatial_affinity_state.initialize_optimizers(spatial_affinity_copy)
         else:
-            if self.hierarchical_levels is not None and self.level < self.hierarchical_levels - 1:
+            if self.level < self.hierarchical_levels - 1:
                 method = 'dummy'
 
             if self.verbose:
@@ -232,6 +231,7 @@ class HierarchicalView():
                     dataset.uns["spatial_affinity_bar"] = spatial_affinity_bar
                     # dataset.uns["lambda_M"] = self.parameter_optimizer.lambda_M
         
+        self.superresolution_optimizers = {}
         for dataset in self.datasets:
             if "losses" not in dataset.uns:
                 dataset.uns["losses"] = defaultdict(list)
@@ -243,9 +243,6 @@ class HierarchicalView():
             self.parameter_optimizer.metagene_state.reaverage()
         if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
             self.parameter_optimizer.spatial_affinity_state.reaverage()
-            
-        self.superresolution_optimizers = {}
-        self.superresolution_schedulers = {}
 
     def link(self, low_res_view: HierarchicalView):
         """Link a view to the resolution right below it in the hierarchy."""
@@ -258,7 +255,7 @@ class HierarchicalView():
         
         self.synchronize_datasets()
         
-    def _superresolve_embeddings(self, n_epochs=10000, tol=1e-4, update_alg='gd', verbose=None):
+    def _superresolve_embeddings(self, n_epochs=10000, tol=1e-4, update_alg='gd', use_manual_gradients=True, verbose=None):
         """Superresolve embeddings using embeddings for lower resolution spots."""
 
         for dataset_index, (dataset, low_res_name) in enumerate(zip(self.datasets, self.low_res_view.replicate_names)):
@@ -266,8 +263,8 @@ class HierarchicalView():
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
             X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
-            X_B = self.low_res_view.embedding_optimizer.embedding_state[low_res_name].to(self.context["device"])
-            B = torch.from_numpy(low_res_dataset.obsm[f"bin_assignments_{low_res_dataset.name}"]).to(self.context["device"])
+            X_B = low_res_dataset.obsm["X"]
+            B = low_res_dataset.obsm[f"bin_assignments_{low_res_dataset.name}"]
 
             M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
@@ -275,16 +272,19 @@ class HierarchicalView():
 
             # Precomputing quantities 
             MTM = M.T @ M / (sigma_yx ** 2)
-            BTB = B.T @ B
+            BTB = convert_numpy_to_pytorch_sparse_coo((B.T @ B).tocoo(), context=self.context)
             YM = Y @ M / (sigma_yx ** 2)
-            BTX_B = B.T @ X_B
+            BTX_B = torch.from_numpy(B.T @ X_B).to(self.context["device"])
+
+            linear_term_gradient = YM + BTX_B
+            if prior_x_mode == 'exponential shared fixed':
+                linear_term_gradient = linear_term_gradient - prior_x[0][None]
 
             Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx ** 2)
-            X_Bnorm = torch.linalg.norm(X_B, ord='fro').item() ** 2
-            step_size = 1e-3
+            X_Bnorm = np.linalg.norm(X_B, ord='fro').item() ** 2
             loss_prev, loss = np.inf, np.nan
           
-            decay_period = n_epochs // 4
+            # decay_period = n_epochs // 4
 
             X = X.clone().detach().requires_grad_(True) 
             superresolution_optimizer = torch.optim.Adam(
@@ -292,10 +292,10 @@ class HierarchicalView():
                 lr=self.superresolution_lr,
                 betas=(.5, .9),
             )
-            superresolution_scheduler = torch.optim.lr_scheduler.StepLR(superresolution_optimizer, step_size=decay_period, gamma=0.1)
+            # superresolution_scheduler = torch.optim.lr_scheduler.StepLR(superresolution_optimizer, step_size=decay_period, gamma=0.5)
 
-            self.superresolution_optimizers[dataset.name] = superresolution_optimizer
-            self.superresolution_schedulers[dataset.name] = superresolution_scheduler
+            # self.superresolution_optimizers[dataset.name] = superresolution_optimizer
+            # self.superresolution_schedulers[dataset.name] = superresolution_scheduler
 
             if verbose is None:
                 verbose = self.verbose
@@ -305,54 +305,57 @@ class HierarchicalView():
                 TODO:UNTESTED
     
                 """
-                quadratic_term_gradient = X @ MTM
-                quadratic_term_gradient += BTB @ X
-                linear_term_gradient = YM
-                linear_term_gradient += BTX_B
-                if prior_x_mode == 'exponential shared fixed':
-                    linear_term_gradient = linear_term_gradient - prior_x[0][None]
-                elif not prior_x_mode:
-                    pass
 
-                lambda_B = 1e-1
-                # loss = (quadratic_term_gradient * X).sum().item() / 2 - (linear_term_gradient * X).sum().item() + Ynorm / 2 + X_Bnorm / 2
-                loss = (torch.linalg.norm(Y.T - M @ X.T, ord='fro') ** 2) / 2  + ((torch.linalg.norm(X_B - B @ X, ord='fro') ** 2) / 2 )
-                gradient = quadratic_term_gradient - linear_term_gradient
-                loss.backward()
-                # X.grad = gradient
+                # lambda_B = 1e-1
+                # self.superresolution_optimizers[dataset.name].zero_grad()
+                superresolution_optimizer.zero_grad()
+                # X.grad = None
+                quadratic_term_gradient = X @ MTM + BTB @ X
+                
+                loss = (quadratic_term_gradient * X).sum()/ 2 - (linear_term_gradient * X).sum() + Ynorm / 2 + X_Bnorm / 2
+                if use_manual_gradients:
+                    gradient = quadratic_term_gradient - linear_term_gradient
+                    X.grad = gradient
+                else: 
+                    # loss = (torch.linalg.norm(Y.T - M @ X.T, ord='fro') ** 2) / 2  + ((torch.linalg.norm(X_B - B @ X, ord='fro') ** 2) / 2 )
+                    loss.backward()
 
-                self.superresolution_optimizers[dataset.name].step()
-                self.superresolution_schedulers[dataset.name].step()
+                # self.superresolution_optimizers[dataset.name].step()
+                superresolution_optimizer.step()
+                # self.superresolution_schedulers[dataset.name].step()
 
                 if verbose > 4 and (iteration % 5 == 0):
-                    # print(f'NMF component: {((X @ MTM - YM) * X).sum().item() / 2 + Ynorm / 2}')
-                    # print(f'Superresolution component: {((BTB @ X - X_BTB.T) * X).sum().item() / 2 + X_Bnorm / 2}')
-                    # print(f'Total loss (recomputed): {((X @ MTM - YM + BTB @ X - X_BTB.T) * X).sum().item() / 2 + (Ynorm + X_Bnorm) / 2}')
-                    print(f"NMF component: {(torch.linalg.norm(Y.T - M @ X.T, ord='fro').item() ** 2)/ (sigma_yx ** 2)}")
-                    print(f"Superresolution component: {torch.linalg.norm(X_B - B @ X, ord='fro').item() ** 2}")
-                    print(f"Total loss (recomputed): {(torch.linalg.norm(Y.T - M @ X.T, ord='fro').item() ** 2)/ (sigma_yx ** 2) + torch.linalg.norm(X_B - B @ X, ord='fro').item() ** 2}")
-                    print(f"Total loss: {loss}")
+                    pass
+                    # # print(f'NMF component: {((X @ MTM - YM) * X).sum().item() / 2 + Ynorm / 2}')
+                    # # print(f'Superresolution component: {((BTB @ X - X_BTB.T) * X).sum().item() / 2 + X_Bnorm / 2}')
+                    # # print(f'Total loss (recomputed): {((X @ MTM - YM + BTB @ X - X_BTB.T) * X).sum().item() / 2 + (Ynorm + X_Bnorm) / 2}')
+                    # print(f"NMF component: {(torch.linalg.norm(Y.T - M @ X.T, ord='fro').item() ** 2)/ (sigma_yx ** 2)}")
+                    # print(f"Superresolution component: {torch.linalg.norm(X_B - B @ X, ord='fro').item() ** 2}")
+                    # print(f"Total loss (recomputed): {(torch.linalg.norm(Y.T - M @ X.T, ord='fro').item() ** 2)/ (sigma_yx ** 2) + torch.linalg.norm(X_B - B @ X, ord='fro').item() ** 2}")
+                    # print(f"Total loss: {loss}")
 
                 # gradient = quadratic_term_gradient - linear_term_gradient
-                # X = X.sub(gradient, alpha=step_size)
+                # X = X.sub(gradient, alpha=self.superresolution_lr)
                 # X = torch.clip(X, min=1e-10)
                 with torch.no_grad():
                     X.clamp_(min=1e-10)
+
+                # del quadratic_term_gradient
                 
-                return X, loss
+                return loss
                 
             progress_bar = trange(n_epochs, leave=True, disable=not verbose, miniters=10000)
             for epoch in progress_bar:
-                X_prev = X.clone()
+                X_prev = X.clone().detach()
                 if update_alg == 'mu':
                     pass
                 elif update_alg == 'gd':
-                    X, loss = gradient_update(X, iteration=epoch)
+                    loss = gradient_update(X, iteration=epoch)
     
                 dX = torch.abs((X_prev - X) / torch.linalg.norm(X, dim=1, ord=1, keepdim=True)).max().item()
 
-                if epoch % decay_period:
-                    tol /= 10
+                # if epoch % decay_period:
+                #     tol /= 10
                     
                 do_stop = dX < tol
                 description = f'Updating weights hierarchically: loss = {loss:.1e} ' \
@@ -366,8 +369,22 @@ class HierarchicalView():
                     break
 
             progress_bar.close()
-
             self.embedding_optimizer.embedding_state[dataset.name][:] = X.clone().detach()
+
+            # Delete dangling reference
+            del superresolution_optimizer
+            # del self.superresolution_optimizers[dataset.name]
+            
+            del sigma_yx
+            del Y
+            del X
+            del X_B
+            del B
+            del M
+            del MTM
+            del BTB
+            del YM
+            del BTX_B
                 
     def synchronize_datasets(self):
         """Synchronize datasets with learned view parameters and embeddings."""
@@ -527,7 +544,7 @@ def construct_hierarchy(base_view: HierarchicalView, chunks: int = 16, downsampl
             chunk_1d_density = binned_dataset.uns["chunk_1d_density"]
 
             binned_datasets.append(binned_dataset)
-            binned_Y = torch.from_numpy(binned_dataset.obsm[f"bin_assignments_{binned_dataset.name}"]).to(context["device"]) @ previous_Y
+            binned_Y = convert_numpy_to_pytorch_sparse_coo(binned_dataset.obsm[f"bin_assignments_{binned_dataset.name}"].tocoo(), context=context) @ previous_Y
             binned_Ys.append(binned_Y)
 
         level_view = HierarchicalView(binned_datasets, superresolution_lr=superresolution_lr,
@@ -554,7 +571,9 @@ def reconstruct_hierarchy(reloaded_hierarchy: dict, superresolution_lr: float = 
         if previous_view is not None:
             binned_Ys = []
             for dataset, previous_Y in zip(datasets, previous_view.Ys):
-                binned_Y = torch.from_numpy(dataset.obsm[f"bin_assignments_{dataset.name}"]).to(context["device"]) @ previous_Y
+                B = dataset.obsm[f"bin_assignments_{dataset.name}"]
+                dataset.obsm[f"bin_assignments_{dataset.name}"] = csr_array(B)
+                binned_Y = convert_numpy_to_pytorch_sparse_coo(dataset.obsm[f"bin_assignments_{dataset.name}"], context=context) @ previous_Y
                 binned_Ys.append(binned_Y)
 
         level_view = HierarchicalView(datasets, superresolution_lr=superresolution_lr,

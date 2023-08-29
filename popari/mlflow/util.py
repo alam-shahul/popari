@@ -78,7 +78,7 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
                                      --spatial_preiterations={{spatial_preiterations}}
                                      --nmf_preiterations={{nmf_preiterations}}
                                      --verbose={{verbose}}
-                                     --random_state={{random_state}} > output.txt 2>&1"
+                                     --random_state={{random_state}} > output_{{torch_device}}.txt 2>&1"
       
       popari:
         parameters:
@@ -88,3 +88,25 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
 
     with open(output_filepath, "w") as f:
         f.writelines(textwrap.dedent(mlproject_contents).strip())
+
+def load_from_mlflow_run(run, client, file_suffix="_result", **loading_kwargs):
+    """Load trained model from MLflow run.
+    
+    Args:
+        run: MLflow run containing model artifact.
+        client: MLflow client initialized to point to experiment location.
+        loading_kwargs: kwargs that can be passed to Popari pretrained initialization.
+    
+    """
+    run_id  = run.info.run_id
+    artifacts = client.list_artifacts(run_id)
+
+    trained_model_artifact, = list(filter(lambda artifact: artifact.path.endswith(file_suffix), artifacts))
+
+    print(run.data.params)
+    _, base_uri = run.info.artifact_uri.split(":")
+    trained_model_filepath = Path(base_uri) / trained_model_artifact.path
+
+    trained_model = load_trained_model(trained_model_filepath, **loading_kwargs)
+    
+    return trained_model

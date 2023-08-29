@@ -92,7 +92,7 @@ def main():
         model.estimate_parameters()
         model.estimate_weights()
 
-    if model.spatial_affinity_mode == "differential lookup":
+    if model.hierarchical_levels is not None:
         model.superresolve(n_epochs=superresolution_epochs)
 
     model.save_results(output_path)
