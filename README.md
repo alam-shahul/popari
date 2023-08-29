@@ -1,11 +1,13 @@
 # Popari
 
-![overview](./popari_overview_v3.png)
 
-
-Popari is a versatile framework for joint analysis and investigation of complex spatial transcriptomics datasets. Read the documentation (including installation instructions) at https://popari.readthedocs.io/en/latest/
+Popari is a versatile framework for joint analysis and investigation of complex spatial transcriptomics datasets. Read the documentation (including installation instructions) [here](https://popari.readthedocs.io/en/latest/).
 
 > :warning: **Popari is still under active development.** Check back in a bit for a more complete user experience!
+
+<p align="center">
+  <img src="./popari_overview_v3.png" width="600">
+</p>
 
 ## Dev Instructions
 ### Install
