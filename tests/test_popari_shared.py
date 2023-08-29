@@ -29,28 +29,25 @@ def popari_with_neighbors():
     for iteration in range(1, 5):
         print(f"-----  Iteration {iteration} -----")
         obj.estimate_parameters()
-        nll_metagenes = obj.parameter_optimizer.nll_metagenes()
-        nll_spatial_affinities = obj.parameter_optimizer.nll_spatial_affinities()
-        nll_sigma_yx = obj.parameter_optimizer.nll_sigma_yx()
+        nll_metagenes = obj.base_view.parameter_optimizer.nll_metagenes()
+        nll_spatial_affinities = obj.base_view.parameter_optimizer.nll_spatial_affinities()
+        nll_sigma_yx = obj.base_view.parameter_optimizer.nll_sigma_yx()
         print(f"Metagene loss: {nll_metagenes}")
         print(f"Spatial affinity loss: {nll_spatial_affinities}")
         print(f"Sigma_yx loss: {nll_sigma_yx}")
         obj.estimate_weights()
-        nll_embeddings = obj.embedding_optimizer.nll_embeddings()
+        nll_embeddings = obj.base_view.embedding_optimizer.nll_embeddings()
         print(f"Embedding loss: {nll_embeddings}")
-        print(f"Overall loss: {obj.nll()}")
-
-    print(obj.datasets[0].uns["losses"]["nll"])
+        print(f"Overall loss: {obj.base_view.nll()}")
 
     for dataset in obj.datasets:
         dataset.uns["multigroup_heatmap"] = {group_name: np.arange(4).reshape((2, 2)) for group_name in obj.metagene_groups}
-        print(dataset.uns)
 
     obj.save_results(path2dataset / 'trained_4_iterations.h5ad')
     return obj
 
 @pytest.fixture(scope="module")
-def popari_with_louvain_initialization():
+def popari_with_leiden_initialization():
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     replicate_names=[0, 1]
     obj = Popari(
@@ -63,7 +60,7 @@ def popari_with_louvain_initialization():
         verbose=4
     )
 
-def test_louvain_initialization(popari_with_louvain_initialization):
+def test_leiden_initialization(popari_with_leiden_initialization):
     pass
 
 def test_Sigma_x_inv(popari_with_neighbors):
@@ -88,8 +85,8 @@ def test_louvain_clustering(popari_with_neighbors):
     df_meta = []
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     repli_list = [0, 1]
-    expected_aris = [0.8153973232569635, 0.8555718914000724]
-    expected_silhouettes = [0.3064934536550343, 0.34369486335539806]
+    expected_aris = [0.8153973232569635, 0.8493627279334213]
+    expected_silhouettes = [0.3065145002352882, 0.3437466653435347]
     
     for index, (r, X) in enumerate(popari_with_neighbors.embedding_optimizer.embedding_state.items()):
     #     df = pd.read_csv(path2dataset / 'files' / f'meta_{r}.csv')

@@ -2,7 +2,7 @@ import argparse
 import json
 from pathlib import Path
 
-from popari.model import Popari
+from popari.model import Popari, from_pretrained
 from .__about__ import __version__
 
 from . import analysis as tl
@@ -18,21 +18,26 @@ def main():
     parser.add_argument('--K', type=int, required=True, default=10, help="Number of metagenes to use for all replicates.")
     parser.add_argument('--num_iterations', type=int, required=True, default=200, help="Number of iterations to run Popari.")
     parser.add_argument('--nmf_preiterations', type=int, default=5, help="Number of NMF preiterations to use for initialization.")
+    parser.add_argument('--dtype', type=str, required=True, default="float64", help="Datatype to use for PyTorch operations. Choose between ``float32`` or ``float64``")
+    parser.add_argument('--torch_device', type=str, required=True, help="keyword args to use of PyTorch tensors during training.")
+    parser.add_argument('--initial_device', type=str, required=True, help="keyword args to use during initialization of PyTorch tensors.")
     parser.add_argument('--output_path', type=str, required=True, help="Path at which to save Popari output.")
-    parser.add_argument('--dataset_path', type=str, help="Path to input dataset.")
+    parser.add_argument('--dataset_path', type=str, required=True, help="Path to input dataset.")
     parser.add_argument('--lambda_Sigma_x_inv', type=float, help="Hyperparameter to balance importance of spatial information.")
     parser.add_argument('--pretrained', type=bool, help="if set, attempts to load model state from input files")
     parser.add_argument('--initialization_method', type=str, help="algorithm to use for initializing metagenes and embeddings. Default ``svd``")
+    parser.add_argument('--hierarchical_levels', type=int, help="Number of hierarchical binning levels to use in Popari run.")
+    parser.add_argument('--binning_downsample_rate', type=float, help="Approximate rate at which spots are aggregated into bins.")
+    parser.add_argument('--superresolution_lr', type=float, help="Initial learning rate for superresolution optimization.")
+    parser.add_argument('--superresolution_epochs', type=int, default=10000, help="Number of epochs to do superresolution optimization.")
     parser.add_argument('--metagene_groups', type=json.loads, help="defines a grouping of replicates for the metagene optimization.")
     parser.add_argument('--spatial_affinity_groups', type=json.loads, help="defines a grouping of replicates for the spatial affinity optimization.")
     parser.add_argument('--betas', type=json.loads, help="weighting of each dataset during optimization. Defaults to equally weighting each dataset")
     parser.add_argument('--prior_x_modes', type=json.loads, help="family of prior distribution for embeddings of each dataset")
     parser.add_argument('--M_constraint', type=str, help="constraint on columns of M. Default ``simplex``")
     parser.add_argument('--sigma_yx_inv_mode', type=str, help="form of sigma_yx_inv parameter. Default ``separate``")
-    parser.add_argument('--dtype', type=str, help="Datatype to use for PyTorch operations. Choose between ``float32`` or ``float64``")
-    parser.add_argument('--torch_device', type=str, help="keyword args to use of PyTorch tensors during training.")
-    parser.add_argument('--initial_device', type=str, help="keyword args to use during initialization of PyTorch tensors.")
     parser.add_argument('--spatial_affinity_mode', type=str, help="modality of spatial affinity parameters. Default ``shared lookup``")
+    parser.add_argument('--metagene_mode', type=str, help="modality of metagene parameters. Default ``shared``")
     parser.add_argument('--lambda_M', type=float, help="hyperparameter to constrain metagene deviation in differential case.")
     parser.add_argument('--lambda_Sigma_bar', type=float, help="hyperparameter to constrain spatial affinity deviation in differential case.")
     parser.add_argument('--spatial_affinity_lr', type=float, help="learning rate for optimization of ``Sigma_x_inv``")
@@ -58,6 +63,8 @@ def main():
     initial_device = filtered_args.pop("initial_device")
     dtype = filtered_args.pop("dtype")
 
+    superresolution_epochs = filtered_args.pop("superresolution_epochs")
+
     dtype_object = torch.float32
     if dtype == "float64":
         dtype_object = torch.float64
@@ -77,9 +84,15 @@ def main():
         model.estimate_parameters(update_spatial_affinities=False)
         model.estimate_weights(use_neighbors=False)
 
+    model.parameter_optimizer.reinitialize_spatial_affinities()
+    model.synchronize_datasets()
+
     for iteration in range(num_iterations):
-        print(f"----- Iterations {iteration} -----")
+        print(f"----- Preiteration {iteration} -----")
         model.estimate_parameters()
         model.estimate_weights()
+
+    if model.hierarchical_levels is not None:
+        model.superresolve(n_epochs=superresolution_epochs)
 
     model.save_results(output_path)

@@ -3,7 +3,7 @@ import os, time, pickle, sys, datetime, logging
 from tqdm.auto import tqdm, trange
 
 import numpy as np
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, csr_array
 import pandas as pd
 
 from sklearn.preprocessing import StandardScaler
@@ -23,6 +23,7 @@ import matplotlib.patches as patches
 import seaborn as sns
 from collections import defaultdict
 
+from popari.sample_for_integral import integrate_of_exponential_over_simplex
 
 def create_neighbor_groups(replicate_names, covariate_values, window_size = 1):
     if window_size == None:
@@ -521,7 +522,7 @@ def compute_neighborhood_enrichment(features: np.ndarray, adjacency_matrix: csr_
 
     return np.asarray(normalized_enrichment)
 
-def chunked_coordinates(coordinates: np.ndarray, chunks: int):
+def chunked_coordinates(coordinates: np.ndarray, chunks: int = None, step_size: float = None):
     """Split a list of 2D coordinates into local chunks.
     
     Args:
@@ -536,8 +537,18 @@ def chunked_coordinates(coordinates: np.ndarray, chunks: int):
 
     horizontal_base, vertical_base = np.min(coordinates, axis=0)
     horizontal_range, vertical_range = np.ptp(coordinates, axis=0)
-    
-    horizontal_borders, step_size = np.linspace(horizontal_base, horizontal_base + horizontal_range, chunks + 1, retstep=True)
+  
+    if step_size is None and chunks is None:
+        raise ValueError("One of `chunks` or `step_size` must be specified.")
+
+    if step_size is None:
+        horizontal_borders, step_size = np.linspace(horizontal_base, horizontal_base + horizontal_range, chunks + 1, retstep=True)
+    elif chunks is None:
+        horizontal_borders = np.arange(horizontal_base, horizontal_base + horizontal_range, step_size)
+        
+        # Adding endpoint
+        horizontal_borders = np.append(horizontal_borders, horizontal_borders[-1] + step_size)
+
     vertical_borders = np.arange(vertical_base, vertical_base + vertical_range, step_size)
     
     # Adding endpoint
@@ -602,7 +613,8 @@ def finetune_chunk_number(coordinates: np.ndarray, chunks: int, downsample_rate:
     
     return chunks + direction * chunk_nudge
 
-def chunked_downsample_on_grid(coordinates: np.ndarray, chunks: int, downsample_rate: float):
+def chunked_downsample_on_grid(coordinates: np.ndarray, downsample_rate: float, chunks: Optional[int] = None,
+        chunk_size: Optional[float] = None, downsampled_1d_density: Optional[int] = None):
     """Downsample spot coordinates to a square grid of meta-spots using chunks.
     
     By chunking the coordinates, we can:
@@ -627,15 +639,19 @@ def chunked_downsample_on_grid(coordinates: np.ndarray, chunks: int, downsample_
     horizontal_base, vertical_base = np.min(coordinates, axis=0)
     horizontal_range, vertical_range = np.ptp(coordinates, axis=0)
     
-    chunks = finetune_chunk_number(coordinates, chunks, downsample_rate)
+    if chunks is not None:
+        chunks = finetune_chunk_number(coordinates, chunks, downsample_rate)
+
     valid_chunks = []
-    for chunk_data in chunked_coordinates(coordinates, chunks=chunks):
+    for chunk_data in chunked_coordinates(coordinates, chunks=chunks, step_size=chunk_size):
         if len(chunk_data['chunk_coordinates']) > 0:
             valid_chunks.append(chunk_data)
-   
- 
+
     points_per_chunk = num_points * downsample_rate / len(valid_chunks)
-    downsampled_1d_density = int(np.round(np.sqrt(points_per_chunk)))
+
+    if downsampled_1d_density is None:
+        downsampled_1d_density = int(np.round(np.sqrt(points_per_chunk)))
+
     if points_per_chunk < 2:
         raise ValueError("Chunk density is < 1")
     
@@ -657,7 +673,6 @@ def chunked_downsample_on_grid(coordinates: np.ndarray, chunks: int, downsample_
             y_gap = y[-1] - y[-2]
             y = np.append(y, y.max() + y_gap)
           
-
         xv, yv = np.meshgrid(x, y)
           
         new_coordinates = np.array(list(zip(xv.flat, yv.flat)))
@@ -666,7 +681,7 @@ def chunked_downsample_on_grid(coordinates: np.ndarray, chunks: int, downsample_
     new_coordinates = np.vstack(all_new_coordinates)
     new_coordinates = np.unique(new_coordinates, axis=0)
     
-    return new_coordinates
+    return new_coordinates, step_size, downsampled_1d_density
 
 def filter_gridpoints(spot_coordinates: np.ndarray, grid_coordinates: np.ndarray, num_jobs: int):
     """Use nearest neighbors approach to filter out relevant grid coordinates.
@@ -701,13 +716,14 @@ def bin_expression(spot_expression: np.ndarray, spot_coordinates: np.ndarray, bi
         bin_coordinates: coordinates of downsampled bin spots
         
     Returns:
-        binned expression for metaspots
+        A tuple of (binned expression for metaspots, assignment matrix of bins to spots)
     """
     
     num_spots, num_genes = spot_expression.shape    
     num_bins, _ = bin_coordinates.shape
     
     bin_expression = np.zeros((num_bins, num_genes))
+    bin_assignments = csr_array((num_bins, num_spots), dtype=np.int32)
     
     neigh = NearestNeighbors(n_neighbors=1, n_jobs=num_jobs)
     neigh.fit(bin_coordinates)
@@ -719,6 +735,117 @@ def bin_expression(spot_expression: np.ndarray, spot_coordinates: np.ndarray, bi
         
     for i in range(num_bins):
         bin_spots = bin_to_spots[i]
+        bin_assignments[i, bin_spots] = 1
         bin_expression[i] = np.sum(spot_expression[bin_spots], axis=0)
     
-    return bin_expression
+    return bin_expression, bin_assignments
+
+def compute_nll(model, level: int = 0, use_spatial=False):
+    """Compute overall negative log-likelihood for current model parameters.
+
+    """
+
+    datasets = model.hierarchy[level].datasets
+    parameter_optimizer = model.hierarchy[level].parameter_optimizer
+    embedding_optimizer = model.hierarchy[level].embedding_optimizer
+    Ys = model.hierarchy[level].Ys
+    betas = model.hierarchy[level].betas
+
+    with torch.no_grad():
+        total_loss  = torch.zeros(1, **model.context)
+        if use_spatial:    
+            weighted_total_cells = 0
+            for dataset in datasets: 
+                E_adjacency_list = embedding_optimizer.adjacency_lists[dataset.name]
+                weighted_total_cells += sum(map(len, E_adjacency_list))
+
+        for dataset_index, dataset  in enumerate(datasets):
+            sigma_yx = parameter_optimizer.sigma_yxs[dataset_index]
+            Y = Ys[dataset_index].to(model.context["device"])
+            X = embedding_optimizer.embedding_state[dataset.name].to(model.context["device"])
+            M = parameter_optimizer.metagene_state[dataset.name].to(model.context["device"])
+            prior_x_mode = parameter_optimizer.prior_x_modes[dataset_index]
+            beta = betas[dataset_index]
+            prior_x = parameter_optimizer.prior_xs[dataset_index]
+                
+            # Precomputing quantities
+            MTM = M.T @ M / (sigma_yx ** 2)
+            YM = Y.to(M.device) @ M / (sigma_yx ** 2)
+            Ynorm = torch.linalg.norm(Y, ord='fro').item() ** 2 / (sigma_yx ** 2)
+            S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
+
+            Z = X / S
+            N, G = Y.shape
+            
+            loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
+
+            logZ_i_Y = torch.full((N,), G/2 * np.log((2 * np.pi * sigma_yx**2)), **model.context)
+            if not use_spatial:
+                logZ_i_X = torch.full((N,), 0, **model.context)
+                if (prior_x[0] != 0).all():
+                    logZ_i_X +=  torch.full((N,), model.K * torch.log(prior_x[0]).item(), **model.context)
+                log_partition_function = (logZ_i_Y + logZ_i_X).sum()
+            else:
+                adjacency_matrix = embedding_optimizer.adjacency_matrices[dataset.name].to(model.context["device"])
+                Sigma_x_inv = parameter_optimizer.spatial_affinity_state[dataset.name].to(model.context["device"])
+                nu = adjacency_matrix @ Z
+                eta = nu @ Sigma_x_inv
+                logZ_i_s = torch.full((N,), 0, **model.context)
+                if (prior_x[0] != 0).all():
+                    logZ_i_s = torch.full((N,), -model.K * torch.log(prior_x[0]).item() + torch.log(factorial(model.K-1, exact=True)).item(), **model.context)
+
+                logZ_i_z = integrate_of_exponential_over_simplex(eta)
+                log_partition_function = (logZ_i_Y + logZ_i_z + logZ_i_s).sum()
+        
+                if prior_x_mode == 'exponential shared fixed':
+                    loss += prior_x[0][0] * S.sum()
+                elif not prior_x_mode:
+                    pass
+                else:
+                    raise NotImplementedError
+        
+                if Sigma_x_inv is not None:
+                    loss += (eta).mul(Z).sum() / 2
+
+                spatial_affinity_bars = None
+                if model.spatial_affinity_mode == "differential lookup":
+                    spatial_affinity_bars = [parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].detach() for group_name in model.hierarchy[level].spatial_affinity_tags[dataset.name]]
+
+                regularization = torch.zeros(1, **model.context)
+                if spatial_affinity_bars is not None:
+                    group_weighting = 1 / len(spatial_affinity_bars)
+                    for group_Sigma_x_inv_bar in spatial_affinity_bars:
+                        regularization += group_weighting * model.lambda_Sigma_bar * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum() / 2
+    
+                regularization += model.lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() / 2
+
+                regularization *= weighted_total_cells
+    
+                loss += regularization.item()
+                
+            loss += log_partition_function
+
+            differential_regularization_term = torch.zeros(1, **model.context)
+            M_bar = None
+            if model.metagene_mode == "differential":
+                M_bar = [parameter_optimizer.metagene_state.M_bar[group_name] for group_name in model.hierarchy[level].metagene_tags[dataset.name]]
+               
+            if model.lambda_M > 0 and M_bar is not None:
+                differential_regularization_quadratic_factor = model.lambda_M * torch.eye(model.K, **model.context)
+                
+                differential_regularization_linear_term = torch.zeros_like(M, **model.context)
+                group_weighting = 1 / len(M_bar)
+                for group_M_bar in M_bar:
+                    differential_regularization_linear_term += group_weighting * model.lambda_M * group_M_bar
+
+                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (differential_regularization_linear_term * M).sum()
+                group_weighting = 1 / len(M_bar)
+                for group_M_bar in M_bar:
+                    differential_regularization_term += group_weighting * model.lambda_M * (group_M_bar * group_M_bar).sum()
+            
+            loss += differential_regularization_term.item()
+
+            total_loss += loss
+
+    return total_loss.cpu().numpy()
+

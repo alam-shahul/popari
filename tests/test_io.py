@@ -12,7 +12,6 @@ from pathlib import Path
 def trained_model():
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     replicate_names=[0, 1]
-    trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad", replicate_names)
     trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad")
 
     return trained_model
@@ -21,7 +20,6 @@ def trained_model():
 def trained_differential_model():
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
     replicate_names=[0, 1]
-    trained_model = load_trained_model(path2dataset / "trained_differential_metagenes_4_iterations.h5ad", replicate_names)
     trained_model = load_trained_model(path2dataset / "trained_differential_metagenes_4_iterations.h5ad")
 
     return trained_model
@@ -46,11 +44,18 @@ def test_save_anndata(trained_model):
     save_anndata(path2dataset/ "mock_results.h5ad", trained_model.datasets)
     save_anndata(path2dataset/ "mock_results_ignore_raw_data.h5ad", trained_model.datasets, ignore_raw_data=True)
 
-def test_load_anndata(trained_model):
+def test_load_anndata():
     replicate_names=[0, 1]
     path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
-    load_anndata(path2dataset/ "trained_4_iterations.h5ad", replicate_names)
     load_anndata(path2dataset/ "trained_4_iterations.h5ad")
+
+def test_load_hierarchical_model():
+    replicate_names=[0, 1]
+    path2dataset = Path('tests/test_data/synthetic_500_100_20_15_0_0_i4')
+    load_trained_model(path2dataset/ "superresolved_results")
+
+def test_nll(trained_model):
+    nll = trained_model.nll()
 
 def test_analysis_functions(trained_model, trained_differential_model):
     tl.preprocess_embeddings(trained_model)
@@ -64,7 +69,7 @@ def test_analysis_functions(trained_model, trained_differential_model):
 
     tl.pca(trained_model, joint=True)
 
-    expected_aris = [0.7998884130878, 0.8329298508489761]
+    expected_aris = [0.7405537444360839, 0.7694805741910644]
     tl.leiden(trained_model, joint=True, target_clusters=8)
     tl.compute_ari_scores(trained_model, labels="cell_type", predictions="leiden")
     tl.compute_silhouette_scores(trained_model, labels="cell_type", embeddings="normalized_X")
@@ -96,6 +101,7 @@ def test_analysis_functions(trained_model, trained_differential_model):
 
     pl.multireplicate_heatmap(trained_model, uns="Sigma_x_inv")
     pl.multireplicate_heatmap(trained_model, uns="Sigma_x_inv", label_values=True)
+    pl.spatial_affinities(trained_model, label_values=True)
     pl.metagene_embedding(trained_model, 0)
     pl.all_embeddings(trained_model, embedding_key="normalized_X")
     tl.compute_empirical_correlations(trained_model, output="empirical_correlation")
