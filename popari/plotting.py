@@ -13,7 +13,7 @@ from popari._dataset_utils import _preprocess_embeddings, _plot_metagene_embeddi
                                   _plot_umap, _multireplicate_heatmap, _multigroup_heatmap, _compute_empirical_correlations, \
                                   _broadcast_operator, _compute_ari_score, _compute_silhouette_score, _plot_all_embeddings, \
                                   _evaluate_classification_task, _compute_confusion_matrix, _compute_columnwise_autocorrelation, \
-                                  _plot_confusion_matrix, _compute_spatial_correlation
+                                  _plot_confusion_matrix, _compute_spatial_correlation, _plot_cell_type_to_metagene
 
 def in_situ(trained_model: Popari, color="leiden", axes = None, level=0, **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
@@ -153,7 +153,7 @@ def spatial_affinities(trained_model: Popari,
 
 
 def all_embeddings(trained_model: Popari, embedding_key: str = "X", column_names: Optional[str] = None, level=0, **spatial_kwargs):
-    r"""Plot all laerned metagenes in-situ across all replicates.
+    r"""Plot all learned metagenes in-situ across all replicates.
 
     Each replicate's metagenes are contained in a separate plot.
 
@@ -174,3 +174,23 @@ def all_embeddings(trained_model: Popari, embedding_key: str = "X", column_names
         column_names = [f"{embedding_key}_{index}" for index in range(K)]
 
     _broadcast_operator(datasets, partial(_plot_all_embeddings, embedding_key=embedding_key, column_names=column_names, **spatial_kwargs))
+
+def cell_type_to_metagene(trained_model: Popari, cell_type_de_genes: dict, level=0, **correspondence_kwargs):
+    r"""Plot distribution of gene ranks of marker genes within each metagene.
+
+    Args:
+        trained_model: the trained Popari model.
+        cell_type_de_genes: dictionary mapping each cell type to a list of marker genes.
+
+    Returns:
+        mapping from each cell type to the median rank of its marker genes in each metagene
+
+    """
+
+    datasets = trained_model.hierarchy[level].datasets
+    
+    first_dataset = datasets[0]
+
+    fig, medians = _plot_cell_type_to_metagene(first_dataset, cell_type_de_genes, **correspondence_kwargs)
+
+    return medians
