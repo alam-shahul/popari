@@ -1,4 +1,6 @@
 import textwrap
+from pathlib import Path
+from popari.model import load_trained_model
 
 def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject"):
     """Generate MLproject file for command line use.

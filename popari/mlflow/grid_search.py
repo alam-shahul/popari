@@ -52,11 +52,17 @@ def run():
 
     configuration['hyperparameters']['dataset_path'] = dataset_paths
 
-    max_p = configuration['runtime']['max_p']
+    # Fix this up so that you can input a list of CUDA devices instead of a number of processes
+    if "device_list" in configuration['runtime']:
+        device_list = configuration['runtime']['device_list']
+        num_processes = len(device_list)
+    elif "num_processes" in configuration['runtime']:
+        num_processes = configuration['runtime']['num_processes']
+        device_list = [f'cuda:{device_number}' for device_number in range(num_processes)]
 
     tracking_client = MlflowClient()
 
-    device_status = [False for _ in range(max_p)]
+    device_status = [False for _ in range(num_processes)]
     def generate_evaluate_function(parent_run, experiment_id, null_nll=0):
         """Generates function to evaluate Popari.
 
@@ -68,8 +74,9 @@ def run():
 
             """
             
-            device = device_status.index(False)
-            device_status[device] = True 
+            device_index = device_status.index(False)
+            device = device_list[device_index]
+            device_status[device_index] = True 
 
             child_run = tracking_client.create_run(experiment_id, tags={"mlflow.parentRunId": parent_run.info.run_id})
             # with mlflow.start_run(nested=True) as child_run:
@@ -84,8 +91,8 @@ def run():
                     # "dataset_path": configuration['runtime']['dataset_path'],
                     "output_path": f"./device_{device}_result",
                     "dtype": "float64",
-                    "torch_device": f"cuda:{device}",
-                    "initial_device": f"cuda:{device}",
+                    "torch_device": device,
+                    "initial_device": device,
                     "spatial_affinity_mode": "shared lookup" if params['lambda_Sigma_bar'] == 0 else "differential lookup",
                     "verbose": 1,
                 },
@@ -94,7 +101,7 @@ def run():
                 synchronous=False,
             )
             succeeded = p.wait()
-            device_status[device] = False
+            device_status[device_index] = False
 
             tracking_client.set_terminated(child_run.info.run_id)
 
@@ -116,7 +123,7 @@ def run():
         experiment_id = parent_run.info.experiment_id
         null_evaluate = generate_evaluate_function(parent_run, experiment_id)
         null_hyperparameters = {
-            "K": 10,
+            "K": configuration['hyperparameters']['K']['start'],
             "dataset_path": dataset_paths[0],
             "lambda_Sigma_x_inv": 0,
             "lambda_Sigma_bar": 0,
@@ -194,7 +201,7 @@ def run():
         print(f"Number of grid search candidates: {len(options)}")
 
         evaluate = generate_evaluate_function(parent_run, experiment_id, null_nll)
-        with ThreadPoolExecutor(max_workers=max_p) as executor:
+        with ThreadPoolExecutor(max_workers=num_processes) as executor:
             _ = executor.map(evaluate, options,)
 
         # find the best run, log its metrics as the final metrics of this run.

@@ -6,6 +6,8 @@ from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 
 import numpy as np
+from scipy.stats import pearsonr, spearmanr, wasserstein_distance
+
 import scanpy as sc
 
 from popari.model import Popari
@@ -332,3 +334,76 @@ def compute_spatial_correlation(trained_model: Popari,
     datasets = trained_model.hierarchy[level].datasets
 
     _broadcast_operator(datasets, partial(_compute_spatial_correlation, spatial_key=spatial_key, metagene_key=metagene_key, spatial_correlation_key=spatial_correlation_key, neighbor_interactions_key=neighbor_interactions_key))
+
+def normalized_affinity_trends(trained_model,
+                           timepoint_values: Sequence[float],
+                           time_unit = "Days",
+                           normalize: bool = False,
+                           spatial_affinity_key: str = "Sigma_x_inv",
+                           n_best: int = 5,
+                           highlight_metric: str = "pearson",    
+                           figsize: tuple = None,
+                           margin_size: float = 0.25,
+                           level=0):
+    """Plot trends for every pair of affinities; highlight top trends.
+    
+    Args:
+        trained_model: the trained Popari model.
+        timepoint_values: x-values against which to plot trends
+        time_unit: unit in which time is measured (used for x-axis label)
+    """
+
+    
+    datasets = trained_model.hierarchy[level].datasets
+    all_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.name] for dataset in datasets])
+    
+    if normalize:
+        for index in range(len(datasets), axes.size):
+            prenormalization_affinity_std = np.std(all_affinities, axis=0, keepdims=True)
+            prenormalization_timepoint_std = np.std(timepoint_values)
+            all_affinities /= prenormalization_affinity_std
+            timepoint_values /= prenormalization_timepoint_std
+        
+    timepoint_min = np.min(timepoint_values)
+    timepoint_ptp = np.ptp(timepoint_values)
+    timepoint_std = np.std(timepoint_values)
+        
+    affinity_min = np.min(all_affinities)
+    affinity_ptp = np.ptp(all_affinities)
+    affinity_std = np.std(all_affinities, axis=0, keepdims=True)
+    
+    
+    pearson_correlations = {}
+    variances = {}
+    pearson_p_values = {}
+    slopes = {}
+
+    for i in range(trained_model.K):
+        for j in range(i+1):
+            affinity_values = all_affinities[:, i, j]
+            r, p_value = pearsonr(affinity_values, timepoint_values)
+            variances[(i, j)] = np.var(affinity_values)
+            pearson_correlations[(i, j)] = r
+            pearson_p_values[(i, j)] = r
+            slopes[(i, j)] = r * affinity_std[0, i, j] / timepoint_std
+     
+    if highlight_metric == "pearson":
+        pairs, metric_values = zip(*pearson_correlations.items())
+    elif highlight_metric == "variance":
+        pairs, metric_values = zip(*variances.items())
+    
+    pairs = np.array(pairs)
+    sorted_values = np.argsort(metric_values)
+    best_values = sorted_values[-n_best:][::-1] if n_best > 0 else sorted_values[:-n_best]
+    
+    top_pairs = pairs[best_values].tolist()
+
+    for dataset in datasets:
+        dataset.uns["spatial_trends"] = {
+            "top_pairs": top_pairs,
+            "pearson_correlations": pearson_correlations,
+            "variances": variances,
+            "slopes": slopes
+        }
+    
+    return top_pairs, pearson_correlations, variances

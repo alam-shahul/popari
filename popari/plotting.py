@@ -3,14 +3,16 @@ from functools import partial
 
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
+from matplotlib import cm
 from matplotlib.colors import ListedColormap
 
 import numpy as np
+
 import scanpy as sc
 
 from popari.model import Popari
-from popari._dataset_utils import _preprocess_embeddings, _plot_metagene_embedding, _cluster, _pca, _plot_in_situ, \
-                                  _plot_umap, _multireplicate_heatmap, _multigroup_heatmap, _compute_empirical_correlations, \
+from popari._dataset_utils import setup_squarish_axes, _preprocess_embeddings, _plot_metagene_embedding, _cluster, _pca, \
+                                  _plot_in_situ, _plot_umap, _multireplicate_heatmap, _multigroup_heatmap, _compute_empirical_correlations, \
                                   _broadcast_operator, _compute_ari_score, _compute_silhouette_score, _plot_all_embeddings, \
                                   _evaluate_classification_task, _compute_confusion_matrix, _compute_columnwise_autocorrelation, \
                                   _plot_confusion_matrix, _compute_spatial_correlation, _plot_cell_type_to_metagene
@@ -193,4 +195,151 @@ def cell_type_to_metagene(trained_model: Popari, cell_type_de_genes: dict, level
 
     fig, medians = _plot_cell_type_to_metagene(first_dataset, cell_type_de_genes, **correspondence_kwargs)
 
-    return medians
+    return medians, fig
+
+def affinity_magnitude_vs_difference(trained_model,
+                           level=0,
+                           spatial_affinity_key: str = "Sigma_x_inv",
+                           spatial_affinity_bar_key: str = "spatial_affinity_bar",
+                           joint=False,
+                           figsize=(10, 10),
+                           n_best: int = 5):
+    """Plot all pairwise affinities, in terms of absolute and relative magnitude.
+    
+    Args:
+        trained_model: the trained Popari model.
+        
+    
+    """
+    datasets = trained_model.hierarchy[level].datasets
+    group_suffix = f"level_{level}" if level > 0 else""
+    
+    fig, axes = setup_squarish_axes(len(datasets), figsize=figsize)
+    
+    all_top_pairs = []
+    
+    for index in range(len(datasets), axes.size):
+        axes.flat[index].axis('off')
+        
+    for ax, (index, dataset) in zip(axes.flat, enumerate(datasets)):
+        dataset.uns["delta_Sigma"] = {
+            dataset.name: dataset.uns[spatial_affinity_key][dataset.name] - dataset.uns[spatial_affinity_bar_key][f"_default_{group_suffix}"]
+        }
+
+        Sigma_x_inv = dataset.uns[spatial_affinity_key][dataset.name]
+        delta_Sigma = dataset.uns["delta_Sigma"][dataset.name]
+        pairs = {}
+        for i in range(trained_model.K):
+            for j in range(i+1):
+                pairs[(i, j)] = (delta_Sigma[(i, j)], Sigma_x_inv[(i, j)])
+
+        indices, flat_pairs = zip(*pairs.items())
+                                 
+        magnitudes = np.linalg.norm(flat_pairs, axis=1)
+        
+        sorted_index = np.argsort(magnitudes)
+        best_index = sorted_index[-n_best:][::-1]
+
+        x, y = np.array(flat_pairs).T
+        
+        ax.scatter(x, y, s=1, color="#D3D3D3")
+        
+        num_top_points = abs(n_best)
+        colors = sc.pl.palettes.godsnot_102[:num_top_points]
+
+        best_indices = np.array(indices)[best_index]
+        for (i, j), color in zip(best_indices, colors):
+            x, y = pairs[(i, j)]
+            ax.scatter(x, y, s=20, color=color, label=f"m{i} × m{j}")                    
+                    
+        ax.set_title("Pairwise affinity scatter")
+        ax.set_xlabel("Difference from average affinity")
+        ax.set_ylabel("Pairwise affinity")
+        ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+        
+        all_top_pairs.append(best_indices)
+        
+    return fig, all_top_pairs
+
+
+def normalized_affinity_trends(trained_model,
+                           timepoint_values: Sequence[float],
+                           time_unit = "Days",
+                           normalize: bool = False,
+                           spatial_affinity_key: str = "Sigma_x_inv",
+                           n_best: int = 5,
+                           highlight_metric: str = "pearson",    
+                           figsize: tuple = None,
+                           margin_size: float = 0.25,
+                           level=0):
+    """Plot trends for every pair of affinities; highlight top trends.
+    
+    Args:
+        trained_model: the trained Popari model.
+        timepoint_values: x-values against which to plot trends
+        time_unit: unit in which time is measured (used for x-axis label)
+    """
+
+    
+    datasets = trained_model.hierarchy[level].datasets
+
+    first_dataset = datasets[0]
+    spatial_trends = first_dataset.uns["spatial_trends"]
+
+    all_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.name] for dataset in datasets])
+    
+    if normalize:
+        for index in range(len(datasets), axes.size):
+            axes.flat[index].axis('off')
+            prenormalization_affinity_std = np.std(all_affinities, axis=0, keepdims=True)
+            prenormalization_timepoint_std = np.std(timepoint_values)
+            all_affinities /= prenormalization_affinity_std
+            timepoint_values /= prenormalization_timepoint_std
+        
+    timepoint_min = np.min(timepoint_values)
+    timepoint_ptp = np.ptp(timepoint_values)
+    timepoint_std = np.std(timepoint_values)
+        
+    affinity_min = np.min(all_affinities)
+    affinity_ptp = np.ptp(all_affinities)
+    affinity_std = np.std(all_affinities, axis=0, keepdims=True)
+    
+    if figsize is None:
+        figsize = (10, 5)
+        
+    fig, ax = plt.subplots(dpi=300, figsize=figsize)
+    
+    ax.set_ylim([affinity_min - margin_size, affinity_min + affinity_ptp + margin_size])
+    ax.set_xlim([timepoint_min - margin_size, timepoint_min + timepoint_ptp + margin_size])
+    ax.set_xticks(timepoint_values)
+    
+    number_of_lines = abs(n_best)
+    colors = cm.get_cmap('rainbow', number_of_lines)
+
+    for i in range(trained_model.K):
+        for j in range(i+1):
+            affinity_values = all_affinities[:, i, j]
+            if [i, j] not in  spatial_trends["top_pairs"]:
+#             if True:
+                line = ax.plot(timepoint_values, affinity_values, color="#D3D3D3", linestyle="--", linewidth=0.5)
+
+    for index, (i, j) in enumerate(spatial_trends["top_pairs"]):
+        affinity_values = all_affinities[:, i, j]
+        if highlight_metric == "pearson":
+            r = spatial_trends["pearson_correlations"][(i, j)]
+            slope = spatial_trends["slopes"][(i, j)]
+            slope_display = f", slope={slope:.2f}" if not normalize else ""
+            label = f"m{i} × m{j}, r={r:.2}{slope_display}"
+        elif highlight_metric == "variance":
+            variance = spatial_trends["variances"][(i, j)]
+            label = f"m{i} × m{j}, σ={variance:.2f}"
+
+        color = colors(index)
+        ax.plot(timepoint_values, affinity_values, color=color, linestyle="-", linewidth=3, label=label, zorder=2)
+
+    ax.set_title("Pairwise affinity trends")
+    ax.set_xlabel(f"{time_unit}")
+    ax.set_ylabel("Pairwise affinity")
+    ax.legend(loc='upper left', bbox_to_anchor=(1, 0))
+    
+    return fig

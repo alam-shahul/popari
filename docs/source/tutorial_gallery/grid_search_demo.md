@@ -9,7 +9,9 @@ In order to specify the range of Popari hyperparameters over which to grid searc
 [runtime]
 project_name = "example_project" # Name of the project
 dataset_path = "/path/to/dataset.h5ad" # Path to the preprocessed Popari input
-max_p = 4 # Max number of parallel Popari jobs to run at once; limited by number of available CUDA-enabled devices
+num_processes = 4 # Max number of parallel Popari jobs to run at once; limited by number of available CUDA-enabled devices
+# As an alternative to `num_processes`, you can also explicitly provide a list of available devices, as below:
+# device_list = ['cuda:0', 'cuda:3', 'cuda:7', 'cpu'] # If using this argument, then `num_processes=len(device_list)`
 
 [hyperparameters]
 
@@ -70,7 +72,7 @@ max_p = 4 # Max number of parallel Popari jobs to run at once; limited by number
     dtype = 'int'
 ```
 
-The above configuration would yield `3 * 1 * 1 * 1 * 3 * 1 * 3 * 2 * 1 = 18` hyperparameter combinations, implying that `18` Popari jobs will be executed by the MLflow framework. Furthermore, according to the `max_p` setting, a maximum of `4` of these processes will be running at any single moment in time.
+The above configuration would yield `3 * 1 * 1 * 1 * 1 * 3 * 2 * 1 = 18` hyperparameter combinations, implying that `18` Popari jobs will be executed by the MLflow framework. Furthermore, according to the `num_processes` setting, a maximum of `4` of these processes will be running at any single moment in time.
 
 To start a grid search, navigate to the folder where you want to store your grid search results (e.g. `example_grid_search`), and then run the `popari-grid-search` script:
 
@@ -80,7 +82,8 @@ cd example_grid_search
 popari-grid-search --configuration_filepath=/path/to/config_file.toml
 ```
 
-You can also run benchmarking runs using SpiceMix and NMF using the flag `--include_benchmarks`, and you can run only the benchmarks by additionally including the `--only_benchmarks` flag.
+You can also run benchmarking runs using SpiceMix and NMF using the flag `--include_benchmarks`, and you can run only the benchmarks by additionally including the `--only_benchmarks` flag. Note that this will effectively triple the number of jobs that will run during the grid search.
+
 
 ## View results
 To view the results of your grid search (including relevant metrics), run the following command from the same folder

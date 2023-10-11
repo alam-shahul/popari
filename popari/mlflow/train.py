@@ -185,7 +185,7 @@ def save_popari_figs(model: Popari, level: int = 0, save_spatial_figs: bool = Fa
     
     is_hierarchical = (model.hierarchical_levels > 1)
 
-    if is_hierarchical:
+    if not is_hierarchical:
         suffix = ".png"
     else:
         suffix = f"_level_{level}.png"
