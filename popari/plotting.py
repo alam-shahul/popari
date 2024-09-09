@@ -15,7 +15,8 @@ from popari._dataset_utils import setup_squarish_axes, _preprocess_embeddings, _
                                   _plot_in_situ, _plot_umap, _multireplicate_heatmap, _multigroup_heatmap, _compute_empirical_correlations, \
                                   _broadcast_operator, _compute_ari_score, _compute_silhouette_score, _plot_all_embeddings, \
                                   _evaluate_classification_task, _compute_confusion_matrix, _compute_columnwise_autocorrelation, \
-                                  _plot_confusion_matrix, _compute_spatial_correlation, _plot_cell_type_to_metagene
+                                  _plot_confusion_matrix, _compute_spatial_correlation, _plot_cell_type_to_metagene, \
+                                  _plot_cell_type_to_metagene_difference
 
 def in_situ(trained_model: Popari, color="leiden", axes = None, level=0, **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
@@ -29,7 +30,7 @@ def in_situ(trained_model: Popari, color="leiden", axes = None, level=0, **spati
     """
     datasets = trained_model.hierarchy[level].datasets
 
-    _plot_in_situ(datasets, color=color, axes=axes, **spatial_kwargs)
+    return _plot_in_situ(datasets, color=color, axes=axes, **spatial_kwargs)
 
 def metagene_embedding(trained_model: Popari, metagene_index: int, axes: Optional[Sequence[Axes]] = None, level=0, **scatterplot_kwargs):
     r"""Plot a single metagene in-situ across all datasets.
@@ -42,7 +43,7 @@ def metagene_embedding(trained_model: Popari, metagene_index: int, axes: Optiona
     """
     datasets = trained_model.hierarchy[level].datasets
 
-    _plot_metagene_embedding(datasets, metagene_index=metagene_index, axes=axes, **scatterplot_kwargs)
+    return _plot_metagene_embedding(datasets, metagene_index=metagene_index, axes=axes, **scatterplot_kwargs)
 
 def confusion_matrix(trained_model: Popari, labels: str, level=0, confusion_matrix_key: str = "confusion_matrix"):
     """Plot confusion matrix.
@@ -146,12 +147,13 @@ def spatial_affinities(trained_model: Popari,
   
     # Override following kwargs with
     cmap = heatmap_kwargs.pop("cmap") if "cmap" in heatmap_kwargs else "bwr"
+    nested = heatmap_kwargs.pop("nested") if "nested" in heatmap_kwargs else True
     max_value = round(np.max(np.abs(np.array([dataset.uns[spatial_affinity_key][dataset.name] for dataset in datasets]))))
     vmin = -max_value
     vmax = max_value
     
     _multireplicate_heatmap(datasets, title_font_size=title_font_size, axes=axes,
-                            uns="Sigma_x_inv", nested=True, cmap=cmap, vmin=vmin, vmax=vmax, **heatmap_kwargs)
+                            uns=spatial_affinity_key, nested=nested, cmap=cmap, vmin=vmin, vmax=vmax, **heatmap_kwargs)
 
 
 def all_embeddings(trained_model: Popari, embedding_key: str = "X", column_names: Optional[str] = None, level=0, **spatial_kwargs):
@@ -196,6 +198,30 @@ def cell_type_to_metagene(trained_model: Popari, cell_type_de_genes: dict, level
     fig, medians = _plot_cell_type_to_metagene(first_dataset, cell_type_de_genes, **correspondence_kwargs)
 
     return medians, fig
+
+def cell_type_to_metagene_difference(trained_model: Popari,
+                                     cell_type_de_genes: dict,
+                                     first_metagene: int,
+                                     second_metagene: int,
+                                     level=0,
+                                     **correspondence_kwargs):
+    r"""Plot distribution of gene ranks of marker genes within each metagene.
+
+    Args:
+        trained_model: the trained Popari model.
+        cell_type_de_genes: dictionary mapping each cell type to a list of marker genes.
+
+    Returns:
+        mapping from each cell type to the median rank of its marker genes in each metagene
+
+    """
+
+    datasets = trained_model.hierarchy[level].datasets
+    
+    first_dataset = datasets[0]
+
+    fig, medians = _plot_cell_type_to_metagene_difference(first_dataset, cell_type_de_genes, first_metagene, second_metagene, **correspondence_kwargs)
+
 
 def affinity_magnitude_vs_difference(trained_model,
                            level=0,

@@ -3,6 +3,8 @@ from typing import Sequence, Union, Optional
 import sys, time, itertools, logging, os, pickle
 from pathlib import Path
 
+from tqdm import trange
+
 import numpy as np
 import pandas as pd
 
@@ -324,20 +326,36 @@ class Popari:
             edge_subsample_rate: Optional[float] = None,
             use_manual_gradients: bool = True,
             n_epochs: int = 10000,
+            miniepochs: int = None,
             tol: float = 1e-5):
         """Superresolve embeddings in hierarchical case.
         
         Works in a cascading manner, by superresolving the embeddings from lowest to highest resolutions in order.
         """
 
+        if miniepochs is None:
+            miniepochs = min(100, n_epochs)
+
+        effective_epochs = n_epochs // miniepochs + 1
+
         for level in range(self.hierarchical_levels-2, -1, -1):
             if self.verbose:
                 print(f"{get_datetime()} Superresolving level {level} embeddings")
             view = self.hierarchy[level]
             view._propagate_parameters()
-            view.parameter_optimizer.update_sigma_yx()
-                
-            view._superresolve_embeddings(n_epochs=n_epochs, tol=tol, use_manual_gradients=use_manual_gradients, verbose=self.verbose)
+
+            progress_bar = trange(effective_epochs, leave=True, disable=not self.verbose, miniters=10000)
+            previous_losses = np.full(len(view.datasets), np.inf)
+            for epoch in progress_bar:
+                view.parameter_optimizer.update_sigma_yx()
+                losses = view._superresolve_embeddings(n_epochs=miniepochs, tol=tol, use_manual_gradients=use_manual_gradients, verbose=self.verbose)
+                formatted_losses = [f'{loss:.1e}' for loss in losses]
+                formatted_deltas = [f'{delta:.1e}' for delta in ((previous_losses - losses) / losses) ]
+                description = f'Updating weights hierarchically: loss = {formatted_losses} ' \
+                    f'%δloss = {formatted_deltas} ' \
+
+                previous_losses = losses
+                progress_bar.set_description(description)
         
             pretrained_embeddings = [view.embedding_optimizer.embedding_state[dataset.name].clone() for dataset in view.datasets]
             view.parameter_optimizer.spatial_affinity_state.initialize(pretrained_embeddings)
@@ -375,7 +393,7 @@ class Popari:
             for level, view in self.hierarchy.items():
                 view.synchronize_datasets()
 
-    def save_results(self, path2dataset: str, ignore_raw_data: bool = True):
+    def save_results(self, dataset_path: str, ignore_raw_data: bool = True):
         """Save datasets and learned Popari parameters to disk.
 
         Args:
@@ -386,8 +404,8 @@ class Popari:
             ignore_raw_data: if set, only learned parameters and embeddings will be saved; raw gene expression will be ignored.
         """
             
-        path2dataset = Path(path2dataset)
-        path_without_extension = path2dataset.parent / path2dataset.stem
+        dataset_path = Path(dataset_path)
+        path_without_extension = dataset_path.parent / dataset_path.stem
 
         if self.hierarchical_levels == 1:
             if self.verbose:
@@ -405,6 +423,40 @@ class Popari:
                     print(f"{get_datetime()} Writing hierarchical results to {path_without_extension / f'level_{level}.h5ad'}")
 
                 save_anndata(path_without_extension / f"level_{level}.h5ad", datasets, ignore_raw_data=ignore_raw_data)
+    
+    def train(self, num_preiterations: int, num_iterations: int):
+        """Convenience function for training loop.
+    
+        Args:
+            num_preiterations: number of NMF iterations to use for initialization
+            num_iterations: number of Popari iterations to train for
+        """
+
+        progress_bar = trange(num_preiterations, leave=True)                                                                                                                                                       
+        for preiteration in progress_bar:                                                                                                                           
+            description = f'Preiteration {preiteration}'                                                                                                                                   
+            progress_bar.set_description(description)
+            
+            self.estimate_parameters(update_spatial_affinities=False)
+            self.estimate_weights(use_neighbors=False)
+        
+        progress_bar = trange(num_iterations, leave=True)                                                                                                                                                       
+        for iteration in progress_bar:                                                                                                                           
+            description = f'Iteration {iteration}'                                                                                                                                   
+            progress_bar.set_description(description)
+            
+            self.estimate_parameters()
+            self.estimate_weights()
+
+class SpiceMix(Popari):
+    """Wrapper to produce SpiceMix hyperparameter configuration."""
+
+    def __init__(self, **spicemix_hyperparameters):
+        spatial_affinity_mode = "shared lookup"
+        if "spatial_affinity_mode" in spicemix_hyperparameters:
+            spicemix_hyperparameters.pop("spatial_affinity_mode")
+
+        super().__init__(spatial_affinity_mode="shared lookup", **spicemix_hyperparameters)
 
 def load_trained_model(dataset_path: Union[str, Path], context=dict(device="cpu", dtype=torch.float64), **popari_kwargs):
     """Load trained Popari model for downstream analysis.

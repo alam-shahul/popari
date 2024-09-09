@@ -381,14 +381,14 @@ class ParameterOptimizer():
         
         return loss
 
-    def update_spatial_affinity(self, differentiate_spatial_affinities=True, subsample_rate=None):
+    def update_spatial_affinity(self, differentiate_spatial_affinities=True, **optimization_kwargs):
         if self.spatial_affinity_mode == "shared lookup":
             for group_name, group_replicates in self.spatial_affinity_groups.items():
                 replicate_mask =  [dataset.name in group_replicates for dataset in self.datasets]
                 first_dataset_name = group_replicates[0]
                 Sigma_x_inv = self.spatial_affinity_state[first_dataset_name].to(self.context["device"])
                 optimizer = self.spatial_affinity_state.optimizers[group_name]
-                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, subsample_rate=subsample_rate, tol=self.spatial_affinity_tol)
+                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, tol=self.spatial_affinity_tol, **optimization_kwargs)
                 with torch.no_grad():
                    self.spatial_affinity_state[first_dataset_name][:] = Sigma_x_inv
 
@@ -403,7 +403,7 @@ class ParameterOptimizer():
                 replicate_mask[dataset_index] = True
                 Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
                 optimizer = self.spatial_affinity_state.optimizers[dataset.name]
-                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bars, subsample_rate=subsample_rate, tol=self.spatial_affinity_tol)
+                Sigma_x_inv, loss = self.estimate_Sigma_x_inv(Sigma_x_inv, replicate_mask, optimizer, Sigma_x_inv_bar=spatial_affinity_bars, tol=self.spatial_affinity_tol, **optimization_kwargs)
         # K_options, group_options = np.meshgrid()
         # runs = 
                 with torch.no_grad():

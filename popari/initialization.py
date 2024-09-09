@@ -72,7 +72,7 @@ def initialize_leiden(datasets: Sequence[PopariDataset], K: int, context: dict, 
     # Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
 
     while True:
-        _cluster([merged_dataset], method="leiden", use_rep="X_pca", target_clusters=K, n_neighbors=n_neighbors, verbose=verbose)
+        _cluster([merged_dataset], method="leiden", use_rep="X_pca", target_clusters=K, n_neighbors=n_neighbors, verbose=verbose, **kwargs_leiden)
 
         labels = merged_dataset.obs["leiden"].astype(int)
         num_clusters = len(labels.unique())
