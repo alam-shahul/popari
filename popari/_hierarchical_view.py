@@ -76,6 +76,12 @@ class HierarchicalView():
 
             return suffixed_groups
 
+        if metagene_groups == "disjoint":
+            metagene_groups = {replicate_name: [replicate_name] for replicate_name in self.replicate_names} 
+
+        if spatial_affinity_groups == "disjoint":
+            spatial_affinity_groups = {replicate_name: [replicate_name] for replicate_name in self.replicate_names} 
+
         if metagene_groups is not None:
             metagene_groups = add_level_suffix(metagene_groups)
         if spatial_affinity_groups is not None:
@@ -258,6 +264,7 @@ class HierarchicalView():
     def _superresolve_embeddings(self, n_epochs=10000, tol=1e-4, update_alg='gd', use_manual_gradients=True, verbose=None):
         """Superresolve embeddings using embeddings for lower resolution spots."""
 
+        final_losses = np.zeros(len(self.datasets))
         for dataset_index, (dataset, low_res_name) in enumerate(zip(self.datasets, self.low_res_view.replicate_names)):
             low_res_dataset = self.low_res_view.datasets[dataset_index]
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
@@ -344,7 +351,7 @@ class HierarchicalView():
                 
                 return loss
                 
-            progress_bar = trange(n_epochs, leave=True, disable=not verbose, miniters=10000)
+            progress_bar = trange(n_epochs, leave=True, disable=(verbose < 5), miniters=10000)
             for epoch in progress_bar:
                 X_prev = X.clone().detach()
                 if update_alg == 'mu':
@@ -371,7 +378,10 @@ class HierarchicalView():
             progress_bar.close()
             self.embedding_optimizer.embedding_state[dataset.name][:] = X.clone().detach()
 
+            final_losses[dataset_index] = loss.cpu().detach().numpy()
+
             # Delete dangling reference
+            # TODO: can probably delete all this?
             del superresolution_optimizer
             # del self.superresolution_optimizers[dataset.name]
             
@@ -385,6 +395,8 @@ class HierarchicalView():
             del BTB
             del YM
             del BTX_B
+
+        return final_losses
                 
     def synchronize_datasets(self):
         """Synchronize datasets with learned view parameters and embeddings."""

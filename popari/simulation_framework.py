@@ -91,10 +91,16 @@ def sample_2D_points(num_points, minimum_distance: float, width: float = 1.0, he
                 
     return points
 
-def synthesize_metagenes(num_genes, num_real_metagenes, n_noise_metagenes, real_metagene_parameter,
-                         noise_metagene_parameter,  metagene_variation_probabilities,
-                         original_metagenes=None, replicate_variability=None, normalize=True,
-                         random_state=0):
+def synthesize_metagenes(num_genes: int,
+                         num_real_metagenes: int,
+                         n_noise_metagenes: int,
+                         real_metagene_parameter: float,
+                         noise_metagene_parameter: float, 
+                         metagene_variation_probabilities: Sequence[float],
+                         original_metagenes: Optional[np.ndarray] = None,
+                         replicate_variability=None,
+                         normalize: bool =True,
+                         random_state: int = 0):
     """Synthesize related metagenes according to the metagene_variation_probabilities vector.
     
     Creates num_real_metagenes synthetic metagenes using a random Gamma distribution with
@@ -215,7 +221,6 @@ def synthesize_cell_embeddings(layer_labels, distributions, cell_type_definition
         partition_indices = (np.cumsum(proportions) * len(cell_indices)).astype(int)
         partitions = np.split(cell_indices, partition_indices[:-1])
 
-
         cell_type_to_partition = dict(zip(layer_cell_types, partitions))
         
         for cell_type_index, cell_type in enumerate(cell_types):
@@ -268,12 +273,21 @@ class SyntheticDataset(ad.AnnData):
     Uses AnnData as a base class, with additional methods for simulation.
     """
     
-    def __init__(self, num_cells: int=None, num_genes: int=100, replicate_name: Union[int, str]="default",
-            annotation_mode: str = "layer", spatial_distributions: dict =None,
-            cell_type_definitions: dict = None, metagene_variation_probabilities: Sequence = None,
-            shared_metagenes: np.ndarray = None, width: float =1.0, height: float =1.0,
-            minimum_distance: float =None, grid_size: int =None,
-            random_state: Union[int, np.random.Generator] = None, verbose: int = 0):
+    def __init__(self,
+                 num_cells: Optional[int] = None,
+                 num_genes: int = 100,
+                 replicate_name: Union[int, str] = "default",
+                 annotation_mode: str = "layer",
+                 spatial_distributions: dict = None,
+                 cell_type_definitions: dict = None,
+                 metagene_variation_probabilities: Sequence = None,
+                 shared_metagenes: np.ndarray = None,
+                 width: float = 1.0,
+                 height: float = 1.0,
+                 minimum_distance: float = None,
+                 grid_size: int = None,
+                 random_state: Union[int, np.random.Generator] = None,
+                 verbose: int = 0):
         """Generate random coordinates (as well as expression values) for a single ST FOV.
         
         Args:
@@ -383,7 +397,7 @@ class SyntheticDataset(ad.AnnData):
         X_i, C_i = synthesize_cell_embeddings(self.obs["layer"].to_numpy(), self.uns["domain_distributions"][self.name], self.uns["cell_type_definitions"][self.name],
                        self.num_cells, num_real_metagenes, sigma_x_scale=sigX_scale, n_noise_metagenes=num_noise_metagenes, random_state=self.rng)
 
-        self.S = gamma.rvs(num_metagenes, scale=lambda_s, size=self.num_cells)
+        self.S = gamma.rvs(num_metagenes/lambda_s, scale=lambda_s, size=self.num_cells)
         self.obsm["ground_truth_X"] = (X_i * self.S[:, np.newaxis])
         cell_type_encoded = C_i.astype(int)
         cell_type = [self.uns["cell_type_names"][index] for index in cell_type_encoded]
@@ -457,7 +471,7 @@ class SyntheticDataset(ad.AnnData):
                     cell_type_variance_y = self.variance_y
 
                 # Ensure that gene expression is positive
-                self.X[cell] = np.abs(sample_gaussian(cell_type_variance_y, self.X[cell]))
+                self.X[cell] = np.abs(sample_gaussian(cell_type_variance_y, self.X[cell], random_state=self.rng))
 
         elif self.annotation_mode == "metagene": 
             self.X += background_expression

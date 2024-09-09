@@ -17,6 +17,8 @@ from popari._dataset_utils import _preprocess_embeddings, _plot_metagene_embeddi
                                   _evaluate_classification_task, _compute_confusion_matrix, _compute_columnwise_autocorrelation, \
                                   _plot_confusion_matrix, _compute_spatial_correlation
 
+# from popari._analysis_utils import _all_pairs_spatial_wasserstein
+
 def setup_squarish_axes(num_axes, **subplots_kwargs):
     """Create matplotlib subplots as squarely as possible."""
 

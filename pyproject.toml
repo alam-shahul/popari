@@ -22,7 +22,8 @@ dependencies = [
     "seaborn>=0.11.1",
     "matplotlib>=3.7.0",
     "squidpy>=1.2.3",
-    "louvain>=0.8.0"
+    "louvain>=0.8.0",
+    "ortools>=9.7.2996",
 ]
 description = "Popari: a probabilistic graphical model for integrated spatial transcriptomics analysis"
 readme = "README.md"
@@ -54,6 +55,10 @@ simulation = [
 mlflow = [
   "mlflow>=2.5.0",
   "toml>=0.10.2"
+]
+
+benchmark = [
+  "multiprocess>=0.70.15"
 ]
 
 [tool]

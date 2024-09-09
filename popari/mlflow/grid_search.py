@@ -20,7 +20,9 @@ def run():
     parser.add_argument('--configuration_filepath', type=str, required=True, help="Path to configuration file.")
     parser.add_argument('--mlflow_output_path', type=str, default=".", help="Where to output MLflow results.")
     parser.add_argument('--debug', action='store_true', help="Whether to dump print statements to console or to file.")
-    parser.add_argument('--include_benchmarks', action='store_true', help="Whether to include NMF and SpiceMix benchmarks for each hyperparameter combination.")
+    # parser.add_argument('--include_benchmarks', action='store_true', help="Whether to include NMF and SpiceMix benchmarks for each hyperparameter combination.")
+    parser.add_argument("--benchmarks", action="extend", nargs="+", type=str, help="Which benchmarks to include.")
+
     parser.add_argument('--only_benchmarks', action='store_true', help="Whether to only run benchmarks.")
 
     args = parser.parse_args()
@@ -41,9 +43,9 @@ def run():
         'nmf_preiterations',
         'num_iterations',
         'spatial_preiterations',
+        'metagene_groups',
+        'spatial_affinity_groups'
     ]
-
-    spatial_affinity_groups = configuration['spatial_affinity_groups'] if 'spatial_affinity_groups' in configuration else "null"
 
     if "dataset_paths" in configuration['runtime']:
         dataset_paths = configuration['runtime']['dataset_paths']
@@ -87,7 +89,6 @@ def run():
                 parameters={
                     **{parameter_name: params[parameter_name] for parameter_name in params if params[parameter_name] is not None },
                     "spatial_affinity_mode": "shared lookup" if params['lambda_Sigma_bar'] == 0 else "differential lookup",
-                    "spatial_affinity_groups": "null" if params['lambda_Sigma_bar'] == 0 else spatial_affinity_groups,
                     # "dataset_path": configuration['runtime']['dataset_path'],
                     "output_path": f"./device_{device}_result",
                     "dtype": "float64",
@@ -108,7 +109,12 @@ def run():
             if succeeded:
                 training_run = tracking_client.get_run(p.run_id)
                 metrics = training_run.data.metrics
-                nll = metrics["nll"]
+
+                if "nll" in metrics:
+                    nll = metrics["nll"]
+                else:
+                    raise RuntimeError("A run failed during initialization. This likely points "
+                        "to an improperly formatted grid search configuration file.")
             else:
                 tracking_client.set_terminated(p.run_id, "FAILED")
                 nll = null_nll
@@ -127,12 +133,14 @@ def run():
             "dataset_path": dataset_paths[0],
             "lambda_Sigma_x_inv": 0,
             "lambda_Sigma_bar": 0,
-            "hierarchical_levels": 1,
-            "binning_downsample_rate": 0.5,
+            "hierarchical_levels": 2,
+            "binning_downsample_rate": 0.1,
             "random_state": 0,
             "nmf_preiterations": 0,
             "spatial_preiterations": 0,
             "num_iterations": 0,
+            "spatial_affinity_groups": json.dumps(None),
+            "metagene_groups": json.dumps(None),
         }
         _, null_nll = null_evaluate(null_hyperparameters)
 
@@ -150,9 +158,17 @@ def run():
                 'num_iterations': 0,
                 'lambda_Sigma_bar': 0,
             },
+            'disjoint_spicemix_benchmark': {
+                'nmf_preiterations': 5,
+                'spatial_preiterations': 200,
+                'num_iterations': 0,
+                'lambda_Sigma_bar': 0,
+                'metagene_groups': json.dumps('disjoint'),
+                'spatial_affinity_groups': json.dumps('disjoint')
+            }
         }
-        if not args.include_benchmarks:
-            benchmarks = {}
+
+        benchmarks = {name: params for name, params in benchmarks.items() if name in args.benchmarks}
 
         hyperparameter_options_list = []
         for hyperparameter_name in hyperparameter_names:
