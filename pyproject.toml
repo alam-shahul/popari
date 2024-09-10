@@ -74,3 +74,18 @@ include = [
   "popari/*.py",
   "popari/mlflow/*.py",
 ]
+
+[tool.flake8]
+max-line-length = 120
+count = true
+extend-ignore = [
+    "E203",  # conflicting with black style slicing
+    "D107",  # only need docstring at class level, no need at __init__
+]
+
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+line_length = 120
