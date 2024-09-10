@@ -311,7 +311,7 @@ class SyntheticDataset(ad.AnnData):
         
         dummy_expression = np.zeros((self.num_cells, num_genes))
         
-        ad.AnnData.__init__(self, X=dummy_expression)
+        super().__init__(X=dummy_expression)
         
         self.name = f"{replicate_name}"
         
