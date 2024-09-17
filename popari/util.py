@@ -727,7 +727,7 @@ def bin_expression(spot_expression: np.ndarray, spot_coordinates: np.ndarray, bi
     num_bins, _ = bin_coordinates.shape
     
     bin_expression = np.zeros((num_bins, num_genes))
-    bin_assignments = csr_array((num_bins, num_spots), dtype=np.int32)
+    bin_assignments = csr_matrix((num_bins, num_spots), dtype=np.int32)
     
     neigh = NearestNeighbors(n_neighbors=1, n_jobs=num_jobs)
     neigh.fit(bin_coordinates)
