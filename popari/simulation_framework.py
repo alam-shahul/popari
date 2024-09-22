@@ -14,22 +14,22 @@ import squidpy as sq
 import umap
 from anndata import AnnData
 from matplotlib import pyplot as plt
-from matplotlib.colors import ListedColormap, hsv_to_rgb
 from numpy.typing import NDArray
 from scipy.sparse import csr_matrix
 from scipy.spatial import Delaunay
 from scipy.spatial.distance import cdist, pdist, squareform
-from scipy.stats import bernoulli, dirichlet, expon, gamma, gaussian_kde, truncexpon, truncnorm
+from scipy.stats import bernoulli, dirichlet, gamma, truncnorm
 from sklearn.decomposition import NMF
 
 from popari._canvas import DomainCanvas, MetageneCanvas
 
 
-def sample_gaussian(sigma: NDArray, means: NDArray, N: int = 1, random_state=0):
-    """Sample multivariate Gaussian from covariance matrix.
+def sample_gaussian(sigma: NDArray, means: NDArray, N: int = 1, random_state=0) -> NDArray:
+    """Sample multivariate Gaussian given a mean vector and covariance matrix.
 
     Args:
         sigma: covariance matrix
+        means: mean vector
         N: number of multivariate samples to take
 
     Returns:
@@ -449,17 +449,18 @@ class SyntheticDataset(AnnData):
 
         return X, cell_type_assignments
 
-    def simulate_expression(self, predefined_metagenes=None, **simulation_parameters):
+    def simulate_expression(self, predefined_metagenes=None, metagene_magnitudes=None, **simulation_parameters):
         """Simulate expression using parameters."""
         if self.verbose:
-            print(f"Simulating {self.annotation_mode}-annotated expression...")
+            print(f"Simulating {self.params.annotation_mode}-annotated expression...")
 
-        if self.annotation_mode == "domain":
-            return self.simulate_metagene_based_expression(
+        if self.params.annotation_mode == "domain":
+            self.simulate_metagene_based_expression(
                 predefined_metagenes=predefined_metagenes,
+                metagene_magnitudes=metagene_magnitudes,
             )
-        elif self.annotation_mode == "metagene":
-            return self.simulate_nsf_expression(predefined_metagenes=predefined_metagenes, **simulation_parameters)
+        elif self.params.annotation_mode == "metagene":
+            return simulate_nsf_expression(predefined_metagenes=predefined_metagenes, **simulation_parameters)
 
     def simulate_metagene_based_expression(
         self,
@@ -472,8 +473,7 @@ class SyntheticDataset(AnnData):
         # Get num_genes x num_genes covariance matrix
         num_metagenes = self.params.num_real_metagenes + self.params.num_noise_metagenes
         if isinstance(self.params.sig_y_scale, float):
-            self.params.sig_y_scale *= np.identity(self.params.num_genes) / self.params.num_genes
-            self.variance_y = self.params.sig_y_scale**2
+            self.variance_y = (self.params.sig_y_scale**2) * np.identity(self.params.num_genes) / self.params.num_genes
         elif isinstance(self.params.sig_y_scale, dict):
             self.params.sig_y_scale = {
                 cell_type: cell_specific_sig_y_scale / self.params.num_genes
@@ -490,6 +490,9 @@ class SyntheticDataset(AnnData):
                 cell_type: cell_specific_sig_y_scale**2
                 for cell_type, cell_specific_sig_y_scale in self.params.sig_y_scale.items()
             }
+
+        if self.verbose > 1:
+            print(f"Gene covariance set: {self.variance_y is not None}")
 
         magnitudes = None
         if predefined_metagenes is None:
@@ -638,25 +641,31 @@ class SyntheticDataset(AnnData):
                 if None not in definition:
                     self.uns["cell_type_definitions"][self.name][cell_type][definition] = 1
 
-        self.uns["domain_landmarks"] = self.domain_canvas.domains
+        self.uns["domain_landmarks"] = dict(self.domain_canvas.domains)
 
 
 class MultiReplicateSyntheticDataset:
     """Synthetic multireplicate dataset to model biological variation and batch
     effects in spatial transcriptomics data."""
 
-    def __init__(self, replicate_parameters: dict[SimulationParameters], dataset_class, random_state=0, verbose=0):
+    def __init__(
+        self,
+        replicate_parameters: dict[SimulationParameters],
+        dataset_constructor: SyntheticDataset,
+        random_state=0,
+        verbose=0,
+    ):
         self.verbose = verbose
         self.datasets = {}
         self.replicate_parameters = replicate_parameters
 
-        random.seed(random_state)
+        # random.seed(random_state)
         self.rng = np.random.default_rng(random_state)
 
         for replicate_name in self.replicate_parameters:
-            synthetic_dataset = dataset_class(
+            synthetic_dataset = dataset_constructor(
                 replicate_name=replicate_name,
-                **self.replicate_parameters[replicate_name],
+                parameters=replicate_parameters[replicate_name],
                 random_state=self.rng,
                 verbose=self.verbose,
             )
@@ -667,34 +676,32 @@ class MultiReplicateSyntheticDataset:
 
         return self.datasets[replicate_name].annotate_domain(points=points)
 
+    def __iter__(self):
+        yield from self.datasets.values()
+
     def assign_domain_labels(self):
-        for replicate_dataset in self.datasets.values():
+        for replicate_dataset in self:
             replicate_dataset.assign_domain_labels()
 
-    def simulate_expression(self, replicate_simulation_parameters):
-        """Convenience method for shared simulation parameters between all
-        replicates."""
-
+    def simulate_expression(self):
         metagenes = None
         metagene_magnitudes = None
-        for replicate_name, replicate_dataset in self.datasets.items():
-            print(replicate_name)
-            simulation_parameters = replicate_simulation_parameters[replicate_name]
-            # if replicate_dataset.annotation_mode == "domain":
-            #     replicate_dataset.simulate_expression(predefined_metagenes=metagenes, metagene_magnitudes=metagene_magnitudes, **simulation_parameters)
+        for replicate_dataset in self:
+            if self.verbose:
+                print(f"Simulating expression for {replicate_dataset.name}.")
+
             replicate_dataset.simulate_expression(
                 predefined_metagenes=metagenes,
                 metagene_magnitudes=metagene_magnitudes,
-                **simulation_parameters,
             )
 
-            metagenes = replicate_dataset.uns["ground_truth_M"][replicate_name]
+            metagenes = replicate_dataset.uns["ground_truth_M"][replicate_dataset.name]
             metagene_magnitudes = replicate_dataset.magnitudes
 
     def calculate_neighbors(self, **neighbors_kwargs):
         coord_type = neighbors_kwargs.pop("coord_type") if "coord_type" in neighbors_kwargs else "generic"
         delaunay = neighbors_kwargs.pop("delaunay") if "delaunay" in neighbors_kwargs else True
-        for replicate, dataset in self.datasets.items():
+        for dataset in self:
             sq.gr.spatial_neighbors(
                 dataset,
                 coord_type=coord_type,

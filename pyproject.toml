@@ -56,9 +56,11 @@ mlflow = [
   "mlflow>=2.5.0",
   "toml>=0.10.2"
 ]
-
 benchmark = [
   "multiprocess>=0.70.15"
+]
+test = [
+  "pytest"
 ]
 
 [tool]
