@@ -1,6 +1,7 @@
 import json
 import pickle as pkl
 import random
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence, Tuple, Union
 
@@ -11,6 +12,7 @@ import scipy
 import seaborn as sns
 import squidpy as sq
 import umap
+from anndata import AnnData
 from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap, hsv_to_rgb
 from numpy.typing import NDArray
@@ -86,75 +88,6 @@ def sample_2D_points(num_points, minimum_distance: float, width: float = 1.0, he
     return points
 
 
-def synthesize_metagenes(
-    num_genes: int,
-    num_real_metagenes: int,
-    n_noise_metagenes: int,
-    real_metagene_parameter: float,
-    noise_metagene_parameter: float,
-    metagene_variation_probabilities: Sequence[float],
-    original_metagenes: Optional[NDArray] = None,
-    replicate_variability=None,
-    normalize: bool = True,
-    random_state: int = 0,
-):
-    """Synthesize related metagenes according to the
-    metagene_variation_probabilities vector.
-
-    Creates num_real_metagenes synthetic metagenes using a random Gamma
-    distribution with shape parameter real_metagene_parameter. For each metagene
-    i, if dropout_probabilities[i] != 0, randomly permutes a
-    metagene_variation_probabilities[i] fraction of metagene i-1 to create
-    metagene i; otherwise, creates a new random metagene. In addition, adds
-    n_noise_metagenes parameterized by a Gamma distribution with shape parameter
-    noise_metagene_parameter.
-
-    """
-
-    rng = np.random.default_rng(random_state)
-    num_metagenes = num_real_metagenes + n_noise_metagenes
-    metagenes = np.zeros((num_metagenes, num_genes))
-
-    #     last_index = None
-    for index in range(num_real_metagenes):
-        variation_probability = metagene_variation_probabilities[index]
-
-        if variation_probability == 0 and not replicate_variability:
-            metagene = gamma.rvs(real_metagene_parameter, size=num_genes)
-            metagenes[index] = metagene
-        #             last_index = index
-        else:
-            if variation_probability == 0:
-                metagene = original_metagenes[index].copy()
-                variation_probability = replicate_variability
-
-            # mask = bernoulli.rvs(variation_probability, size=num_genes).astype('bool')
-            mask = np.full(num_genes, False)
-            masked_genes = rng.choice(num_genes, size=int(variation_probability * num_genes), replace=False)
-            mask[masked_genes] = True
-            perturbed_metagene = metagene.copy()
-
-            perturbations = gamma.rvs(real_metagene_parameter, size=np.sum(mask))
-            if original_metagenes is not None:
-                # Use dirichlet distribution
-                perturbations *= np.sum(metagene[mask]) / np.sum(perturbations)
-            perturbed_metagene[mask] = perturbations
-
-            metagenes[index] = perturbed_metagene
-
-    #         print(f"Difference between last_index and current index: {((metagenes[index] - metagenes[last_index]) == 0).sum() / num_genes}")
-
-    for index in range(num_real_metagenes, num_metagenes):
-        metagenes[index] = gamma.rvs(noise_metagene_parameter, size=num_genes)
-
-    metagenes = metagenes
-
-    if normalize:
-        metagenes = metagenes / np.sum(metagenes, axis=1, keepdims=True)
-
-    return metagenes
-
-
 def synthesize_metagenes_nsf(
     num_genes,
     num_spatial_metagenes: int,
@@ -189,80 +122,32 @@ def synthesize_metagenes_nsf(
     return metagenes
 
 
-def sample_normalized_embeddings(Z, sigma_x):
-    """Helper function to project simulated embeddings to simplex."""
+def sample_normalized_embeddings(Z: NDArray, sigma_x: NDArray, rng: Union[int, np.random.Generator]):
+    """Sample embeddings from truncated Gaussian given mean vectors, and project
+    to simplex.
+
+    Args:
+        Z: mean values for each emebdding dimension
+        sigma_x: variance vector for all embedding dimensions
+
+    """
+
+    rng = np.random.default_rng(rng)
+
     X = np.zeros_like(Z)
     num_cells, num_metagenes = Z.shape
     # TODO: vectorize
     for cell in range(num_cells):
         for metagene in range(num_metagenes):
             X[cell, metagene] = (
-                sigma_x[metagene] * truncnorm.rvs(-Z[cell, metagene] / sigma_x[metagene], 100) + Z[cell, metagene]
+                sigma_x[metagene] * truncnorm.rvs(-Z[cell, metagene] / sigma_x[metagene], 100, random_state=rng)
+                + Z[cell, metagene]
             )
 
     X = X * (Z > 0)
     X = X / np.sum(X, axis=1, keepdims=True)
 
     return X
-
-
-def synthesize_cell_embeddings(
-    layer_labels,
-    distributions,
-    cell_type_definitions,
-    num_cells,
-    num_real_metagenes,
-    n_noise_metagenes=3,
-    signal_sigma_x=0.1,
-    background_sigma_x=0.03,
-    sigma_x_scale=1.0,
-    random_state=None,
-):
-    """Generate synthetic cell embeddings."""
-
-    rng = np.random.default_rng(random_state)
-    num_metagenes = num_real_metagenes + n_noise_metagenes
-
-    cell_type_assignments = np.zeros((num_cells), dtype="int")
-    Z = np.zeros((num_cells, num_metagenes))
-
-    cell_types = cell_type_definitions.keys()
-
-    for layer_index, (layer_name, distribution) in enumerate(distributions.items()):
-        layer_cells = layer_labels == layer_name
-        distribution = distributions[layer_name]
-        layer_cell_types, proportions = zip(*distribution.items())
-
-        (cell_indices,) = np.nonzero(layer_cells)
-        random.shuffle(cell_indices)
-
-        partition_indices = (np.cumsum(proportions) * len(cell_indices)).astype(int)
-        partitions = np.split(cell_indices, partition_indices[:-1])
-
-        cell_type_to_partition = dict(zip(layer_cell_types, partitions))
-
-        for cell_type_index, cell_type in enumerate(cell_types):
-            if cell_type not in layer_cell_types:
-                continue
-
-            partition = cell_type_to_partition[cell_type]
-            if len(partition) == 0:
-                continue
-
-            cell_type_assignments[partition] = cell_type_index
-            Z[partition, :num_real_metagenes] = cell_type_definitions[cell_type]
-
-    # Extrinsic factors
-    Z[:, num_real_metagenes:num_metagenes] = 0.05
-
-    sigma_x = np.concatenate(
-        [np.full(num_real_metagenes, signal_sigma_x), np.full(n_noise_metagenes, background_sigma_x)],
-    )
-    sigma_x = sigma_x * sigma_x_scale
-
-    X = sample_normalized_embeddings(Z, sigma_x)
-
-    return X, cell_type_assignments
 
 
 def synthesize_cell_embeddings_nsf(
@@ -301,7 +186,55 @@ def synthesize_cell_embeddings_nsf(
     return Z, cell_type_assignments
 
 
-class SyntheticDataset(ad.AnnData):
+@dataclass
+class SimulationParameters:
+    """Container for simulation parameters.
+
+    Args:
+        num_cells: number of cells to simulate
+        num_genes: number of total genes to simulate
+        annotation_mode: whether the Canvas is annotating `domain` or `cell_type`
+        num_real_metagenes: number of real metagenes
+        num_noise_metagenes: number of noise metagenes
+        real_metagene_parameter: shape parameter for Gamma distribution from which real metagene
+            weights are sampled
+        noise_metagene_parameter: shape parameter for Gamma distribution from which noise metagene
+            weights are sampled
+        spatial_distributions: proportions of cell types in each domain of the simulation
+        cell_type_definitions: definitions of simulated cell types by metagene proportion
+        metagene_variation_probabilities: variation of metagene weight definitions between metagenes
+        domain_key: key in `.obs` where the domain identity of each cell is stored
+        width: width of the canvas
+        height: height of the canvas
+        minimum_distance: minimum distance between simulated datapoints
+        grid_size: number of rows/columns for grid-based simulation. Alternative to `num_cells` parameter.
+        sig_y_scale: standard deviation of additive Gaussian noise used during sampling of gene expression
+        sig_x_scale: standard deviation of additive Gaussian noise used during sampling of latent states
+        lambda_s: shape parameter used for sampling cell sizes
+
+    """
+
+    num_cells: Optional[int] = None
+    num_genes: int = 100
+    annotation_mode: str = "domain"
+    num_real_metagenes: int = 10
+    num_noise_metagenes: int = 3
+    real_metagene_parameter: float = 4.0
+    noise_metagene_parameter: float = 4.0
+    spatial_distributions: dict = None
+    cell_type_definitions: dict = None
+    metagene_variation_probabilities: Sequence = None
+    domain_key: str = "domain"
+    width: float = 1.0
+    height: float = 1.0
+    minimum_distance: float = None
+    grid_size: int = None
+    sig_y_scale: float = 3.0
+    sig_x_scale: float = 3.0
+    lambda_s: float = 1.0
+
+
+class SyntheticDataset(AnnData):
     """Simulated spatial transcriptomics dataset.
 
     Uses AnnData as a base class, with additional methods for simulation.
@@ -310,85 +243,74 @@ class SyntheticDataset(ad.AnnData):
 
     def __init__(
         self,
-        num_cells: Optional[int] = None,
-        num_genes: int = 100,
-        replicate_name: Union[int, str] = "default",
-        annotation_mode: str = "layer",
-        spatial_distributions: dict = None,
-        cell_type_definitions: dict = None,
-        metagene_variation_probabilities: Sequence = None,
-        shared_metagenes: Optional[NDArray] = None,
-        width: float = 1.0,
-        height: float = 1.0,
-        minimum_distance: float = None,
-        grid_size: int = None,
+        replicate_name: Union[int, str],
+        parameters: SimulationParameters,
         random_state: Union[int, np.random.Generator] = None,
         verbose: int = 0,
     ):
         """Generate random coordinates (as well as expression values) for a
-        single ST FOV.
+        single ST FOV."""
 
-        Args:
-            num_cells: number of cells to simulate
-            num_genes: number of total genes to simulate
-
-        """
-
+        self.params = parameters
         self.verbose = verbose
 
-        if num_cells is not None:
-            self.num_cells = num_cells
-        elif grid_size is not None:
-            self.grid_size = grid_size
-            self.num_cells = self.grid_size**2
+        try:
+            self.params.num_cells = self.params.num_cells or self.params.grid_size**2
+        except TypeError as e:
+            raise ValueError(
+                "At least one of `num_cells` or `grid_size` must be defined in the input `SimulationParameters` dataclass object.",
+            )
 
-        self.num_genes = num_genes
-        self.annotation_mode = annotation_mode
+        invalid_definition_lengths = [
+            (len(cell_type_definition) != self.params.num_real_metagenes)
+            for cell_type_definition in self.params.cell_type_definitions.values()
+        ]
+        if (len(self.params.metagene_variation_probabilities) != self.params.num_real_metagenes) or np.any(
+            invalid_definition_lengths,
+        ):
+            raise ValueError(
+                "The dimensions of simulation parameters must be aligned. Please "
+                "check that the `metagene_variation_probabilities`, `cell_type_definitions`"
+                " and `num_real_metagenes` values are all compatible.",
+            )
 
         self.rng = np.random.default_rng(random_state)
 
-        dummy_expression = np.zeros((self.num_cells, num_genes))
+        dummy_expression = np.zeros((self.params.num_cells, self.params.num_genes))
 
         super().__init__(X=dummy_expression)
 
         self.name = f"{replicate_name}"
 
-        self.uns["domain_names"] = list(spatial_distributions.keys())
-        self.uns["width"] = self.width = width
-        self.uns["height"] = self.height = height
+        self.uns["domain_names"] = list(self.params.spatial_distributions.keys())
 
-        self.uns["domain_distributions"] = {
-            self.name: spatial_distributions,
-        }
-        self.uns["metagene_variation_probabilities"] = {
-            self.name: metagene_variation_probabilities,
-        }
+        self.uns["simulation_parameters"] = vars(parameters)
 
-        if self.annotation_mode == "layer":
-            self.uns["cell_type_names"] = list(cell_type_definitions.keys())
+        if self.params.annotation_mode == "domain":
+            self.uns["simulation_parameters"]["cell_type_names"] = list(self.params.cell_type_definitions.keys())
             self.uns["cell_type_definitions"] = {
-                self.name: cell_type_definitions,
+                self.name: self.params.cell_type_definitions,
             }
 
-        if grid_size:
-            x = np.linspace(0, self.width, grid_size)
-            y = np.linspace(0, self.height, grid_size)
+        if self.params.grid_size:
+            x = np.linspace(0, self.params.width, self.params.grid_size)
+            y = np.linspace(0, self.params.height, self.params.grid_size)
             xv, yv = np.meshgrid(x, y)
 
-            self.obsm["spatial"] = np.vstack([xv.flatten() * self.width, yv.flatten() * self.height]).T
+            self.obsm["spatial"] = np.vstack([xv.flatten() * self.params.width, yv.flatten() * self.height]).T
         else:
-            if not minimum_distance:
-                minimum_distance = 0.75 / np.sqrt(self.num_cells)
+            if not self.params.minimum_distance:
+                minimum_distance = 0.75 / np.sqrt(self.params.num_cells)
             tau = minimum_distance * 2.2
             self.obsm["spatial"] = sample_2D_points(
-                self.num_cells,
+                self.params.num_cells,
                 minimum_distance,
-                width=self.uns["width"],
-                height=self.uns["height"],
+                width=self.params.width,
+                height=self.params.height,
                 random_state=self.rng,
             )
 
-        canvas_constructor = DomainCanvas if self.annotation_mode == "layer" else MetageneCanvas
+        canvas_constructor = DomainCanvas if self.params.annotation_mode == "domain" else MetageneCanvas
         self.domain_canvas = canvas_constructor(
             self.obsm["spatial"],
             self.uns["domain_names"],
@@ -396,28 +318,151 @@ class SyntheticDataset(ad.AnnData):
             density=1,
         )
 
+    def synthesize_metagenes(
+        self,
+        original_metagenes: Optional[NDArray] = None,
+        replicate_variability: Optional[float] = None,
+        normalize: bool = True,
+    ) -> NDArray:
+        """Synthesize related metagenes according to the
+        `metagene_variation_probabilities` vector.
+
+        Creates `num_real_metagenes` synthetic metagenes using a random Gamma distribution with
+        shape parameter `real_metagene_parameter`. For each metagene `i`, if
+        `dropout_probabilities[i] != 0`, randomly permutes a `metagene_variation_probabilities[i]`
+        fraction of metagene `i-1` to create metagene `i`; otherwise, creates a new random metagene.
+        In addition, adds `n_noise_metagenes` parameterized by a Gamma distribution with shape
+        parameter `noise_metagene_parameter`.
+
+        Args:
+            original_metagenes: base metagenes to resample. If `None`, metagenes are generated from
+                scratch.
+            replicate_variability: variation in metagenes definition between simulation replicates
+            normalize: whether metagenes should be normalized such that each metagene sums to 1.
+            random_state: random state to use for sampling of metagene weights
+
+        Return:
+            An array of ground truth metagene weights.
+
+        """
+
+        num_metagenes = self.params.num_real_metagenes + self.params.num_noise_metagenes
+        metagenes = np.zeros((num_metagenes, self.params.num_genes))
+
+        #     last_index = None
+        for index in range(self.params.num_real_metagenes):
+            variation_probability = self.params.metagene_variation_probabilities[index]
+
+            if variation_probability == 0 and not replicate_variability:
+                metagene = gamma.rvs(
+                    self.params.real_metagene_parameter,
+                    size=self.params.num_genes,
+                    random_state=self.rng,
+                )
+                metagenes[index] = metagene
+            #             last_index = index
+            else:
+                if variation_probability == 0:
+                    metagene = original_metagenes[index].copy()
+                    variation_probability = replicate_variability
+
+                mask = np.full(self.params.num_genes, False)
+                masked_genes = self.rng.choice(
+                    self.params.num_genes,
+                    size=int(variation_probability * self.params.num_genes),
+                    replace=False,
+                )
+                mask[masked_genes] = True
+                perturbed_metagene = metagene.copy()
+
+                perturbations = gamma.rvs(self.params.real_metagene_parameter, size=np.sum(mask), random_state=self.rng)
+                if original_metagenes is not None:
+                    # Use dirichlet distribution
+                    perturbations *= np.sum(metagene[mask]) / np.sum(perturbations)
+                perturbed_metagene[mask] = perturbations
+
+                metagenes[index] = perturbed_metagene
+
+        #         print(f"Difference between last_index and current index: {((metagenes[index] - metagenes[last_index]) == 0).sum() / num_genes}")
+
+        for index in range(self.params.num_real_metagenes, num_metagenes):
+            metagenes[index] = gamma.rvs(
+                self.params.noise_metagene_parameter,
+                size=self.params.num_genes,
+                random_state=self.rng,
+            )
+
+        metagenes = metagenes
+
+        if normalize:
+            metagenes = metagenes / np.sum(metagenes, axis=1, keepdims=True)
+
+        return metagenes
+
+    def synthesize_cell_embeddings(self, signal_sigma_x=0.1, background_sigma_x=0.03):
+        """Generate synthetic cell embeddings."""
+
+        domain_labels = self.obs[self.params.domain_key].to_numpy()
+
+        num_metagenes = self.params.num_real_metagenes + self.params.num_noise_metagenes
+
+        cell_type_assignments = np.zeros((self.params.num_cells), dtype="int")
+        Z = np.zeros((self.params.num_cells, num_metagenes))
+
+        cell_types = self.params.cell_type_definitions.keys()
+
+        for domain_index, (domain_name, distribution) in enumerate(self.params.spatial_distributions.items()):
+            domain_cells = domain_labels == domain_name
+            domain_cell_types, proportions = zip(*distribution.items())
+
+            (cell_indices,) = np.nonzero(domain_cells)
+            self.rng.shuffle(cell_indices)
+
+            partition_indices = (np.cumsum(proportions) * len(cell_indices)).astype(int)
+            partitions = np.split(cell_indices, partition_indices[:-1])
+
+            cell_type_to_partition = dict(zip(domain_cell_types, partitions))
+
+            for cell_type_index, cell_type in enumerate(cell_types):
+                if cell_type not in domain_cell_types:
+                    continue
+
+                partition = cell_type_to_partition[cell_type]
+                if len(partition) == 0:
+                    continue
+
+                cell_type_assignments[partition] = cell_type_index
+                Z[partition, : self.params.num_real_metagenes] = self.params.cell_type_definitions[cell_type]
+
+        # Extrinsic factors
+        Z[:, self.params.num_real_metagenes : num_metagenes] = 0.05
+
+        sigma_x = np.concatenate(
+            [
+                np.full(self.params.num_real_metagenes, signal_sigma_x),
+                np.full(self.params.num_noise_metagenes, background_sigma_x),
+            ],
+        )
+        sigma_x = sigma_x * self.params.sig_x_scale
+
+        X = sample_normalized_embeddings(Z, sigma_x, rng=self.rng)
+
+        return X, cell_type_assignments
+
     def simulate_expression(self, predefined_metagenes=None, **simulation_parameters):
         """Simulate expression using parameters."""
         if self.verbose:
             print(f"Simulating {self.annotation_mode}-annotated expression...")
 
-        if self.annotation_mode == "layer":
+        if self.annotation_mode == "domain":
             return self.simulate_metagene_based_expression(
                 predefined_metagenes=predefined_metagenes,
-                **simulation_parameters,
             )
         elif self.annotation_mode == "metagene":
             return self.simulate_nsf_expression(predefined_metagenes=predefined_metagenes, **simulation_parameters)
 
     def simulate_metagene_based_expression(
         self,
-        num_real_metagenes,
-        num_noise_metagenes,
-        real_metagene_parameter,
-        noise_metagene_parameter,
-        sigY_scale,
-        sigX_scale,
-        lambda_s,
         metagene_magnitudes=None,
         predefined_metagenes=None,
     ):
@@ -425,37 +470,30 @@ class SyntheticDataset(ad.AnnData):
         model."""
 
         # Get num_genes x num_genes covariance matrix
-        self.sig_y = sigY_scale
-        num_metagenes = num_real_metagenes + num_noise_metagenes
-        if isinstance(self.sig_y, float):
-            self.sig_y *= np.identity(self.num_genes) / self.num_genes
-            self.variance_y = self.sig_y**2
-        elif isinstance(self.sig_y, dict):
-            self.sig_y = {
-                cell_type: cell_specific_sig_y / self.num_genes for cell_type, cell_specific_sig_y in self.sig_y.items()
+        num_metagenes = self.params.num_real_metagenes + self.params.num_noise_metagenes
+        if isinstance(self.params.sig_y_scale, float):
+            self.params.sig_y_scale *= np.identity(self.params.num_genes) / self.params.num_genes
+            self.variance_y = self.params.sig_y_scale**2
+        elif isinstance(self.params.sig_y_scale, dict):
+            self.params.sig_y_scale = {
+                cell_type: cell_specific_sig_y_scale / self.params.num_genes
+                for cell_type, cell_specific_sig_y_scale in self.params.sig_y_scale.items()
             }
-            random_key = next(iter(self.sig_y))
-            if isinstance(self.sig_y[random_key], float):
-                self.sig_y = {
-                    cell_type: cell_specific_sig_y * np.identity(self.num_genes)
-                    for cell_type, cell_specific_sig_y in self.sig_y.items()
+            random_key = next(iter(self.params.sig_y_scale))
+            if isinstance(self.params.sig_y_scale[random_key], float):
+                self.params.sig_y_scale = {
+                    cell_type: cell_specific_sig_y_scale * np.identity(self.params.num_genes)
+                    for cell_type, cell_specific_sig_y_scale in self.params.sig_y_scale.items()
                 }
 
             self.variance_y = {
-                cell_type: cell_specific_sig_y**2 for cell_type, cell_specific_sig_y in self.sig_y.items()
+                cell_type: cell_specific_sig_y_scale**2
+                for cell_type, cell_specific_sig_y_scale in self.params.sig_y_scale.items()
             }
 
         magnitudes = None
         if predefined_metagenes is None:
-            metagenes = synthesize_metagenes(
-                self.num_genes,
-                num_real_metagenes,
-                num_noise_metagenes,
-                real_metagene_parameter,
-                noise_metagene_parameter,
-                metagene_variation_probabilities=self.uns["metagene_variation_probabilities"][self.name],
-                random_state=self.rng,
-            )
+            metagenes = self.synthesize_metagenes()
 
             self.magnitudes = np.sum(metagenes, axis=1)
             metagenes = metagenes / self.magnitudes[:, np.newaxis]
@@ -466,21 +504,17 @@ class SyntheticDataset(ad.AnnData):
 
         self.uns["ground_truth_M"] = {self.name: metagenes}
 
-        X_i, C_i = synthesize_cell_embeddings(
-            self.obs["layer"].to_numpy(),
-            self.uns["domain_distributions"][self.name],
-            self.uns["cell_type_definitions"][self.name],
-            self.num_cells,
-            num_real_metagenes,
-            sigma_x_scale=sigX_scale,
-            n_noise_metagenes=num_noise_metagenes,
+        X_i, C_i = self.synthesize_cell_embeddings()
+
+        self.S = gamma.rvs(
+            num_metagenes / self.params.lambda_s,
+            scale=self.params.lambda_s,
+            size=self.params.num_cells,
             random_state=self.rng,
         )
-
-        self.S = gamma.rvs(num_metagenes / lambda_s, scale=lambda_s, size=self.num_cells)
         self.obsm["ground_truth_X"] = X_i * self.S[:, np.newaxis]
         cell_type_encoded = C_i.astype(int)
-        cell_type = [self.uns["cell_type_names"][index] for index in cell_type_encoded]
+        cell_type = [self.uns["simulation_parameters"]["cell_type_names"][index] for index in cell_type_encoded]
         self.obs["cell_type"] = cell_type
         self.obs["cell_type_encoded"] = cell_type_encoded
 
@@ -564,8 +598,8 @@ class SyntheticDataset(ad.AnnData):
 
         self.X = np.matmul(self.obsm["ground_truth_X"], self.uns["ground_truth_M"][self.name].T)
 
-        if self.annotation_mode == "layer":
-            for cell, cell_type in zip(range(self.num_cells), self.obs["cell_type_encoded"].to_numpy()):
+        if self.params.annotation_mode == "domain":
+            for cell, cell_type in zip(range(self.params.num_cells), self.obs["cell_type_encoded"].to_numpy()):
                 if isinstance(self.variance_y, dict):
                     cell_type_variance_y = self.variance_y[int(cell_type)]
                 else:
@@ -581,18 +615,17 @@ class SyntheticDataset(ad.AnnData):
             self.raw = self
             sc.pp.log1p(self)
 
-    def annotate_layer(self, points=None):
+    def annotate_domain(self, points=None):
         return self.domain_canvas.annotate_domain(points=points)
 
-    def assign_layer_labels(self):
-        if self.annotation_mode == "metagene":
+    def assign_domain_labels(self):
+        if self.params.annotation_mode == "metagene":
             self.domain_canvas.convert_metagenes_to_cell_types()
 
         domain_kd_tree = self.domain_canvas.generate_domain_kd_tree()
-        domain_key = "layer" if self.annotation_mode == "layer" else "cell_type"
-        self.obs[domain_key] = domain_kd_tree.query(self.obsm["spatial"])
-        if self.annotation_mode == "metagene":
-            self.uns["cell_type_names"] = list(set(self.obs[domain_key]))
+        self.obs[self.params.domain_key] = domain_kd_tree.query(self.obsm["spatial"])
+        if self.params.annotation_mode == "metagene":
+            self.uns["cell_type_names"] = list(set(self.obs[self.params.domain_key]))
             cell_type_definitions = {
                 label: np.zeros(len(self.domain_canvas.domain_names)) for label in self.uns["cell_type_names"]
             }
@@ -612,7 +645,7 @@ class MultiReplicateSyntheticDataset:
     """Synthetic multireplicate dataset to model biological variation and batch
     effects in spatial transcriptomics data."""
 
-    def __init__(self, num_genes, replicate_parameters, dataset_class, random_state=0, verbose=0):
+    def __init__(self, replicate_parameters: dict[SimulationParameters], dataset_class, random_state=0, verbose=0):
         self.verbose = verbose
         self.datasets = {}
         self.replicate_parameters = replicate_parameters
@@ -622,7 +655,6 @@ class MultiReplicateSyntheticDataset:
 
         for replicate_name in self.replicate_parameters:
             synthetic_dataset = dataset_class(
-                num_genes=num_genes,
                 replicate_name=replicate_name,
                 **self.replicate_parameters[replicate_name],
                 random_state=self.rng,
@@ -630,14 +662,14 @@ class MultiReplicateSyntheticDataset:
             )
             self.datasets[replicate_name] = synthetic_dataset
 
-    def annotate_replicate_layer(self, replicate_name, points=None):
+    def annotate_replicate_domain(self, replicate_name, points=None):
         print(f"Annotating replicate {replicate_name}")
 
-        return self.datasets[replicate_name].annotate_layer(points=points)
+        return self.datasets[replicate_name].annotate_domain(points=points)
 
-    def assign_layer_labels(self):
+    def assign_domain_labels(self):
         for replicate_dataset in self.datasets.values():
-            replicate_dataset.assign_layer_labels()
+            replicate_dataset.assign_domain_labels()
 
     def simulate_expression(self, replicate_simulation_parameters):
         """Convenience method for shared simulation parameters between all
@@ -648,7 +680,7 @@ class MultiReplicateSyntheticDataset:
         for replicate_name, replicate_dataset in self.datasets.items():
             print(replicate_name)
             simulation_parameters = replicate_simulation_parameters[replicate_name]
-            # if replicate_dataset.annotation_mode == "layer":
+            # if replicate_dataset.annotation_mode == "domain":
             #     replicate_dataset.simulate_expression(predefined_metagenes=metagenes, metagene_magnitudes=metagene_magnitudes, **simulation_parameters)
             replicate_dataset.simulate_expression(
                 predefined_metagenes=metagenes,
@@ -688,9 +720,6 @@ def remove_connectivity_artifacts(sparse_distance_matrix):
     mask = dense_distances < cutoff
 
     return csr_matrix(dense_distances * mask)
-
-
-from scipy.spatial import Delaunay
 
 
 def generate_affinity_mat(p, tau=1.0, delaunay=True):
