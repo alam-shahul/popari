@@ -21,7 +21,7 @@ dependencies = [
     "scanpy>=1.9.2",
     "seaborn>=0.11.1",
     "matplotlib>=3.7.0",
-    "squidpy>=1.2.3",
+    "squidpy@git+https://github.com/alam-shahul/squidpy",
     "louvain>=0.8.0",
     "ortools>=9.7.2996",
 ]
@@ -34,6 +34,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true # This allows us to specify dependencies on GitHub; maybe can remove later
 
 [tool.hatch.version]
 path = "popari/__about__.py"
