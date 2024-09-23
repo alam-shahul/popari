@@ -18,8 +18,7 @@ from numpy.typing import NDArray
 from scipy.sparse import csr_matrix
 from scipy.spatial import Delaunay
 from scipy.spatial.distance import cdist, pdist, squareform
-from scipy.stats import bernoulli, dirichlet, gamma, truncnorm
-from sklearn.decomposition import NMF
+from scipy.stats import gamma, truncnorm
 
 from popari._canvas import DomainCanvas, MetageneCanvas
 
@@ -720,39 +719,3 @@ class MultiReplicateSyntheticDataset:
                 adjacency_list[x].append(y)
 
             dataset.obs["adjacency_list"] = adjacency_list
-
-
-def remove_connectivity_artifacts(sparse_distance_matrix):
-    dense_distances = sparse_distance_matrix.toarray()
-    distances = sparse_distance_matrix.data
-    cutoff = np.percentile(distances, 94.5)
-    mask = dense_distances < cutoff
-
-    return csr_matrix(dense_distances * mask)
-
-
-def generate_affinity_mat(p, tau=1.0, delaunay=True):
-    if delaunay:
-        A = np.zeros((p.shape[0], p.shape[0]))
-        D = Delaunay(p)
-        for tri in D.simplices:
-            A[tri[0], tri[1]] = 1
-            A[tri[1], tri[2]] = 1
-            A[tri[2], tri[0]] = 1
-    else:
-        disjoint_nodes = True
-        while disjoint_nodes:
-            N = p.shape[0]
-            # Construct graph
-            D = squareform(pdist(p))
-            A = D < tau
-            Id = np.identity(N, dtype="bool")
-            A = A * ~Id
-            G = nx.from_numpy_matrix(A)
-            if not nx.is_connected(G):
-                # increase tau by 10% and repeat
-                tau = 1.1 * tau
-                print("Graph is not connected, increasing tau to %s", tau)
-            else:
-                disjoint_nodes = False
-    return A
