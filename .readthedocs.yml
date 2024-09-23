@@ -6,7 +6,6 @@ build:
 sphinx:
   configuration: docs/source/conf.py
 python:
-  version: "3.10"
   install:
     - requirements: docs/requirements.txt
     - method: pip
