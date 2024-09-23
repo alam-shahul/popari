@@ -26,7 +26,7 @@ Tools for loading and saving Popari data and parameters.
 .. autosummary::
     :toctree: api/
     :recursive:
-    
+
     io.save_anndata
     io.load_anndata
 ```
@@ -42,7 +42,7 @@ Entry points for implementations of the Popari algorithm.
 .. autosummary::
     :toctree: api/
     :recursive:
-    
+
     model.Popari
     model.load_trained_model
 ```
@@ -58,7 +58,7 @@ Objects that are helpful for working with Popari.
 .. autosummary::
     :toctree: api/
     :recursive:
-    
+
     components.PopariDataset
 ```
 
@@ -73,7 +73,7 @@ Functions for visualizing and evaluating Popari results.
 .. autosummary::
     :toctree: api/
     :recursive:
- 
+
     tl.preprocess_embeddings
     tl.leiden
     tl.compute_ari_scores
@@ -98,11 +98,28 @@ Functions for visualizing and evaluating Popari results.
 .. autosummary::
     :toctree: api/
     :recursive:
- 
+
     pl.in_situ
     pl.all_embeddings
     pl.metagene_embedding
     pl.multireplicate_heatmap
     pl.multigroup_heatmap
     pl.confusion_matrix
+```
+
+## Simulation
+
+Tools to generate simulated (multisample) spatially-resolved transcriptomics, or (m)SRT.
+
+```{eval-rst}
+.. module:: popari.simulation_framework
+.. currentmodule:: popari
+
+.. autosummary::
+    :toctree: api/
+    :recursive:
+
+    simulation_framework.SimulationParameters
+    simulation_framework.SyntheticDataset
+    simulation_framework.MultiReplicateSyntheticDataset
 ```
