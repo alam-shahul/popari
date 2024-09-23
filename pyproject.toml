@@ -11,7 +11,7 @@ authors = [
 ]
 dependencies = [
     "numpy>=1.20.1",
-    "scipy>=1.13.1",
+    "scipy>=1.10.1",
     "scikit-learn>=0.24.1",
     "pandas>=1.5.2",
     "anndata>=0.9.1",
@@ -23,12 +23,13 @@ dependencies = [
     "matplotlib>=3.7.0",
     "squidpy>=1.6.1",
     "louvain>=0.8.0",
+    "leidenalg>=0.10.2",
     "ortools>=9.7.2996",
 ]
 description = "Popari: a probabilistic graphical model for integrated spatial transcriptomics analysis"
 readme = "README.md"
 license = { file="LICENSE" }
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -51,6 +52,12 @@ popari-grid-search= "popari.mlflow.grid_search:run"
 simulation = [
   "jupyterlab",
   "ipycanvas",
+  "jupyterlab_execute_time",
+]
+jupyter = [
+  "jupyterlab",
+  "jupyterlab_execute_time",
+  "jupyter-resource-usage",
 ]
 mlflow = [
   "mlflow>=2.5.0",

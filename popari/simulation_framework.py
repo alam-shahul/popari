@@ -297,7 +297,7 @@ class SyntheticDataset(AnnData):
             y = np.linspace(0, self.params.height, self.params.grid_size)
             xv, yv = np.meshgrid(x, y)
 
-            self.obsm["spatial"] = np.vstack([xv.flatten() * self.params.width, yv.flatten() * self.height]).T
+            self.obsm["spatial"] = np.vstack([xv.flatten() * self.params.width, yv.flatten() * self.params.height]).T
         else:
             if not self.params.minimum_distance:
                 minimum_distance = 0.75 / np.sqrt(self.params.num_cells)
@@ -473,22 +473,24 @@ class SyntheticDataset(AnnData):
         # Get num_genes x num_genes covariance matrix
         num_metagenes = self.params.num_real_metagenes + self.params.num_noise_metagenes
         if isinstance(self.params.sig_y_scale, float):
-            self.variance_y = (self.params.sig_y_scale**2) * np.identity(self.params.num_genes) / self.params.num_genes
+            self.variance_y = (
+                self.params.sig_y_scale * np.identity(self.params.num_genes) / self.params.num_genes
+            ) ** 2
         elif isinstance(self.params.sig_y_scale, dict):
-            self.params.sig_y_scale = {
+            self.variance_y = {
                 cell_type: cell_specific_sig_y_scale / self.params.num_genes
                 for cell_type, cell_specific_sig_y_scale in self.params.sig_y_scale.items()
             }
-            random_key = next(iter(self.params.sig_y_scale))
-            if isinstance(self.params.sig_y_scale[random_key], float):
-                self.params.sig_y_scale = {
+            random_key = next(iter(self.variance_y))
+            if isinstance(self.variance_y[random_key], float):
+                self.variance_y = {
                     cell_type: cell_specific_sig_y_scale * np.identity(self.params.num_genes)
-                    for cell_type, cell_specific_sig_y_scale in self.params.sig_y_scale.items()
+                    for cell_type, cell_specific_sig_y_scale in self.variance_y.items()
                 }
 
             self.variance_y = {
                 cell_type: cell_specific_sig_y_scale**2
-                for cell_type, cell_specific_sig_y_scale in self.params.sig_y_scale.items()
+                for cell_type, cell_specific_sig_y_scale in self.variance_y.items()
             }
 
         if self.verbose > 1:
