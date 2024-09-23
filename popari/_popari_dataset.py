@@ -98,33 +98,17 @@ class PopariDataset(ad.AnnData):
 
         return sparse_adjacency_matrix
 
-    def plot_embedding_embedding(
-        self,
-        embedding_index: int,
-        embedding_key: str = "X",
-        **scatterplot_kwargs,
-    ):
+    def plot_metagene_embedding(self, metagene_index: int, embedding_key: str = "X", **scatterplot_kwargs):
         r"""Plot the embedding values for a embedding in-situ.
 
         Args:
-            embedding_index: index of the embedding to plot.
+            metagene_index: index of the embedding to plot.
             **scatterplot_kwargs: keyword args to pass to ``sns.scatterplot``.
 
         """
         points = self.obsm["spatial"]
         x, y = points.T
-        embedding = self.obsm[embedding_key][:, embedding_index]
+        embedding = self.obsm[embedding_key][:, metagene_index]
 
-        biased_batch_effect = pd.DataFrame(
-            {"x": x, "y": y, f"Metagene {metagene_index}": embedding},
-        )
-        sns.scatterplot(
-            data=biased_batch_effect,
-            x="x",
-            y="y",
-            hue=f"Metagene {metagene_index}",
-            **scatterplot_kwargs,
-        )
-
-
-class DatasetContainer: ...
+        biased_batch_effect = pd.DataFrame({"x": x, "y": y, f"Metagene {metagene_index}": embedding})
+        sns.scatterplot(data=biased_batch_effect, x="x", y="y", hue=f"Metagene {metagene_index}", **scatterplot_kwargs)
