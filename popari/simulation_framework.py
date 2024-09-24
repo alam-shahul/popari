@@ -9,15 +9,11 @@ import anndata as ad
 import numpy as np
 import scanpy as sc
 import scipy
-import seaborn as sns
 import squidpy as sq
-import umap
 from anndata import AnnData
 from matplotlib import pyplot as plt
 from numpy.typing import NDArray
-from scipy.sparse import csr_matrix
-from scipy.spatial import Delaunay
-from scipy.spatial.distance import cdist, pdist, squareform
+from scipy.spatial.distance import cdist
 from scipy.stats import gamma, truncnorm
 
 from popari._canvas import DomainCanvas, MetageneCanvas
