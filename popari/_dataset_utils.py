@@ -570,7 +570,7 @@ def _compute_empirical_correlations(
     _, K = first_dataset.obsm[feature].shape
     empirical_correlations = np.zeros([num_replicates, K, K])
     for replicate, dataset in enumerate(datasets):
-        adjacency_list = dataset.obs["adjacency_list"]
+        adjacency_list = dataset.obsm["adjacency_list"]
         X = dataset.obsm[feature]
         Z = X / np.linalg.norm(X, axis=1, keepdims=True, ord=1)
         edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
@@ -1008,7 +1008,7 @@ def _metagene_neighbor_interactions(dataset: PopariDataset, interaction_key: str
     X = embeddings
     adjacency_matrix = dataset.obsp["adjacency_matrix"].toarray()
 
-    adjacency_list = dataset.obs["adjacency_list"]
+    adjacency_list = dataset.obsm["adjacency_list"]
     num_cells, num_metagenes = embeddings.shape
 
     Z = X / np.linalg.norm(X, axis=1, keepdims=True, ord=1)

@@ -1,6 +1,8 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
+import scanpy as sc
 import squidpy as sq
 import torch
 
@@ -11,19 +13,35 @@ from popari.model import Popari, load_trained_model
 
 
 @pytest.fixture(scope="module")
-def trained_model():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
+def test_datapath():
+    return Path("tests/test_data/synthetic_dataset")
+
+
+@pytest.fixture(scope="module")
+def trained_model(test_datapath):
     replicate_names = [0, 1]
-    trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad")
+    trained_model = load_trained_model(test_datapath / "trained_4_iterations.h5ad")
 
     return trained_model
 
 
-def test_binning(trained_model):
+def test_binning(trained_model, test_datapath):
     binned_datasets = []
-    for dataset in trained_model.datasets:
+    for index, dataset in enumerate(trained_model.datasets):
         binned_dataset = _spatial_binning(dataset, chunks=4, downsample_rate=0.5)
-        binned_datasets.append(binned_dataset)
+        print(f"{dataset.name=}")
+        print(f"{binned_dataset.name=}")
+        if not (test_datapath / f"binned_dataset_{index}.h5ad").exists():
+            binned_dataset.write_h5ad(test_datapath / f"binned_dataset_{index}.h5ad")
+
+        print(binned_dataset.obsm)
+        bin_assignments_key = f"bin_assignments_{binned_dataset.name}"
+        saved_dataset = sc.read_h5ad(test_datapath / f"binned_dataset_{index}.h5ad")
+        print(saved_dataset.obsm)
+        assert np.allclose(
+            binned_dataset.obsm[bin_assignments_key].toarray(),
+            saved_dataset.obsm[bin_assignments_key].toarray(),
+        )
 
 
 @pytest.fixture(scope="module")
@@ -132,6 +150,7 @@ def test_superresolution(hierarchical_model):
     hierarchical_model.nll(level=1, use_spatial=True)
     hierarchical_model.nll(level=0, use_spatial=True)
 
+    # TODO: add check for superresolution results
     hierarchical_model.save_results(path2dataset / "superresolved_results", ignore_raw_data=False)
     hierarchical_model.nll(level=0, use_spatial=True)
 
