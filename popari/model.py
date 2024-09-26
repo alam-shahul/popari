@@ -1,29 +1,30 @@
-from typing import Sequence, Union, Optional
-
-import sys, time, itertools, logging, os, pickle
+import itertools
+import logging
+import os
+import pickle
+import sys
+import time
 from pathlib import Path
+from typing import Optional, Sequence, Union
 
-from tqdm import trange
-
+import anndata as ad
 import numpy as np
 import pandas as pd
-
 import torch
-import anndata as ad
+from tqdm import trange
 
-from popari.util import get_datetime, convert_numpy_to_pytorch_sparse_coo, compute_nll
-from popari.io import load_anndata, save_anndata, merge_anndata, unmerge_anndata
+from popari._hierarchical_view import Hierarchy, construct_hierarchy, reconstruct_hierarchy
+from popari.components import HierarchicalView, PopariDataset
+from popari.io import load_anndata, merge_anndata, save_anndata, unmerge_anndata
+from popari.util import compute_nll, convert_numpy_to_pytorch_sparse_coo, get_datetime
 
-from popari.components import PopariDataset, HierarchicalView
-
-from popari._hierarchical_view import construct_hierarchy, reconstruct_hierarchy
 
 class Popari:
     r"""Popari optimization model.
 
     Models spatial biological data using the NMF-HMRF formulation. Supports multiple
     fields-of-view (FOVs) and differential analysis.
-   
+
     Example of including math in docstring (for use later):
     :math:`||A||_F = [\sum_{i,j} abs(a_{i,j})^2]^{1/2}`
 
@@ -53,7 +54,7 @@ class Popari:
         initial_context: keyword args to use during initialization of PyTorch tensors.
         metagene_mode: modality of metagene parameters. Default: ``shared``.
 
-            =================  ===== 
+            =================  =====
             ``metagene_mode``  Option
             =================  =====
             ``shared``         A metagene set is shared between all replicates in a group.
@@ -80,9 +81,11 @@ class Popari:
         use_inplace_ops: if set, inplace PyTorch operations will be used to speed up computation
         random_state: seed for reproducibility of randomized computations. Default: ``0``
         verbose: level of verbosity to use during optimization. Default: ``0`` (no print statements)
+
     """
-    
-    def __init__(self,
+
+    def __init__(
+        self,
         K: int,
         replicate_names: Optional[Sequence[str]] = None,
         datasets: Optional[Sequence[ad.AnnData]] = None,
@@ -113,11 +116,13 @@ class Popari:
         embedding_mini_iterations: int = 1000,
         embedding_acceleration_trick: bool = True,
         embedding_step_size_multiplier: float = 1.0,
+        downsampling_method: str = "grid",
         binning_downsample_rate: float = 0.2,
+        chunks: int = 2,
         superresolution_lr: float = 1e-1,
         use_inplace_ops: bool = True,
         random_state: int = 0,
-        verbose: int = 0
+        verbose: int = 0,
     ):
 
         self.use_inplace_ops = use_inplace_ops
@@ -130,10 +135,10 @@ class Popari:
             raise ValueError("`K` must be an integer value greater than 1.")
 
         if not torch_context:
-            torch_context = dict(device='cpu', dtype=torch.float32)
-        
+            torch_context = dict(device="cpu", dtype=torch.float32)
+
         if not initial_context:
-            initial_context = dict(device='cpu', dtype=torch.float32)
+            initial_context = dict(device="cpu", dtype=torch.float32)
 
         self.context = torch_context
         self.initial_context = initial_context
@@ -156,12 +161,11 @@ class Popari:
         self.spatial_affinity_mode = spatial_affinity_mode
         self.pretrained = pretrained
 
-        self.metagene_mode = metagene_mode 
+        self.metagene_mode = metagene_mode
         self.lambda_M = lambda_M
         self.metagene_groups = metagene_groups
         self.spatial_affinity_groups = spatial_affinity_groups
 
-            
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
         self.embedding_mini_iterations = embedding_mini_iterations
         self.embedding_acceleration_trick = embedding_acceleration_trick
@@ -169,7 +173,9 @@ class Popari:
         self.hierarchical_levels = hierarchical_levels
         self.reloaded_hierarchy = reloaded_hierarchy
         self.superresolution_lr = superresolution_lr
+        self.downsampling_method = downsampling_method
         self.binning_downsample_rate = binning_downsample_rate
+        self.chunks = chunks
 
         if dataset_path:
             self.load_dataset(dataset_path)
@@ -180,7 +186,7 @@ class Popari:
             self.replicate_names = [dataset.name for dataset in self.datasets]
         else:
             self.replicate_names = [f"{replicate_name}" for replicate_name in replicate_names]
-        
+
         self.parameter_optimizer_hyperparameters = {
             "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
             "lambda_Sigma_bar": self.lambda_Sigma_bar,
@@ -211,8 +217,11 @@ class Popari:
         Args:
             datasets: spatial transcriptomics datasets in AnnData format (one for each FOV)
             replicate_names: names for all datasets/replicates
+
         """
-        self.datasets = [PopariDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
+        self.datasets = [
+            PopariDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)
+        ]
         self.num_replicates = len(self.datasets)
 
     def load_dataset(self, dataset_path: Union[str, Path]):
@@ -220,54 +229,83 @@ class Popari:
 
         Args:
             dataset_path: path to input ST datasets, stored in .h5ad format
+
         """
 
         dataset_path = Path(dataset_path)
-        
+
         datasets, replicate_names = load_anndata(dataset_path)
         self.load_anndata_datasets(datasets, replicate_names)
 
-    def _initialize(self, pretrained=False, betas: Optional[Sequence[float]] = None, prior_x_modes: Optional[Sequence[str]] = None, method: str = 'svd'):
+    def _initialize(
+        self,
+        pretrained=False,
+        betas: Optional[Sequence[float]] = None,
+        prior_x_modes: Optional[Sequence[str]] = None,
+        method: str = "svd",
+    ):
         """Initialize metagenes and hidden states.
 
         Args:
             betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
             prior_x_modes: family of prior distribution for embeddings of each dataset
             method: algorithm to use for initializing metagenes and embeddings. Default: SVD
+
         """
 
         hierarchical_view_kwargs = {
-                "random_state": self.random_state,
-                "K": self.K,
-                "context": self.context,
-                "initial_context": self.initial_context,
-                "hierarchical_levels": self.hierarchical_levels,
-                "betas": betas,
-                "prior_x_modes": prior_x_modes,
-                "use_inplace_ops": self.use_inplace_ops,
-                "method": method,
-                "pretrained": self.pretrained,
-                "verbose": self.verbose,
-                "metagene_groups": self.metagene_groups,
-                "spatial_affinity_groups": self.spatial_affinity_groups,
-                "parameter_optimizer_hyperparameters": self.parameter_optimizer_hyperparameters,
-                "embedding_optimizer_hyperparameters": self.embedding_optimizer_hyperparameters,
+            "random_state": self.random_state,
+            "K": self.K,
+            "context": self.context,
+            "initial_context": self.initial_context,
+            "hierarchical_levels": self.hierarchical_levels,
+            "betas": betas,
+            "prior_x_modes": prior_x_modes,
+            "use_inplace_ops": self.use_inplace_ops,
+            "method": method,
+            "pretrained": self.pretrained,
+            "verbose": self.verbose,
+            "metagene_groups": self.metagene_groups,
+            "spatial_affinity_groups": self.spatial_affinity_groups,
+            "superresolution_lr": self.superresolution_lr,
+            "parameter_optimizer_hyperparameters": self.parameter_optimizer_hyperparameters,
+            "embedding_optimizer_hyperparameters": self.embedding_optimizer_hyperparameters,
         }
 
-      
-        self.base_view = HierarchicalView(self.datasets, superresolution_lr=self.superresolution_lr,
-                level=0, **hierarchical_view_kwargs)
+        bin_assignment_kwargs = {}
+        if self.downsampling_method == "grid":
+            bin_assignment_kwargs["chunks"] = self.chunks
+        elif self.downsampling_method == "partition":
+            bin_assignment_kwargs["adjacency_list_key"] = "adjacency_list"
+
+        self.base_view = HierarchicalView(self.datasets, level=0, **hierarchical_view_kwargs)
 
         if self.pretrained:
-            self.hierarchy = reconstruct_hierarchy(self.reloaded_hierarchy, 
-                    superresolution_lr=self.superresolution_lr, **hierarchical_view_kwargs)
+            # self.hierarchy = reconstruct_hierarchy(self.reloaded_hierarchy,
+            #         **hierarchical_view_kwargs)
+            self.hierarchy = Hierarchy.reconstruct(
+                self.reloaded_hierarchy,
+                **hierarchical_view_kwargs,
+            )
         else:
-            self.hierarchy = construct_hierarchy(self.base_view, chunks=2, levels=self.hierarchical_levels, 
-                    superresolution_lr=self.superresolution_lr, downsample_rate=self.binning_downsample_rate,
-                    **hierarchical_view_kwargs)
+            # self.hierarchy = construct_hierarchy(self.base_view, chunks=2, levels=self.hierarchical_levels,
+            #         downsample_rate=self.binning_downsample_rate,
+            #         **hierarchical_view_kwargs)
+
+            self.hierarchy = Hierarchy(
+                downsampling_method=self.downsampling_method,
+                base_view=self.base_view,
+                **hierarchical_view_kwargs,
+            )
+
+            self.hierarchy.construct(
+                levels=self.hierarchical_levels,
+                downsample_rate=self.binning_downsample_rate,
+                **bin_assignment_kwargs,
+            )
 
         self.base_view = self.hierarchy[self.hierarchical_levels - 1]
-        
+
         self.active_view = self.base_view
 
         self.datasets = self.active_view.datasets
@@ -281,22 +319,28 @@ class Popari:
         self.spatial_affinity_tags = self.active_view.spatial_affinity_tags
 
         self.synchronize_datasets()
-    
+
     def estimate_weights(self, use_neighbors=True):
         """Update embeddings (latent states) for each replicate.
 
         Args:
             use_neighbors: If specified, weight updates will take into account neighboring
                 interactions. Default: ``True``
+
         """
         if self.verbose:
             print(f"{get_datetime()} Updating latent states")
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
         self.synchronize_datasets()
 
-    def estimate_parameters(self, update_spatial_affinities: bool = True, differentiate_spatial_affinities: bool = True,
-                            differentiate_metagenes: bool = True, simplex_projection_mode: bool = "exact",
-                            edge_subsample_rate: Optional[float] = None):
+    def estimate_parameters(
+        self,
+        update_spatial_affinities: bool = True,
+        differentiate_spatial_affinities: bool = True,
+        differentiate_metagenes: bool = True,
+        simplex_projection_mode: bool = "exact",
+        edge_subsample_rate: Optional[float] = None,
+    ):
         """Update parameters for each replicate.
 
         Args:
@@ -304,33 +348,44 @@ class Popari:
                 this iteration. Default: ``True``
             edge_subsample_rate: Fraction of adjacency matrix edges that will be included in
                 optimization of ``Sigma_x_inv``.
+
         """
-        logging.info(f'{get_datetime()}Updating model parameters')
+        logging.info(f"{get_datetime()}Updating model parameters")
 
         if update_spatial_affinities:
             if self.verbose:
                 print(f"{get_datetime()} Updating spatial affinities")
-            self.parameter_optimizer.update_spatial_affinity(differentiate_spatial_affinities=differentiate_spatial_affinities, subsample_rate=edge_subsample_rate)
+            self.parameter_optimizer.update_spatial_affinity(
+                differentiate_spatial_affinities=differentiate_spatial_affinities,
+                subsample_rate=edge_subsample_rate,
+            )
 
         if self.verbose:
             print(f"{get_datetime()} Updating metagenes")
-        self.parameter_optimizer.update_metagenes(differentiate_metagenes=differentiate_metagenes, simplex_projection_mode=simplex_projection_mode)
+        self.parameter_optimizer.update_metagenes(
+            differentiate_metagenes=differentiate_metagenes,
+            simplex_projection_mode=simplex_projection_mode,
+        )
         if self.verbose:
             print(f"{get_datetime()} Updating sigma_yx")
         self.parameter_optimizer.update_sigma_yx()
         self.synchronize_datasets()
 
-    def superresolve(self,
-            differentiate_spatial_affinities: bool = True,
-            update_spatial_affinities: bool = True,
-            edge_subsample_rate: Optional[float] = None,
-            use_manual_gradients: bool = True,
-            n_epochs: int = 10000,
-            miniepochs: int = None,
-            tol: float = 1e-5):
+    def superresolve(
+        self,
+        differentiate_spatial_affinities: bool = True,
+        update_spatial_affinities: bool = True,
+        edge_subsample_rate: Optional[float] = None,
+        use_manual_gradients: bool = True,
+        n_epochs: int = 10000,
+        miniepochs: int = None,
+        tol: float = 1e-5,
+    ):
         """Superresolve embeddings in hierarchical case.
-        
-        Works in a cascading manner, by superresolving the embeddings from lowest to highest resolutions in order.
+
+        Works in a cascading manner, by superresolving the embeddings from
+        lowest to highest resolutions in order.
+
         """
 
         if miniepochs is None:
@@ -338,7 +393,7 @@ class Popari:
 
         effective_epochs = n_epochs // miniepochs + 1
 
-        for level in range(self.hierarchical_levels-2, -1, -1):
+        for level in range(self.hierarchical_levels - 2, -1, -1):
             if self.verbose:
                 print(f"{get_datetime()} Superresolving level {level} embeddings")
             view = self.hierarchy[level]
@@ -348,40 +403,48 @@ class Popari:
             previous_losses = np.full(len(view.datasets), np.inf)
             for epoch in progress_bar:
                 view.parameter_optimizer.update_sigma_yx()
-                losses = view._superresolve_embeddings(n_epochs=miniepochs, tol=tol, use_manual_gradients=use_manual_gradients, verbose=self.verbose)
-                formatted_losses = [f'{loss:.1e}' for loss in losses]
-                formatted_deltas = [f'{delta:.1e}' for delta in ((previous_losses - losses) / losses) ]
-                description = f'Updating weights hierarchically: loss = {formatted_losses} ' \
-                    f'%δloss = {formatted_deltas} ' \
-
+                losses = view._superresolve_embeddings(
+                    n_epochs=miniepochs,
+                    tol=tol,
+                    use_manual_gradients=use_manual_gradients,
+                    verbose=self.verbose,
+                )
+                formatted_losses = [f"{loss:.1e}" for loss in losses]
+                formatted_deltas = [f"{delta:.1e}" for delta in ((previous_losses - losses) / losses)]
+                description = (
+                    f"Updating weights hierarchically: loss = {formatted_losses} " f"%δloss = {formatted_deltas} "
+                )
                 previous_losses = losses
                 progress_bar.set_description(description)
-        
-            pretrained_embeddings = [view.embedding_optimizer.embedding_state[dataset.name].clone() for dataset in view.datasets]
+
+            pretrained_embeddings = [
+                view.embedding_optimizer.embedding_state[dataset.name].clone() for dataset in view.datasets
+            ]
             view.parameter_optimizer.spatial_affinity_state.initialize(pretrained_embeddings)
-    
+
             if update_spatial_affinities:
-                view.parameter_optimizer.update_spatial_affinity(differentiate_spatial_affinities=differentiate_spatial_affinities, subsample_rate=edge_subsample_rate)
-        
+                view.parameter_optimizer.update_spatial_affinity(
+                    differentiate_spatial_affinities=differentiate_spatial_affinities,
+                    subsample_rate=edge_subsample_rate,
+                )
+
         self.synchronize_datasets()
 
     def nll(self, level: int = 0, use_spatial: bool = False):
-        """Compute the nll for the current configuration of model parameters.
-    
-        """
-    
+        """Compute the nll for the current configuration of model parameters."""
+
         return compute_nll(self, level=level, use_spatial=use_spatial)
 
     def set_superresolution_lr(self, new_lr: float, target_level: Optional[int] = None):
         """Change learning rate for superresolution optimization.
 
-        Can be used to change learning rate for all hierarchical levels (by default) or just
-        the learning rate for a certain resolution.
+        Can be used to change learning rate for all hierarchical levels (by
+        default) or just the learning rate for a certain resolution.
 
         """
 
-        change_all = (target_level == None)
-        for level in self.hierarchy:
+        change_all = target_level == None
+        for level in range(self.hierarchical_levels):
             if change_all or (level == target_level):
                 self.hierarchy[level].superresolution_lr = new_lr
 
@@ -390,8 +453,8 @@ class Popari:
 
         self.base_view.synchronize_datasets()
         if self.hierarchical_levels > 1:
-            for level, view in self.hierarchy.items():
-                view.synchronize_datasets()
+            for level in range(self.hierarchical_levels):
+                self.hierarchy[level].synchronize_datasets()
 
     def save_results(self, dataset_path: str, ignore_raw_data: bool = True):
         """Save datasets and learned Popari parameters to disk.
@@ -402,8 +465,9 @@ class Popari:
                 ``dataset_path`` will be interpreted as a path to a subfolder where separate
                 ``.h5ad`` files will be stored for each hierarchical level.
             ignore_raw_data: if set, only learned parameters and embeddings will be saved; raw gene expression will be ignored.
+
         """
-            
+
         dataset_path = Path(dataset_path)
         path_without_extension = dataset_path.parent / dataset_path.stem
 
@@ -415,38 +479,41 @@ class Popari:
             path_without_extension.mkdir(exist_ok=True)
 
             merged_datasets = []
-            level_names = self.hierarchy.keys()
-            for level in level_names:
+            for level in range(self.hierarchical_levels):
                 view = self.hierarchy[level]
                 datasets = view.datasets
                 if self.verbose:
-                    print(f"{get_datetime()} Writing hierarchical results to {path_without_extension / f'level_{level}.h5ad'}")
+                    print(
+                        f"{get_datetime()} Writing hierarchical results to {path_without_extension / f'level_{level}.h5ad'}",
+                    )
 
                 save_anndata(path_without_extension / f"level_{level}.h5ad", datasets, ignore_raw_data=ignore_raw_data)
-    
+
     def train(self, num_preiterations: int, num_iterations: int):
         """Convenience function for training loop.
-    
+
         Args:
             num_preiterations: number of NMF iterations to use for initialization
             num_iterations: number of Popari iterations to train for
+
         """
 
-        progress_bar = trange(num_preiterations, leave=True)                                                                                                                                                       
-        for preiteration in progress_bar:                                                                                                                           
-            description = f'Preiteration {preiteration}'                                                                                                                                   
+        progress_bar = trange(num_preiterations, leave=True)
+        for preiteration in progress_bar:
+            description = f"Preiteration {preiteration}"
             progress_bar.set_description(description)
-            
+
             self.estimate_parameters(update_spatial_affinities=False)
             self.estimate_weights(use_neighbors=False)
-        
-        progress_bar = trange(num_iterations, leave=True)                                                                                                                                                       
-        for iteration in progress_bar:                                                                                                                           
-            description = f'Iteration {iteration}'                                                                                                                                   
+
+        progress_bar = trange(num_iterations, leave=True)
+        for iteration in progress_bar:
+            description = f"Iteration {iteration}"
             progress_bar.set_description(description)
-            
+
             self.estimate_parameters()
             self.estimate_weights()
+
 
 class SpiceMix(Popari):
     """Wrapper to produce SpiceMix hyperparameter configuration."""
@@ -458,16 +525,21 @@ class SpiceMix(Popari):
 
         super().__init__(spatial_affinity_mode="shared lookup", **spicemix_hyperparameters)
 
-def load_trained_model(dataset_path: Union[str, Path], context=dict(device="cpu", dtype=torch.float64), **popari_kwargs):
+
+def load_trained_model(
+    dataset_path: Union[str, Path],
+    context=dict(device="cpu", dtype=torch.float64),
+    **popari_kwargs,
+):
     """Load trained Popari model for downstream analysis.
 
     Args:
         dataset_path: location of Popari results, stored as a .h5ad file.
+
     """
 
     # TODO: change this so that replicate_names can rename the datasets in the saved file...?
 
-    
     dataset_path = Path(dataset_path)
     path_without_extension = dataset_path.parent / dataset_path.stem
 
@@ -491,19 +563,29 @@ def load_trained_model(dataset_path: Union[str, Path], context=dict(device="cpu"
             merged_dataset = ad.read_h5ad(level_path)
             datasets, replicate_names = unmerge_anndata(merged_dataset)
             reloaded_hierarchy[level] = datasets
-        
+
         popari_kwargs["hierarchical_levels"] = len(reloaded_hierarchy)
 
     datasets = reloaded_hierarchy[0]
     replicate_names = [dataset.name for dataset in datasets]
 
-    return load_pretrained(datasets, replicate_names, reloaded_hierarchy=reloaded_hierarchy, context=context, **popari_kwargs)
+    return load_pretrained(
+        datasets,
+        replicate_names,
+        reloaded_hierarchy=reloaded_hierarchy,
+        context=context,
+        **popari_kwargs,
+    )
 
-def load_pretrained(datasets: Sequence[PopariDataset], replicate_names: Sequence[str] = None,
-                    context=dict(device="cpu", dtype=torch.float64), reloaded_hierarchy: Optional[dict] = None, **popari_kwargs):
-    """Load pretrained Popari model from in-memory datasets.
 
-    """
+def load_pretrained(
+    datasets: Sequence[PopariDataset],
+    replicate_names: Sequence[str] = None,
+    context=dict(device="cpu", dtype=torch.float64),
+    reloaded_hierarchy: Optional[dict] = None,
+    **popari_kwargs,
+):
+    """Load pretrained Popari model from in-memory datasets."""
     first_dataset = datasets[0]
     saved_hyperparameters = first_dataset.uns["popari_hyperparameters"]
 
@@ -538,31 +620,33 @@ def load_pretrained(datasets: Sequence[PopariDataset], replicate_names: Sequence
         # lambda_Sigma_x_inv=lambda_Sigma_x_inv,
         initial_context=context,
         torch_context=context,
-        **new_kwargs
+        **new_kwargs,
     )
 
     return trained_model
 
+
 def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambda_Sigma_bar: float = 1e-3):
-    """Initialize Popari object from a SpiceMix pretrained model.
-    
-    """
+    """Initialize Popari object from a SpiceMix pretrained model."""
 
     pretrained_datasets = pretrained_model.hierarchy[0].datasets
     datasets = [PopariDataset(dataset, dataset.name) for dataset in pretrained_datasets]
     replicate_names = [dataset.name for dataset in datasets]
-    
+
     reloaded_hierarchy = None
 
     reloaded_hierarchy = {}
     for level in pretrained_model.hierarchy:
         level_datasets = pretrained_model.hierarchy[level].datasets
-        reloaded_hierarchy[level] = [PopariDataset(level_dataset, level_dataset.name) for level_dataset in level_datasets]
+        reloaded_hierarchy[level] = [
+            PopariDataset(level_dataset, level_dataset.name) for level_dataset in level_datasets
+        ]
 
-    return load_pretrained(datasets,
-               replicate_names,
-               reloaded_hierarchy=reloaded_hierarchy,
-               spatial_affinity_mode="differential lookup",
-               context=popari_context,
-               lambda_Sigma_bar=lambda_Sigma_bar
-           )
+    return load_pretrained(
+        datasets,
+        replicate_names,
+        reloaded_hierarchy=reloaded_hierarchy,
+        spatial_affinity_mode="differential lookup",
+        context=popari_context,
+        lambda_Sigma_bar=lambda_Sigma_bar,
+    )
