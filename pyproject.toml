@@ -72,7 +72,7 @@ benchmark = [
   "multiprocess>=0.70.15"
 ]
 test = [
-  "pytest"
+  "pytest",
 ]
 
 [tool]

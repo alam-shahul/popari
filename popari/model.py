@@ -636,7 +636,7 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
     reloaded_hierarchy = None
 
     reloaded_hierarchy = {}
-    for level in pretrained_model.hierarchy:
+    for level in range(pretrained_model.hierarchical_levels):
         level_datasets = pretrained_model.hierarchy[level].datasets
         reloaded_hierarchy[level] = [
             PopariDataset(level_dataset, level_dataset.name) for level_dataset in level_datasets

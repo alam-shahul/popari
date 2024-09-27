@@ -5,7 +5,7 @@ Popari is a versatile framework for joint analysis and investigation of complex 
 > :warning: **Popari is still under active development.** Check back in a bit for a more complete user experience!
 
 <p align="center">
-  <img src="./popari_overview_v5.png" width="800">
+  <img src="./overview_figure.png" width="800">
 </p>
 
 ## Dev instructions

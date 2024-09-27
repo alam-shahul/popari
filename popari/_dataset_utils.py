@@ -24,7 +24,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
 from popari._binning_utils import chunked_downsample_on_grid, filter_gridpoints
-from popari.components import PopariDataset
+from popari._popari_dataset import PopariDataset
 from popari.util import bin_expression, compute_neighborhood_enrichment
 
 

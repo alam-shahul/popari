@@ -7,7 +7,7 @@ from anndata import AnnData
 from numpy.typing import NDArray
 from sklearn.neighbors import NearestNeighbors
 
-from popari.components import PopariDataset
+from popari._popari_dataset import PopariDataset
 
 
 class Downsampler(ABC):

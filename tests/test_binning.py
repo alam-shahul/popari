@@ -51,8 +51,7 @@ def test_binning(trained_model, test_datapath):
 
 
 @pytest.fixture(scope="module")
-def hierarchical_model():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
+def hierarchical_model(test_datapath):
     replicate_names = [0, 1]
     obj = Popari(
         K=10,
@@ -61,7 +60,7 @@ def hierarchical_model():
         initial_context=dict(device="cuda:0", dtype=torch.float64),
         initialization_method="svd",
         spatial_affinity_mode="differential lookup",
-        dataset_path=path2dataset / "all_data.h5",
+        dataset_path=test_datapath / "all_data.h5",
         replicate_names=replicate_names,
         hierarchical_levels=2,
         binning_downsample_rate=0.5,
@@ -73,8 +72,7 @@ def hierarchical_model():
 
 
 @pytest.fixture(scope="module")
-def leiden_initialized_model():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
+def leiden_initialized_model(test_datapath):
     replicate_names = [0, 1]
     obj = Popari(
         K=10,
@@ -82,7 +80,7 @@ def leiden_initialized_model():
         torch_context=dict(device="cuda:0", dtype=torch.float64),
         initial_context=dict(device="cuda:0", dtype=torch.float64),
         spatial_affinity_mode="differential lookup",
-        dataset_path=path2dataset / "all_data.h5",
+        dataset_path=test_datapath / "all_data.h5",
         replicate_names=replicate_names,
         hierarchical_levels=2,
         binning_downsample_rate=0.5,
@@ -94,8 +92,7 @@ def leiden_initialized_model():
 
 
 @pytest.fixture(scope="module")
-def coarser_model():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
+def coarser_model(test_datapath):
     replicate_names = [0, 1]
     obj = Popari(
         K=10,
@@ -104,7 +101,7 @@ def coarser_model():
         initial_context=dict(device="cuda:0", dtype=torch.float64),
         initialization_method="svd",
         spatial_affinity_mode="differential lookup",
-        dataset_path=path2dataset / "all_data.h5",
+        dataset_path=test_datapath / "all_data.h5",
         replicate_names=replicate_names,
         hierarchical_levels=3,
         binning_downsample_rate=0.2,
@@ -130,8 +127,8 @@ def test_nll_hierarchical(hierarchical_model):
     level_0_nll = hierarchical_model.nll(level=0)
 
 
-def test_superresolution(hierarchical_model):
-    path2dataset = Path("tests/test_data/synthetic_dataset")
+@pytest.fixture
+def superresolved_model(hierarchical_model, test_datapath):
     for iteration in range(1, 2):
         print(f"-----  Iteration {iteration} -----")
         hierarchical_model.estimate_parameters()
@@ -156,15 +153,31 @@ def test_superresolution(hierarchical_model):
     hierarchical_model.nll(level=1, use_spatial=True)
     hierarchical_model.nll(level=0, use_spatial=True)
 
-    # TODO: add check for superresolution results
-    hierarchical_model.save_results(path2dataset / "superresolved_results", ignore_raw_data=False)
-    hierarchical_model.nll(level=0, use_spatial=True)
+    if not (test_datapath / "superresolved_results").is_dir():
+        hierarchical_model.save_results(test_datapath / "superresolved_results", ignore_raw_data=False)
+
+    return hierarchical_model
 
 
-def test_hierarchical_load():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
+@pytest.fixture
+def loaded_model(test_datapath):
     reloaded_model = load_trained_model(
-        path2dataset / "superresolved_results",
+        test_datapath / "superresolved_results",
         context=dict(device="cuda:0", dtype=torch.float64),
     )
-    reloaded_model.superresolve(n_epochs=10, tol=1e-8)
+
+    return reloaded_model
+
+
+def test_hierarchical_load(loaded_model):
+    # Try superresolution on reloaded model
+    loaded_model.superresolve(n_epochs=10, tol=1e-8)
+
+
+def test_superresolution(superresolved_model, loaded_model, test_datapath):
+    for dataset_index, (dataset, loaded_dataset) in enumerate(
+        zip(superresolved_model.hierarchy[0].datasets, loaded_model.hierarchy[0].datasets),
+    ):
+        assert np.allclose(dataset.obsm["X"], loaded_dataset.obsm["X"])
+
+    superresolved_model.nll(level=0, use_spatial=True)

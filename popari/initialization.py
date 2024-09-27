@@ -1,16 +1,21 @@
+import itertools
 from typing import Sequence, Tuple
 
-import torch
-
 import numpy as np
+import torch
 from sklearn.cluster import KMeans
-from sklearn.decomposition import TruncatedSVD, PCA
+from sklearn.decomposition import PCA, TruncatedSVD
 
-import itertools
-from popari.components import PopariDataset
 from popari._dataset_utils import _cluster, _pca
+from popari._popari_dataset import PopariDataset
 
-def initialize_kmeans(datasets: Sequence[PopariDataset], K: int, context: dict, kwargs_kmeans:dict) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+
+def initialize_kmeans(
+    datasets: Sequence[PopariDataset],
+    K: int,
+    context: dict,
+    kwargs_kmeans: dict,
+) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states using k-means clustering.
 
     Args:
@@ -25,7 +30,7 @@ def initialize_kmeans(datasets: Sequence[PopariDataset], K: int, context: dict, 
         of each replicate.
 
     """
-    assert 'random_state' in kwargs_kmeans
+    assert "random_state" in kwargs_kmeans
     Ns, Gs = zip(*[dataset.X.shape for dataset in datasets])
     Ys = [dataset.X for dataset in datasets]
     Y_cat = np.concatenate(Ys, axis=0)
@@ -49,7 +54,17 @@ def initialize_kmeans(datasets: Sequence[PopariDataset], K: int, context: dict, 
 
     return M, Xs
 
-def initialize_leiden(datasets: Sequence[PopariDataset], K: int, context: dict, kwargs_leiden:dict, n_neighbors: int = 20, n_components: int = 50, eps: float = 1e-10, verbose: bool = True) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+
+def initialize_leiden(
+    datasets: Sequence[PopariDataset],
+    K: int,
+    context: dict,
+    kwargs_leiden: dict,
+    n_neighbors: int = 20,
+    n_components: int = 50,
+    eps: float = 1e-10,
+    verbose: bool = True,
+) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states using k-means clustering.
 
     Args:
@@ -64,15 +79,23 @@ def initialize_leiden(datasets: Sequence[PopariDataset], K: int, context: dict, 
         of each replicate.
 
     """
-    
-    assert 'random_state' in kwargs_leiden
+
+    assert "random_state" in kwargs_leiden
 
     _, merged_dataset = _pca(datasets, n_comps=n_components, joint=True)
 
     # Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
 
     while True:
-        _cluster([merged_dataset], method="leiden", use_rep="X_pca", target_clusters=K, n_neighbors=n_neighbors, verbose=verbose, **kwargs_leiden)
+        _cluster(
+            [merged_dataset],
+            method="leiden",
+            use_rep="X_pca",
+            target_clusters=K,
+            n_neighbors=n_neighbors,
+            verbose=verbose,
+            **kwargs_leiden,
+        )
 
         labels = merged_dataset.obs["leiden"].astype(int)
         num_clusters = len(labels.unique())
@@ -85,20 +108,21 @@ def initialize_leiden(datasets: Sequence[PopariDataset], K: int, context: dict, 
     indices = merged_dataset.obs.groupby("batch").indices.values()
     unmerged_datasets = [merged_dataset[index] for index in indices]
     unmerged_labels = [unmerged_dataset.obs["leiden"].astype(int).values for unmerged_dataset in unmerged_datasets]
-    
+
     M = np.stack([merged_dataset[labels == cluster].X.mean(axis=0) for cluster in labels.unique()]).T
 
     Xs = []
     for unmerged_label in unmerged_labels:
         unique_labels = np.unique(unmerged_label)
         if len(unique_labels) == 1:
-            raise ValueError("All spots from a replicate are being assigned to a single cluster "
-                             "during Louvain initialization. This indicates that there is a "
-                             "noticeable batch effect. This may be due to 1) too few spots, "
-                             "2) too few metagenes (i.e. clusters), or a truly significant batch "
-                             "effect. Try addressing these issues, or switch to a different "
-                             "initialization method."
-                            )
+            raise ValueError(
+                "All spots from a replicate are being assigned to a single cluster "
+                "during Louvain initialization. This indicates that there is a "
+                "noticeable batch effect. This may be due to 1) too few spots, "
+                "2) too few metagenes (i.e. clusters), or a truly significant batch "
+                "effect. Try addressing these issues, or switch to a different "
+                "initialization method.",
+            )
         N = len(unmerged_label)
         X = np.full([N, K], eps)
         X[np.arange(N), unmerged_label] = 1
@@ -108,8 +132,15 @@ def initialize_leiden(datasets: Sequence[PopariDataset], K: int, context: dict, 
     Xs = [torch.tensor(X, **context) for X in Xs]
 
     return M, Xs
-    
-def initialize_svd(datasets: Sequence[PopariDataset], K: int, context: dict, M_nonneg: bool = True, X_nonneg: bool = True) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+
+
+def initialize_svd(
+    datasets: Sequence[PopariDataset],
+    K: int,
+    context: dict,
+    M_nonneg: bool = True,
+    X_nonneg: bool = True,
+) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states using SVD.
 
     Args:
@@ -123,6 +154,7 @@ def initialize_svd(datasets: Sequence[PopariDataset], K: int, context: dict, M_n
         A tuple (M, Xs), where M is the initial estimate of the metagene
         values and Xs is the list of initial estimates of the hidden states
         of each replicate.
+
     """
 
     # TODO: add check that number of genes is the same for all datasets
@@ -147,13 +179,13 @@ def initialize_svd(datasets: Sequence[PopariDataset], K: int, context: dict, M_n
         norm_n *= np.linalg.norm(X_cat_negative, axis=0, ord=1, keepdims=True)
 
     # Since M must be non-negative, choose the_value that yields greater L1-norm
-    sign = np.where(norm_p >= norm_n, 1., -1.)
+    sign = np.where(norm_p >= norm_n, 1.0, -1.0)
     M *= sign
     X_cat *= sign
     X_cat_iter = X_cat
     if M_nonneg:
         M = np.clip(M, a_min=1e-10, a_max=None)
-        
+
     Xs = []
     for dataset in datasets:
         Y = dataset.X
@@ -171,7 +203,7 @@ def initialize_svd(datasets: Sequence[PopariDataset], K: int, context: dict, M_n
                 if len(x[~idx]) > 0:
                     x[idx] = x[~idx].mean()
         else:
-            X = np.full([N, K], 1/K)
+            X = np.full([N, K], 1 / K)
         Xs.append(X)
 
     M = torch.tensor(M, **context)
@@ -179,10 +211,15 @@ def initialize_svd(datasets: Sequence[PopariDataset], K: int, context: dict, M_n
 
     return M, Xs
 
-def initialize_dummy(datasets: Sequence[PopariDataset], K: int, context: dict) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+
+def initialize_dummy(
+    datasets: Sequence[PopariDataset],
+    K: int,
+    context: dict,
+) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states with random values.
 
-    Internal method used simply for code 
+    Internal method used simply for code
 
     Args:
         datasets: input ST replicates to use for initialization
@@ -195,6 +232,7 @@ def initialize_dummy(datasets: Sequence[PopariDataset], K: int, context: dict) -
         A tuple (M, Xs), where M is the initial estimate of the metagene
         values and Xs is the list of initial estimates of the hidden states
         of each replicate.
+
     """
 
     first_dataset = datasets[0]
