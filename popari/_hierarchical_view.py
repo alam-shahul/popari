@@ -688,7 +688,6 @@ class Hierarchy:
             for previous_Y, dataset, original_name in zip(previous_Ys, previous_datasets, original_names):
                 binned_dataset_name = f"{dataset.name}_level_{level}"
                 bin_assignments_key = f"bin_assignments_{binned_dataset_name}"
-                print(f"{effective_kwargs=}")
                 binned_dataset, effective_kwargs = self.downsampler.downsample(
                     dataset,
                     downsample_rate=downsample_rate,

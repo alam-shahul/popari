@@ -5,7 +5,6 @@ import squidpy as sq
 import torch
 
 from popari import pl, tl
-from popari._dataset_utils import _spatial_binning
 from popari.io import load_anndata, save_anndata
 from popari.model import Popari, from_pretrained, load_trained_model
 

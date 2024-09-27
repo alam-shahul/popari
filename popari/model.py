@@ -281,17 +281,11 @@ class Popari:
         self.base_view = HierarchicalView(self.datasets, level=0, **hierarchical_view_kwargs)
 
         if self.pretrained:
-            # self.hierarchy = reconstruct_hierarchy(self.reloaded_hierarchy,
-            #         **hierarchical_view_kwargs)
             self.hierarchy = Hierarchy.reconstruct(
                 self.reloaded_hierarchy,
                 **hierarchical_view_kwargs,
             )
         else:
-            # self.hierarchy = construct_hierarchy(self.base_view, chunks=2, levels=self.hierarchical_levels,
-            #         downsample_rate=self.binning_downsample_rate,
-            #         **hierarchical_view_kwargs)
-
             self.hierarchy = Hierarchy(
                 downsampling_method=self.downsampling_method,
                 base_view=self.base_view,
