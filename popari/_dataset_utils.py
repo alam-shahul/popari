@@ -943,58 +943,6 @@ def _compute_spatial_gene_correlation(
     dataset.uns[neighbor_interactions_key] = neighbor_interactions
 
 
-def _spatial_binning(
-    dataset: PopariDataset,
-    level: int = 0,
-    chunks: int = 16,
-    downsample_rate: float = 0.2,
-    chunk_size: Optional[int] = None,
-    chunk_1d_density: Optional[int] = None,
-    num_jobs: int = 2,
-):
-    """Construct binned, low-resolution version of dataset.
-
-    Args:
-        dataset: input, high-resolution data
-        chunks: number of equal-sized chunks to split horizontal axis
-        downsample_rate: approximate desired ratio of meta-spots to spots after downsampling
-        num_jobs: number of jobs to use for nearest neighbor computation
-
-    """
-    coordinates = dataset.obsm["spatial"]
-
-    bin_coordinates, chunk_size, chunk_1d_density = chunked_downsample_on_grid(
-        coordinates,
-        chunks=chunks,
-        chunk_size=chunk_size,
-        downsampled_1d_density=chunk_1d_density,
-        downsample_rate=downsample_rate,
-    )
-
-    filtered_bin_coordinates = filter_gridpoints(coordinates, bin_coordinates, num_jobs)
-    filtered_bin_expression, bin_assignments = bin_expression(
-        dataset.X,
-        coordinates,
-        filtered_bin_coordinates,
-        num_jobs,
-    )
-
-    binned_dataset = ad.AnnData(X=filtered_bin_expression)
-    binned_dataset_name = f"{dataset.name}_level_{level}"
-    binned_dataset.var_names = dataset.var_names
-    binned_dataset.obsm["spatial"] = filtered_bin_coordinates
-    binned_dataset.obs["total_transformed_counts"] = binned_dataset.X.sum(axis=1)
-    binned_dataset.obsm[f"bin_assignments_{binned_dataset_name}"] = bin_assignments
-
-    binned_dataset.uns["chunk_size"] = chunk_size
-    binned_dataset.uns["chunk_1d_density"] = chunk_1d_density
-
-    binned_dataset = PopariDataset(binned_dataset, binned_dataset_name)
-    binned_dataset.compute_spatial_neighbors()
-
-    return binned_dataset
-
-
 def _metagene_neighbor_interactions(dataset: PopariDataset, interaction_key: str = "metagene_neighbor_interactions"):
     """Compute pairwise interactions between every cell in terms of learned
     metagene embeddings.
