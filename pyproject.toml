@@ -73,6 +73,7 @@ benchmark = [
 ]
 test = [
   "pytest",
+  "pytest-xdist",
 ]
 
 [tool]
