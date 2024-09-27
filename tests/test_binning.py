@@ -8,7 +8,6 @@ import torch
 
 from popari import pl, tl
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
-from popari._dataset_utils import _spatial_binning
 from popari.io import load_anndata, save_anndata
 from popari.model import Popari, load_trained_model
 
@@ -26,12 +25,11 @@ def trained_model(test_datapath):
     return trained_model
 
 
-def test_binning(trained_model, test_datapath):
+def test_grid_binning(trained_model, test_datapath):
     binned_datasets = []
 
     downsampler = GridDownsampler()
     for index, dataset in enumerate(trained_model.datasets):
-        binned_dataset = _spatial_binning(dataset, chunks=4, downsample_rate=0.5)
         binned_dataset_name = f"{dataset.name}_level_0"
         bin_assignments_key = f"bin_assignments_{binned_dataset_name}"
         binned_dataset, _ = downsampler.downsample(
@@ -40,10 +38,33 @@ def test_binning(trained_model, test_datapath):
             chunks=4,
             downsample_rate=0.5,
         )
-        if not (test_datapath / f"binned_dataset_{index}.h5ad").exists():
-            binned_dataset.write_h5ad(test_datapath / f"binned_dataset_{index}.h5ad")
+        if not (test_datapath / f"grid_binned_dataset_{index}.h5ad").exists():
+            binned_dataset.write_h5ad(test_datapath / f"grid_binned_dataset_{index}.h5ad")
 
-        saved_dataset = sc.read_h5ad(test_datapath / f"binned_dataset_{index}.h5ad")
+        saved_dataset = sc.read_h5ad(test_datapath / f"grid_binned_dataset_{index}.h5ad")
+        assert np.allclose(
+            binned_dataset.obsm[bin_assignments_key],
+            saved_dataset.obsm[bin_assignments_key],
+        )
+
+
+def test_partition_binning(trained_model, test_datapath):
+    binned_datasets = []
+
+    downsampler = PartitionDownsampler()
+    for index, dataset in enumerate(trained_model.datasets):
+        binned_dataset_name = f"{dataset.name}_level_0"
+        bin_assignments_key = f"bin_assignments_{binned_dataset_name}"
+        binned_dataset, _ = downsampler.downsample(
+            dataset,
+            bin_assignments_key=bin_assignments_key,
+            downsample_rate=0.5,
+            adjacency_list_key="adjacency_list",
+        )
+        if not (test_datapath / f"partition_binned_dataset_{index}.h5ad").exists():
+            binned_dataset.write_h5ad(test_datapath / f"partition_binned_dataset_{index}.h5ad")
+
+        saved_dataset = sc.read_h5ad(test_datapath / f"partition_binned_dataset_{index}.h5ad")
         assert np.allclose(
             binned_dataset.obsm[bin_assignments_key],
             saved_dataset.obsm[bin_assignments_key],

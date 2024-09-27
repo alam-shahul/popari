@@ -5,6 +5,7 @@ import numpy as np
 import pymetis
 from anndata import AnnData
 from numpy.typing import NDArray
+from pymetis import Options, part_graph
 from sklearn.neighbors import NearestNeighbors
 
 from popari._popari_dataset import PopariDataset
@@ -170,13 +171,21 @@ class PartitionDownsampler(Downsampler):
     ):
 
         num_bins = round(len(dataset) * downsample_rate)
-        adjacency_list = dataset.obs[adjacency_list_key]
+        adjacency_list = dataset.obsm[adjacency_list_key]
 
         options = Options(seed=0)  # TODO: this doesn't seem to work...
         _, indices = part_graph(num_bins, adjacency_list, options=options)
-        bin_assignments = self.one_hot_encode(indices).T
+
+        index_reducer = {old_index: new_index for new_index, old_index in enumerate(set(indices))}
+        reduced_indices = [index_reducer[index] for index in indices]
+
+        bin_assignments = self.one_hot_encode(reduced_indices).T
 
         dataset.obsm[bin_assignments_key] = bin_assignments.T
+
+        return {
+            "adjacency_list_key": adjacency_list_key,
+        }
 
 
 def chunked_coordinates(coordinates: NDArray, chunks: int = None, step_size: float = None):
