@@ -13,8 +13,8 @@ import pandas as pd
 import torch
 from tqdm import trange
 
-from popari._hierarchical_view import Hierarchy, construct_hierarchy, reconstruct_hierarchy
-from popari.components import HierarchicalView, PopariDataset
+from popari._hierarchical_view import HierarchicalView, Hierarchy
+from popari._popari_dataset import PopariDataset
 from popari.io import load_anndata, merge_anndata, save_anndata, unmerge_anndata
 from popari.util import compute_nll, convert_numpy_to_pytorch_sparse_coo, get_datetime
 
@@ -121,6 +121,7 @@ class Popari:
         chunks: int = 2,
         superresolution_lr: float = 1e-1,
         use_inplace_ops: bool = True,
+        synchronize_frequency: int = 10,
         random_state: int = 0,
         verbose: int = 0,
     ):
@@ -314,7 +315,7 @@ class Popari:
 
         self.synchronize_datasets()
 
-    def estimate_weights(self, use_neighbors=True):
+    def estimate_weights(self, use_neighbors: bool = True, synchronize: bool = True):
         """Update embeddings (latent states) for each replicate.
 
         Args:
@@ -325,7 +326,9 @@ class Popari:
         if self.verbose:
             print(f"{get_datetime()} Updating latent states")
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
-        self.synchronize_datasets()
+
+        if synchronize:
+            self.synchronize_datasets()
 
     def estimate_parameters(
         self,
@@ -334,6 +337,7 @@ class Popari:
         differentiate_metagenes: bool = True,
         simplex_projection_mode: bool = "exact",
         edge_subsample_rate: Optional[float] = None,
+        synchronize: bool = True,
     ):
         """Update parameters for each replicate.
 
@@ -363,7 +367,9 @@ class Popari:
         if self.verbose:
             print(f"{get_datetime()} Updating sigma_yx")
         self.parameter_optimizer.update_sigma_yx()
-        self.synchronize_datasets()
+
+        if synchronize:
+            self.synchronize_datasets()
 
     def superresolve(
         self,
@@ -465,6 +471,8 @@ class Popari:
         dataset_path = Path(dataset_path)
         path_without_extension = dataset_path.parent / dataset_path.stem
 
+        self.synchronize_datasets()
+
         if self.hierarchical_levels == 1:
             if self.verbose:
                 print(f"{get_datetime()} Writing results to {path_without_extension}.h5ad")
@@ -539,7 +547,7 @@ def load_trained_model(
 
     datasets = reloaded_hierarchy = hierarchical_levels = None
     reloaded_hierarchy = {}
-    if Path(f"{path_without_extension}.h5ad").is_file():
+    if Path(f"{path_without_extension}.h5ad").exists():
         level = 0
         merged_dataset = ad.read_h5ad(dataset_path)
         datasets, replicate_names = unmerge_anndata(merged_dataset)
@@ -559,6 +567,8 @@ def load_trained_model(
             reloaded_hierarchy[level] = datasets
 
         popari_kwargs["hierarchical_levels"] = len(reloaded_hierarchy)
+    else:
+        raise FileNotFoundError(f"No Popari model saved at {path_without_extension}.")
 
     datasets = reloaded_hierarchy[0]
     replicate_names = [dataset.name for dataset in datasets]

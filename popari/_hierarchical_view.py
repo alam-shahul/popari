@@ -313,6 +313,7 @@ class HierarchicalView:
             if "losses" not in dataset.uns:
                 dataset.uns["losses"] = defaultdict(list)
             else:
+                dataset.uns["losses"] = defaultdict(list, dataset.uns["losses"])
                 for key in dataset.uns["losses"]:
                     dataset.uns["losses"][key] = list(dataset.uns["losses"][key])
 

@@ -9,28 +9,31 @@ from popari.model import Popari, load_trained_model
 
 
 @pytest.fixture(scope="module")
-def trained_model():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
+def dataset_path():
+    return Path("tests/test_data/synthetic_dataset")
+
+
+@pytest.fixture(scope="module")
+def trained_model(dataset_path):
     replicate_names = [0, 1]
-    trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad")
+    trained_model = load_trained_model(dataset_path / "trained_4_iterations.h5ad")
 
     return trained_model
 
 
 @pytest.fixture(scope="module")
-def trained_differential_model():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
+def trained_differential_model(dataset_path):
+    dataset_path = Path("tests/test_data/synthetic_dataset")
     replicate_names = [0, 1]
-    trained_model = load_trained_model(path2dataset / "trained_differential_metagenes_4_iterations.h5ad")
+    trained_model = load_trained_model(dataset_path / "trained_differential_metagenes_4_iterations.h5ad")
 
     return trained_model
 
 
 @pytest.fixture(scope="module")
-def differential_from_shared():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
+def differential_from_shared(dataset_path):
     trained_model = load_trained_model(
-        path2dataset / "trained_4_iterations.h5ad",
+        dataset_path / "trained_4_iterations.h5ad",
         metagene_mode="differential",
         spatial_affinity_mode="differential lookup",
     )
@@ -47,23 +50,21 @@ def test_load_differential_from_shared(differential_from_shared):
     assert differential_from_shared.spatial_affinity_mode == "differential lookup"
 
 
-def test_save_anndata(trained_model):
+def test_save_anndata(trained_model, dataset_path):
     replicate_names = [dataset.name for dataset in trained_model.datasets]
-    path2dataset = Path("tests/test_data/synthetic_dataset")
-    save_anndata(path2dataset / "mock_results.h5ad", trained_model.datasets)
-    save_anndata(path2dataset / "mock_results_ignore_raw_data.h5ad", trained_model.datasets, ignore_raw_data=True)
+    dataset_path = Path("tests/test_data/synthetic_dataset")
+    save_anndata(dataset_path / "mock_results.h5ad", trained_model.datasets)
+    save_anndata(dataset_path / "mock_results_ignore_raw_data.h5ad", trained_model.datasets, ignore_raw_data=True)
 
 
-def test_load_anndata():
+def test_load_anndata(dataset_path):
     replicate_names = [0, 1]
-    path2dataset = Path("tests/test_data/synthetic_dataset")
-    load_anndata(path2dataset / "trained_4_iterations.h5ad")
+    load_anndata(dataset_path / "trained_4_iterations.h5ad")
 
 
-def test_load_hierarchical_model():
+def test_load_hierarchical_model(dataset_path):
     replicate_names = [0, 1]
-    path2dataset = Path("tests/test_data/synthetic_dataset")
-    load_trained_model(path2dataset / "superresolved_results")
+    load_trained_model(dataset_path / "outputs" / "superresolved_results")
 
 
 def test_nll(trained_model):
