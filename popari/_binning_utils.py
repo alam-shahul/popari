@@ -6,7 +6,9 @@ import pymetis
 from anndata import AnnData
 from numpy.typing import NDArray
 from pymetis import Options, part_graph
+from scipy.sparse import csr_array
 from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import OneHotEncoder
 
 from popari._popari_dataset import PopariDataset
 
@@ -50,10 +52,11 @@ class Downsampler(ABC):
         """
 
     def one_hot_encode(self, data: NDArray):
-        num_categories = len(np.unique(data))
-        codes = np.eye(num_categories)
+        one_hot_encoder = OneHotEncoder()
+        one_hot_encoding = one_hot_encoder.fit_transform(np.array(data).reshape(-1, 1))
+        one_hot_encoding = csr_array(one_hot_encoding).astype(int)
 
-        return codes[data].astype(int)
+        return one_hot_encoding
 
     def bin_expression(self, dataset: PopariDataset, bin_assignments_key: str):
 
@@ -62,10 +65,13 @@ class Downsampler(ABC):
         num_spots, num_genes = dataset.X.shape
         num_bins, _ = bin_assignments.shape
 
-        binned_expression = np.zeros((num_bins, num_genes))
+        # binned_expression = np.zeros((num_bins, num_genes))
 
-        for i in range(num_bins):  # TODO: can vectorize / make work with `csr_array`?
-            binned_expression[i] = np.sum(dataset.X[bin_assignments[i]], axis=0)
+        # for i in range(num_bins):  # TODO: can vectorize / make work with `csr_array`?
+        #     index = bin_assignments[[i], :].toarray()
+        #     binned_expression[i] = np.sum(dataset.X[index], axis=0)
+
+        binned_expression = bin_assignments @ dataset.X
 
         return binned_expression
 
@@ -73,7 +79,7 @@ class Downsampler(ABC):
         coordinates = dataset.obsm[coordinates_key]
         bin_assignments = dataset.obsm[bin_assignments_key].T
 
-        num_assignments = bin_assignments.sum(axis=1, keepdims=True)
+        num_assignments = np.expand_dims(bin_assignments.sum(axis=1), axis=1)
         summed_coordinates = bin_assignments @ coordinates
 
         binned_coordinates = summed_coordinates / num_assignments
@@ -176,10 +182,10 @@ class PartitionDownsampler(Downsampler):
         options = Options(seed=0)  # TODO: this doesn't seem to work...
         _, indices = part_graph(num_bins, adjacency_list, options=options)
 
-        index_reducer = {old_index: new_index for new_index, old_index in enumerate(set(indices))}
-        reduced_indices = [index_reducer[index] for index in indices]
+        # index_reducer = {old_index: new_index for new_index, old_index in enumerate(set(indices))}
+        # reduced_indices = [index_reducer[index] for index in indices]
 
-        bin_assignments = self.one_hot_encode(reduced_indices).T
+        bin_assignments = self.one_hot_encode(indices).T
 
         dataset.obsm[bin_assignments_key] = bin_assignments.T
 
