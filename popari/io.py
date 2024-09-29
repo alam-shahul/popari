@@ -154,6 +154,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
             X = csr_matrix(dataset.X.shape)
         else:
             X = dataset.X
+
         dataset_copy = ad.AnnData(
             X=X,
             obs=dataset.obs,

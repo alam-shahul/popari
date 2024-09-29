@@ -919,10 +919,6 @@ class ParameterOptimizer:
         squared_loss = np.array(
             [torch.linalg.norm(squared_term, ord="fro").item() ** 2 for squared_term in squared_terms],
         )
-        # squared_loss = np.array([
-        #     torch.linalg.norm(, ord='fro').item() ** 2
-        #     for Y, X, dataset, replicate in zip(Ys, self.Xs, self.datasets, self.repli_list)
-        # ])
         num_replicates = len(self.datasets)
         sizes = np.array([dataset.X.size for dataset in self.datasets])
         if self.sigma_yx_inv_mode == "separate":

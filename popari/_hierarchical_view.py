@@ -350,9 +350,17 @@ class HierarchicalView:
             low_res_dataset = self.low_res_view.datasets[dataset_index]
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
+
+            if Y.sum() == 0:
+                raise ValueError(
+                    "It seems like you are trying to superresolve a hierarchical level with all zero expression "
+                    "values. This probably means the model was saved incorrectly; try using `model.save_results` "
+                    "with `as_trainable=True` next time.",
+                )
+
             X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
             X_B = low_res_dataset.obsm["X"]
-            B = csr_array(low_res_dataset.obsm[f"bin_assignments_{low_res_dataset.name}"])
+            B = low_res_dataset.obsm[f"bin_assignments_{low_res_dataset.name}"]
 
             M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
@@ -372,9 +380,11 @@ class HierarchicalView:
             X_Bnorm = np.linalg.norm(X_B, ord="fro").item() ** 2
             loss_prev, loss = np.inf, np.nan
 
-            # decay_period = n_epochs // 4
-
             X = X.clone().detach().requires_grad_(True)
+
+            if verbose is None:
+                verbose = self.verbose
+
             superresolution_optimizer = torch.optim.Adam(
                 [X],
                 lr=self.superresolution_lr,
@@ -384,9 +394,6 @@ class HierarchicalView:
 
             # self.superresolution_optimizers[dataset.name] = superresolution_optimizer
             # self.superresolution_schedulers[dataset.name] = superresolution_scheduler
-
-            if verbose is None:
-                verbose = self.verbose
 
             def gradient_update(X, iteration=None):
                 """TODO:UNTESTED."""
@@ -413,9 +420,9 @@ class HierarchicalView:
 
                 if verbose > 4 and (iteration % 5 == 0):
                     pass
-                    # # print(f'NMF component: {((X @ MTM - YM) * X).sum().item() / 2 + Ynorm / 2}')
-                    # # print(f'Superresolution component: {((BTB @ X - X_BTB.T) * X).sum().item() / 2 + X_Bnorm / 2}')
-                    # # print(f'Total loss (recomputed): {((X @ MTM - YM + BTB @ X - X_BTB.T) * X).sum().item() / 2 + (Ynorm + X_Bnorm) / 2}')
+                    # print(f'NMF component: {((X @ MTM - YM) * X).sum().item() / 2 + Ynorm / 2}')
+                    # print(f'Superresolution component: {((BTB @ X - BTX_B) * X).sum().item() / 2 + X_Bnorm / 2}')
+                    # print(f'Total loss (recomputed): {((X @ MTM - YM + BTB @ X - BTX_B) * X).sum().item() / 2 + (Ynorm + X_Bnorm) / 2}')
                     # print(f"NMF component: {(torch.linalg.norm(Y.T - M @ X.T, ord='fro').item() ** 2)/ (sigma_yx ** 2)}")
                     # print(f"Superresolution component: {torch.linalg.norm(X_B - B @ X, ord='fro').item() ** 2}")
                     # print(f"Total loss (recomputed): {(torch.linalg.norm(Y.T - M @ X.T, ord='fro').item() ** 2)/ (sigma_yx ** 2) + torch.linalg.norm(X_B - B @ X, ord='fro').item() ** 2}")
@@ -479,6 +486,35 @@ class HierarchicalView:
             del BTX_B
 
         return final_losses
+
+    def _reload_state(self):
+        """Reload Popari state using results from saved datasets.
+
+        Opposite of `synchronize_datasets`. Should be used rarely, e.g. when loading a trained
+        model from memory.
+
+        """
+        for dataset_index, dataset in enumerate(self.datasets):
+            self.parameter_optimizer.metagene_state[dataset.name][:] = torch.from_numpy(
+                dataset.uns["M"][dataset.name],
+            ).to(**self.initial_context)
+            self.embedding_optimizer.embedding_state[dataset.name][:] = torch.from_numpy(dataset.obsm["X"]).to(
+                **self.initial_context,
+            )
+            # self.parameter_optimizer.sigma_yxs[dataset_index] = dataset.uns["sigma_yx"] TODO: sigma_yx doesn't seem to be saved correctly due to issues with `merge_anndata`
+
+            with torch.no_grad():
+                self.parameter_optimizer.spatial_affinity_state[dataset.name][:] = torch.from_numpy(
+                    dataset.uns["Sigma_x_inv"][dataset.name],
+                ).to(**self.initial_context)
+
+        if self.parameter_optimizer.metagene_mode == "differential":
+            self.parameter_optimizer.metagene_state.reaverage()
+
+        if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
+            self.parameter_optimizer.spatial_affinity_state.reaverage()
+
+        self.parameter_optimizer.update_sigma_yx()  # TODO: sigma_yx doesn't seem to be saved correctly due to issues with `merge_anndata`; try that instead of this
 
     def synchronize_datasets(self):
         """Synchronize datasets with learned view parameters and embeddings."""
@@ -728,9 +764,10 @@ class Hierarchy:
         """Reconstruct hierarchy object from dictionary of level binned
         datasets."""
 
+        context = hierarchical_view_kwargs["context"]
+
         def reconstruct_level(level: int, datasets: Sequence[PopariDataset], previous_view: HierarchicalView | None):
             print(f"{get_datetime()} Reloading level {level}")
-            print(level)
             if previous_view is not None:
                 binned_Ys = []
                 for dataset, previous_Y in zip(datasets, previous_view.Ys):
@@ -754,12 +791,13 @@ class Hierarchy:
                 **hierarchical_view_kwargs,
             )
 
+            level_view._reload_state()
+
             if previous_view is not None:
                 previous_view.link(level_view)
 
             return level_view
 
-        context = hierarchical_view_kwargs["context"]
         base_view = reconstruct_level(0, reloaded_hierarchy[0], None)
 
         hierarchy = cls(base_view=base_view, **hierarchical_view_kwargs)

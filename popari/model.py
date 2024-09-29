@@ -121,7 +121,6 @@ class Popari:
         chunks: int = 2,
         superresolution_lr: float = 1e-1,
         use_inplace_ops: bool = True,
-        synchronize_frequency: int = 10,
         random_state: int = 0,
         verbose: int = 0,
     ):
@@ -491,30 +490,63 @@ class Popari:
 
                 save_anndata(path_without_extension / f"level_{level}.h5ad", datasets, ignore_raw_data=ignore_raw_data)
 
-    def train(self, num_preiterations: int, num_iterations: int):
-        """Convenience function for training loop.
+    def _reload_expression(self, raw_datasets: Sequence[PopariDataset]):
+        """Can be used to recover expression values for training model if saved
+        with `ignore_raw_data=True`"""
+        high_resolution_view = self.hierarchy[0]
+        for index, (raw_dataset, dataset) in enumerate(zip(raw_datasets, high_resolution_view.datasets)):
+            dataset.X = raw_dataset.X.copy()
 
-        Args:
-            num_preiterations: number of NMF iterations to use for initialization
-            num_iterations: number of Popari iterations to train for
+            Y = torch.tensor(dataset.X, **self.context)
+            Y *= (self.K * 1) / Y.sum(axis=1, keepdim=True).mean()
+            high_resolution_view.Ys[index] = Y
 
-        """
+        high_resolution_view.parameter_optimizer.update_sigma_yx()  # This is necessary, since `sigma_yx` isn't loaded correctly from disk
 
-        progress_bar = trange(num_preiterations, leave=True)
-        for preiteration in progress_bar:
-            description = f"Preiteration {preiteration}"
-            progress_bar.set_description(description)
+        for level in range(self.hierarchical_levels - 1):
+            view = self.hierarchy[level]
+            low_res_view = self.hierarchy[level + 1]
+            for index, (dataset, binned_dataset, previous_Y) in enumerate(
+                zip(view.datasets, low_res_view.datasets, view.Ys),
+            ):
+                bin_assignments = dataset.obsm[f"bin_assignments_{dataset.name}_level_{level+1}"]
+                binned_expression = bin_assignments.T @ dataset.X
+                binned_dataset.X = binned_expression
 
-            self.estimate_parameters(update_spatial_affinities=False)
-            self.estimate_weights(use_neighbors=False)
+                bin_assignments_tensor = convert_numpy_to_pytorch_sparse_coo(
+                    bin_assignments,
+                    context=self.initial_context,
+                )
 
-        progress_bar = trange(num_iterations, leave=True)
-        for iteration in progress_bar:
-            description = f"Iteration {iteration}"
-            progress_bar.set_description(description)
+                binned_Y = bin_assignments_tensor.T @ previous_Y
+                low_res_view.Ys[index] = binned_Y
 
-            self.estimate_parameters()
-            self.estimate_weights()
+            low_res_view.parameter_optimizer.update_sigma_yx()
+
+    # def train(self, num_preiterations: int, num_iterations: int):
+    #     """Convenience function for training loop.
+
+    #     Args:
+    #         num_preiterations: number of NMF iterations to use for initialization
+    #         num_iterations: number of Popari iterations to train for
+
+    #     """
+
+    #     progress_bar = trange(num_preiterations, leave=True)
+    #     for preiteration in progress_bar:
+    #         description = f"Preiteration {preiteration}"
+    #         progress_bar.set_description(description)
+
+    #         self.estimate_parameters(update_spatial_affinities=False)
+    #         self.estimate_weights(use_neighbors=False)
+
+    #     progress_bar = trange(num_iterations, leave=True)
+    #     for iteration in progress_bar:
+    #         description = f"Iteration {iteration}"
+    #         progress_bar.set_description(description)
+
+    #         self.estimate_parameters()
+    #         self.estimate_weights()
 
 
 class SpiceMix(Popari):
