@@ -3,7 +3,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import scanpy as sc
-from scipy.stats import gamma
 
 from popari.simulation_framework import (
     MultiReplicateSyntheticDataset,
@@ -11,7 +10,6 @@ from popari.simulation_framework import (
     SyntheticDataset,
     sample_2D_points,
     sample_gaussian,
-    sample_normalized_embeddings,
 )
 
 

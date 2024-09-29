@@ -1,17 +1,11 @@
-import os
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
 import torch
-from sklearn.metrics import adjusted_rand_score, silhouette_score
-from sklearn.preprocessing import StandardScaler
-from tqdm.auto import tqdm, trange
 
 from popari import tl
 from popari.model import Popari
-from popari.util import clustering_louvain_nclust
 
 
 @pytest.fixture(scope="module")
@@ -20,13 +14,22 @@ def test_datapath():
 
 
 @pytest.fixture(scope="module")
-def popari_with_neighbors(test_datapath):
+def context():
+    context = {
+        "device": "cuda:0",
+        "dtype": torch.float64,
+    }
+    return context
+
+
+@pytest.fixture(scope="module")
+def popari_with_neighbors(test_datapath, context):
     obj = Popari(
         K=10,
         lambda_Sigma_x_inv=1e-3,
         metagene_mode="shared",
-        torch_context=dict(device="cuda:0", dtype=torch.float64),
-        initial_context=dict(device="cuda:0", dtype=torch.float64),
+        torch_context=context,
+        initial_context=context,
         initialization_method="svd",
         dataset_path=test_datapath / "all_data.h5",
         verbose=4,
@@ -58,14 +61,14 @@ def popari_with_neighbors(test_datapath):
 
 
 @pytest.fixture(scope="module")
-def popari_with_leiden_initialization(test_datapath):
+def popari_with_leiden_initialization(context, test_datapath):
     replicate_names = [0, 1]
-    obj = Popari(
+    _ = Popari(
         K=10,
         lambda_Sigma_x_inv=1e-3,
         metagene_mode="shared",
-        torch_context=dict(device="cuda:0", dtype=torch.float64),
-        initial_context=dict(device="cuda:0", dtype=torch.float64),
+        torch_context=context,
+        initial_context=context,
         dataset_path=test_datapath / "all_data.h5",
         replicate_names=replicate_names,
         verbose=4,

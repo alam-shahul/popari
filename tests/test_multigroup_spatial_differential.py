@@ -2,15 +2,10 @@ import os
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
 import torch
-from sklearn.metrics import adjusted_rand_score, silhouette_score
-from sklearn.preprocessing import StandardScaler
-from tqdm.auto import tqdm, trange
 
 from popari.model import Popari
-from popari.util import clustering_louvain_nclust
 
 
 @pytest.fixture(scope="module")

@@ -1,12 +1,9 @@
 from pathlib import Path
 
 import pytest
-import squidpy as sq
 
 from popari import pl, tl
-from popari._simulation_utils import all_pairs_spatial_wasserstein
-from popari.io import load_anndata, save_anndata
-from popari.model import Popari, load_trained_model
+from popari.model import load_trained_model
 
 
 @pytest.fixture(scope="module")
@@ -115,7 +112,7 @@ def test_confusion_matrix(clustered_model):
         tl.compute_confusion_matrix(clustered_model, labels="cell_type", predictions="leiden")
         pl.confusion_matrix(clustered_model, labels="cell_type")
     except Exception as e:
-        assert type(e) == ValueError
+        assert type(e) is ValueError
 
 
 def test_columnwise_autocorrelation(clustered_model):
@@ -161,7 +158,3 @@ def test_plot_metagene_to_cell_type(clustered_model):
 
 def test_spatial_gene_correlation(clustered_model):
     tl.compute_spatial_gene_correlation(clustered_model)
-
-
-# distances = _all_pairs_spatial_wasserstein(clustered_model.datasets[0], embeddings_truth_key='X', embeddings_pred_key='X')
-# print(distances)
