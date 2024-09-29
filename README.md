@@ -48,6 +48,12 @@ python -m pytest -s
 python -m pytest -s tests/test_popari_shared.py
 ```
 
+- To run tests in parallel, try
+
+```console
+python -m pytest -n 4 --dist=loadfile
+```
+
 ### Building Documentation
 
 Assuming you have CMake:
