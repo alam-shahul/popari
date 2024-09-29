@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 import torch
 
 from popari.util import project2simplex, project2simplex_

@@ -1,26 +1,27 @@
 import numpy as np
-import networkx as nx
+from multiprocess import Pool
+from ortools.graph.python import min_cost_flow
 from scipy.spatial.distance import pdist, squareform
 
-from ortools.graph.python import min_cost_flow
-from multiprocess import Pool
+SCALING_FACTOR = int(1e4)
 
-def spatial_wasserstein(spatial_coordinates: np.ndarray,
-                        embeddings_truth: np.ndarray,
-                        embeddings_pred: np.ndarray,
-                        weight_scaling_factor=int(1e4),
-                        demand_scaling_factor=int(1e4)):
-    """Use max flow/min cut formulation to determine spatial Wasserstein distance.
-    
-    """
-    
+
+def spatial_wasserstein(
+    spatial_coordinates: np.ndarray,
+    embeddings_truth: np.ndarray,
+    embeddings_pred: np.ndarray,
+    weight_scaling_factor=SCALING_FACTOR,
+    demand_scaling_factor=SCALING_FACTOR,
+):
+    """Use max flow/min cut formulation to determine spatial Wasserstein
+    distance."""
 
     assert len(spatial_coordinates) == len(embeddings_truth) == len(embeddings_pred)
     assert spatial_coordinates.ndim == 2
     assert embeddings_truth.ndim == embeddings_truth.ndim == 1
     assert embeddings_truth.min() >= 0
     assert embeddings_pred.min() >= 0
-    
+
     if embeddings_truth.sum() == 0:
         return np.inf
 
@@ -40,7 +41,7 @@ def spatial_wasserstein(spatial_coordinates: np.ndarray,
         return 0
     demands = (demands / demands_max * demand_scaling_factor).astype(int)
     demand_scaling_factor_full = demand_scaling_factor / demands_max
-    
+
     idx = np.argmax(np.abs(demands))
     demands[idx] -= demands.sum()
 
@@ -55,15 +56,18 @@ def spatial_wasserstein(spatial_coordinates: np.ndarray,
     for cell_idx_i, pairwise_dist_row in enumerate(pairwise_dist):
         for cell_idx_j, dist in enumerate(pairwise_dist_row):
             if cell_idx_i != cell_idx_j and demands[cell_idx_i] < 0 and demands[cell_idx_j] > 0:
-                edge = (cell_idx_i, cell_idx_j, {'capacity': demand_scaling_factor, 'weight': dist})
+                edge = (cell_idx_i, cell_idx_j, {"capacity": demand_scaling_factor, "weight": dist})
                 edges.append(edge)
                 start_nodes.append(cell_idx_i)
                 end_nodes.append(cell_idx_j)
                 capacities.append(demand_scaling_factor)
                 unit_costs.append(dist)
 
-    all_arcs = smcf.add_arcs_with_capacity_and_unit_cost(
-        start_nodes, end_nodes, capacities, unit_costs
+    _ = smcf.add_arcs_with_capacity_and_unit_cost(
+        start_nodes,
+        end_nodes,
+        capacities,
+        unit_costs,
     )
 
     smcf.set_nodes_supplies(np.arange(0, len(demands)), -demands)
@@ -75,37 +79,40 @@ def spatial_wasserstein(spatial_coordinates: np.ndarray,
         print(f"Status: {status}")
         exit(1)
 
-    
     return smcf.optimal_cost() / demand_scaling_factor_full / weight_scaling_factor_full
 
-def all_pairs_spatial_wasserstein(dataset,
-                        spatial_key: str = 'spatial',
-                        embeddings_truth_key: str = 'ground_truth_X',
-                        embeddings_pred_key: str = 'X',
-                        weight_scaling_factor=int(1e4),
-                        demand_scaling_factor=int(1e4)):
 
+def all_pairs_spatial_wasserstein(
+    dataset,
+    spatial_key: str = "spatial",
+    embeddings_truth_key: str = "ground_truth_X",
+    embeddings_pred_key: str = "X",
+    weight_scaling_factor=SCALING_FACTOR,
+    demand_scaling_factor=SCALING_FACTOR,
+):
     """Compute spatial Wasserstein metric between all metagene pairs embeddings.
 
     Uses multiprocess.Pool to compute the distance matrix in embarassingly
     parallel fashion.
+
     """
-    
+
     spatial_coordinates = dataset.obsm[spatial_key]
     embeddings_truth = dataset.obsm[embeddings_truth_key]
     embeddings_pred = dataset.obsm[embeddings_pred_key]
-    
-    metric = lambda pair: spatial_wasserstein(spatial_coordinates, *pair)
-    
+
+    def metric(pair):
+        return spatial_wasserstein(spatial_coordinates, *pair)
+
     num_truth = embeddings_truth.shape[1]
     num_pred = embeddings_pred.shape[1]
-            
+
     pairs = [[(truth, pred) for pred in embeddings_pred.T] for truth in embeddings_truth.T]
     pairs = np.array(pairs).reshape(-1, 2, len(spatial_coordinates))
 
     with Pool(processes=16) as pool:
         results = pool.map(metric, pairs)
-        
+
     distances = np.array(list(results)).reshape((num_truth, num_pred))
-        
+
     return distances

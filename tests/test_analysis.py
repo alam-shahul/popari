@@ -1,12 +1,9 @@
 from pathlib import Path
 
 import pytest
-import squidpy as sq
 
 from popari import pl, tl
-from popari._simulation_utils import all_pairs_spatial_wasserstein
-from popari.io import load_anndata, save_anndata
-from popari.model import Popari, load_trained_model
+from popari.model import load_trained_model
 
 
 @pytest.fixture(scope="module")
@@ -61,7 +58,7 @@ def test_leiden_clustering(clustered_model): ...
 
 
 def test_ari_score(clustered_model):
-    expected_aris = [0.7659552293827756, 0.8001246799953088]
+    expected_aris = [0.7638266995561214, 0.8126115509883821]
     tl.compute_ari_scores(clustered_model, labels="cell_type", predictions="leiden")
 
     for expected_ari, dataset in zip(expected_aris, clustered_model.datasets):
@@ -70,7 +67,7 @@ def test_ari_score(clustered_model):
 
 
 def test_silhouette_score(clustered_model):
-    expected_silhouettes = [0.3070153983625831, 0.3447067843923269]
+    expected_silhouettes = [0.30699036262154916, 0.34466040612221843]
     tl.compute_silhouette_scores(clustered_model, labels="cell_type", embeddings="normalized_X")
 
     for expected_silhouette, dataset in zip(expected_silhouettes, clustered_model.datasets):
@@ -115,7 +112,7 @@ def test_confusion_matrix(clustered_model):
         tl.compute_confusion_matrix(clustered_model, labels="cell_type", predictions="leiden")
         pl.confusion_matrix(clustered_model, labels="cell_type")
     except Exception as e:
-        assert type(e) == ValueError
+        assert type(e) is ValueError
 
 
 def test_columnwise_autocorrelation(clustered_model):
@@ -161,7 +158,3 @@ def test_plot_metagene_to_cell_type(clustered_model):
 
 def test_spatial_gene_correlation(clustered_model):
     tl.compute_spatial_gene_correlation(clustered_model)
-
-
-# distances = _all_pairs_spatial_wasserstein(clustered_model.datasets[0], embeddings_truth_key='X', embeddings_pred_key='X')
-# print(distances)

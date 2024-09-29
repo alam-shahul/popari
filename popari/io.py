@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional, Sequence, Union
 
 import anndata as ad
+import awkward as ak
 import numpy as np
 import torch
 from scipy.sparse import csr_matrix, issparse
@@ -27,10 +28,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
 
     replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
 
-    datasets = [
-        PopariDataset(dataset, replicate_name)
-        for dataset, replicate_name in zip(datasets, replicate_names)
-    ]
+    datasets = [PopariDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
 
     for replicate, dataset in zip(replicate_names, datasets):
         replicate_string = f"{replicate}"
@@ -47,10 +45,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
         if "Sigma_x_inv_bar" in dataset.uns:
             # Keep only Sigma_x_inv_bar corresponding to a particular replicate
             replicate_Sigma_x_inv_bar = dataset.uns["Sigma_x_inv_bar"][replicate_string]
-            if (
-                np.isscalar(replicate_Sigma_x_inv_bar)
-                and replicate_Sigma_x_inv_bar == -1
-            ):
+            if np.isscalar(replicate_Sigma_x_inv_bar) and replicate_Sigma_x_inv_bar == -1:
                 replicate_Sigma_x_inv_bar = None
 
             dataset.uns["Sigma_x_inv_bar"] = {
@@ -70,7 +65,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
         for x, y in zip(*adjacency_matrix.nonzero()):
             adjacency_list[x].append(y)
 
-        dataset.obs["adjacency_list"] = adjacency_list
+        dataset.obsm["adjacency_list"] = ak.Array(adjacency_list)
 
         if "M" in dataset.uns:
             if replicate_string in dataset.uns["M"]:
@@ -94,19 +89,17 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
             if "spatial_affinity_groups" in dataset.uns["popari_hyperparameters"]:
                 name_parts = dataset.name.split("_level_")
                 if len(name_parts) > 1:
-                    _, level = name_parts
+                    *_, level = name_parts
                     level = int(level)
                 else:
                     level = 0
 
-                groups = dataset.uns["popari_hyperparameters"][
-                    "spatial_affinity_groups"
-                ]
+                groups = dataset.uns["popari_hyperparameters"]["spatial_affinity_groups"]
                 filtered_groups = {}
                 for group, group_replicates in groups.items():
                     group_name_parts = group.split("_level_")
                     if len(group_name_parts) > 1:
-                        _, group_level = group_name_parts
+                        *_, group_level = group_name_parts
                         group_level = int(group_level)
                     else:
                         group_level = 0
@@ -114,14 +107,12 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
                     if group_level == level:
                         filtered_groups[group] = group_replicates
 
-                dataset.uns["popari_hyperparameters"][
-                    "spatial_affinity_groups"
-                ] = filtered_groups
+                dataset.uns["popari_hyperparameters"]["spatial_affinity_groups"] = filtered_groups
 
             if "metagene_groups" in dataset.uns["popari_hyperparameters"]:
                 name_parts = dataset.name.split("_level_")
                 if len(name_parts) > 1:
-                    _, level = name_parts
+                    *_, level = name_parts
                     level = int(level)
                 else:
                     level = 0
@@ -131,7 +122,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
                 for group, group_replicates in groups.items():
                     group_name_parts = group.split("_level_")
                     if len(group_name_parts) > 1:
-                        _, group_level = group_name_parts
+                        *_, group_level = group_name_parts
                         group_level = int(group_level)
                     else:
                         group_level = 0
@@ -139,9 +130,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
                     if group_level == level:
                         filtered_groups[group] = group_replicates
 
-                dataset.uns["popari_hyperparameters"][
-                    "metagene_groups"
-                ] = filtered_groups
+                dataset.uns["popari_hyperparameters"]["metagene_groups"] = filtered_groups
 
         if "X" in dataset.obsm:
             replicate_X = make_hdf5_compatible(dataset.obsm["X"])
@@ -165,6 +154,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
             X = csr_matrix(dataset.X.shape)
         else:
             X = dataset.X
+
         dataset_copy = ad.AnnData(
             X=X,
             obs=dataset.obs,
@@ -179,9 +169,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
         elif "adjacency_matrix" in dataset.uns:
             dataset_copy.uns["adjacency_matrix"] = {
                 replicate_string: make_hdf5_compatible(adjacency_matrix)
-                for replicate_string, adjacency_matrix in dataset.uns[
-                    "adjacency_matrix"
-                ]
+                for replicate_string, adjacency_matrix in dataset.uns["adjacency_matrix"]
             }
 
         if "Sigma_x_inv" in dataset_copy.uns:
@@ -195,9 +183,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
             dataset_copy.uns["Sigma_x_inv"] = {replicate_string: replicate_Sigma_x_inv}
 
         if "Sigma_x_inv_bar" in dataset_copy.uns:
-            replicate_Sigma_x_inv_bar = dataset_copy.uns["Sigma_x_inv_bar"][
-                replicate_string
-            ]
+            replicate_Sigma_x_inv_bar = dataset_copy.uns["Sigma_x_inv_bar"][replicate_string]
             if replicate_string in dataset_copy.uns["Sigma_x_inv_bar"]:
                 # Using a sentinel value - hopefully this can be fixed in the future!
                 if replicate_Sigma_x_inv_bar is None:
@@ -240,7 +226,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
         dataset_copies.append(dataset_copy)
 
         if "adjacency_list" in dataset_copy.obs:
-            del dataset_copy.obs["adjacency_list"]
+            del dataset_copy.obsm["adjacency_list"]
 
     dataset_names = [dataset.name for dataset in datasets]
     merged_dataset = ad.concat(

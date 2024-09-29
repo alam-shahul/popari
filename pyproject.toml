@@ -24,6 +24,8 @@ dependencies = [
     "squidpy@git+https://github.com/alam-shahul/squidpy",
     "louvain>=0.8.0",
     "leidenalg>=0.10.2",
+    "pymetis>=2023.1.1",
+    "awkward>=2.6.8",
     "ortools>=9.7.2996",
 ]
 description = "Popari: a probabilistic graphical model for integrated spatial transcriptomics analysis"
@@ -70,7 +72,8 @@ benchmark = [
   "multiprocess>=0.70.15"
 ]
 test = [
-  "pytest"
+  "pytest",
+  "pytest-xdist",
 ]
 
 [tool]

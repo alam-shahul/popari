@@ -2,6 +2,7 @@ from copy import deepcopy
 from typing import Sequence
 
 import anndata as ad
+import awkward as ak
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -70,7 +71,7 @@ class PopariDataset(ad.AnnData):
         for x, y in zip(*self.obsp["adjacency_matrix"].nonzero()):
             adjacency_list[x].append(y)
 
-        self.obs["adjacency_list"] = adjacency_list
+        self.obsm["adjacency_list"] = ak.Array(adjacency_list)
 
     @staticmethod
     def remove_connectivity_artifacts(
