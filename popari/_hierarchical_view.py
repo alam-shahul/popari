@@ -685,11 +685,12 @@ class Hierarchy:
             previous_Ys = previous_view.Ys
 
             effective_kwargs = kwargs.copy()
-            for previous_Y, dataset, original_name in zip(previous_Ys, previous_datasets, original_names):
-                binned_dataset_name = f"{dataset.name}_level_{level}"
+            for previous_Y, previous_dataset, original_name in zip(previous_Ys, previous_datasets, original_names):
+                dataset_name, *_ = previous_dataset.name.split("_level_")
+                binned_dataset_name = f"{dataset_name}_level_{level}"
                 bin_assignments_key = f"bin_assignments_{binned_dataset_name}"
                 binned_dataset, effective_kwargs = self.downsampler.downsample(
-                    dataset,
+                    previous_dataset,
                     downsample_rate=downsample_rate,
                     bin_assignments_key=bin_assignments_key,
                     **effective_kwargs,
@@ -697,7 +698,9 @@ class Hierarchy:
                 binned_dataset = PopariDataset(binned_dataset, binned_dataset_name)
                 binned_dataset.compute_spatial_neighbors()
 
-                print(f"{get_datetime()} Downsized dataset from {len(dataset)} to {len(binned_dataset)} spots.")
+                print(
+                    f"{get_datetime()} Downsized dataset from {len(previous_dataset)} to {len(binned_dataset)} spots.",
+                )
 
                 binned_datasets.append(binned_dataset)
                 bin_assignments = convert_numpy_to_pytorch_sparse_coo(
@@ -768,118 +771,3 @@ class Hierarchy:
             previous_view = level_view
 
         return hierarchy
-
-
-def construct_hierarchy(
-    base_view: HierarchicalView,
-    chunks: int = 16,
-    downsample_rate: float = 0.2,
-    chunk_size: int = None,
-    chunk_1d_density: float = None,
-    levels: int = 2,
-    **hierarchical_view_kwargs,
-):
-    """Construct a hierarchy of multi-resolution views from a base view.
-
-    Args:
-        TODO: fill out docs
-
-    """
-    hierarchy = {0: base_view}
-    context = base_view.context
-    previous_view = base_view
-    original_names = [dataset.name for dataset in previous_view.datasets]
-    for level in range(1, levels):
-        print(f"{get_datetime()} Initializing hierarchy level {level}")
-        previous_datasets = previous_view.datasets
-        chunk_size = chunk_1d_density = None
-        binned_datasets = []
-        binned_Ys = []
-        previous_Ys = previous_view.Ys
-        chunks_for_level = chunks
-        for previous_Y, dataset, original_name in zip(previous_Ys, previous_datasets, original_names):
-            binned_dataset = _spatial_binning(
-                PopariDataset(dataset, original_name),
-                level=level,
-                chunks=chunks_for_level,
-                chunk_size=chunk_size,
-                chunk_1d_density=chunk_1d_density,
-                downsample_rate=downsample_rate,
-            )
-
-            chunks_for_level = None
-
-            print(f"{get_datetime()} Downsized dataset from {len(dataset)} to {len(binned_dataset)} spots.")
-            chunk_size = binned_dataset.uns["chunk_size"]
-            chunk_1d_density = binned_dataset.uns["chunk_1d_density"]
-
-            binned_datasets.append(binned_dataset)
-            binned_Y = (
-                convert_numpy_to_pytorch_sparse_coo(
-                    csr_array(binned_dataset.obsm[f"bin_assignments_{binned_dataset.name}"]).tocoo(),
-                    context=context,
-                )
-                @ previous_Y
-            )
-            binned_Ys.append(binned_Y)
-
-        level_view = HierarchicalView(
-            binned_datasets,
-            superresolution_lr=superresolution_lr,
-            level=level,
-            binned_Ys=binned_Ys,
-            **hierarchical_view_kwargs,
-        )
-        previous_view.link(level_view)
-        hierarchy[level] = level_view
-
-        previous_view = level_view
-
-    return hierarchy
-
-
-def reconstruct_hierarchy(reloaded_hierarchy: dict, superresolution_lr: float = 1e-3, **hierarchical_view_kwargs):
-    """Reconstruct hierachical model from datasets.
-
-    Args:
-        TODO: fill out docs
-
-    """
-
-    hierarchy = {}
-    context = hierarchical_view_kwargs["context"]
-    binned_Ys = None
-    previous_view = None
-    for level in range(hierarchical_view_kwargs["hierarchical_levels"]):
-        print(f"{get_datetime()} Reloading level {level}")
-        datasets = reloaded_hierarchy[level]
-        if previous_view is not None:
-            binned_Ys = []
-            for dataset, previous_Y in zip(datasets, previous_view.Ys):
-                B = dataset.obsm[f"bin_assignments_{dataset.name}"]
-                dataset.obsm[f"bin_assignments_{dataset.name}"] = csr_array(B)
-                binned_Y = (
-                    convert_numpy_to_pytorch_sparse_coo(
-                        dataset.obsm[f"bin_assignments_{dataset.name}"],
-                        context=context,
-                    )
-                    @ previous_Y
-                )
-                binned_Ys.append(binned_Y)
-
-        level_view = HierarchicalView(
-            datasets,
-            superresolution_lr=superresolution_lr,
-            level=level,
-            binned_Ys=binned_Ys,
-            **hierarchical_view_kwargs,
-        )
-
-        if previous_view is not None:
-            previous_view.link(level_view)
-
-        hierarchy[level] = level_view
-
-        previous_view = level_view
-
-    return hierarchy

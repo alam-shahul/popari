@@ -89,7 +89,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
             if "spatial_affinity_groups" in dataset.uns["popari_hyperparameters"]:
                 name_parts = dataset.name.split("_level_")
                 if len(name_parts) > 1:
-                    _, level = name_parts
+                    *_, level = name_parts
                     level = int(level)
                 else:
                     level = 0
@@ -99,7 +99,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
                 for group, group_replicates in groups.items():
                     group_name_parts = group.split("_level_")
                     if len(group_name_parts) > 1:
-                        _, group_level = group_name_parts
+                        *_, group_level = group_name_parts
                         group_level = int(group_level)
                     else:
                         group_level = 0
@@ -112,7 +112,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
             if "metagene_groups" in dataset.uns["popari_hyperparameters"]:
                 name_parts = dataset.name.split("_level_")
                 if len(name_parts) > 1:
-                    _, level = name_parts
+                    *_, level = name_parts
                     level = int(level)
                 else:
                     level = 0
@@ -122,7 +122,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
                 for group, group_replicates in groups.items():
                     group_name_parts = group.split("_level_")
                     if len(group_name_parts) > 1:
-                        _, group_level = group_name_parts
+                        *_, group_level = group_name_parts
                         group_level = int(group_level)
                     else:
                         group_level = 0
