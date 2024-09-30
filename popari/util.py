@@ -58,7 +58,7 @@ def create_neighbor_groups(replicate_names, covariate_values, window_size=1):
     return groups
 
 
-def concatenate(datasets: Sequence[PopariDataset]):
+def concatenate(datasets: Sequence[PopariDataset], join="inner"):
     """Merge datasets in a way that is compatible with Popari.
 
     Args:
@@ -69,7 +69,7 @@ def concatenate(datasets: Sequence[PopariDataset]):
     merged_dataset = ad.concat(
         datasets,
         label="batch",
-        join="outer",
+        join=join,
         keys=dataset_names,
         merge="unique",
         uns_merge="unique",

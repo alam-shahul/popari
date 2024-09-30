@@ -68,4 +68,4 @@ def test_nll(trained_model):
 
     expected_nll = 0
 
-    assert np.isnan(nll) == expected_nll  # TODO: why is this returning nan?
+    assert nll == expected_nll  # TODO: why is this returning nan?

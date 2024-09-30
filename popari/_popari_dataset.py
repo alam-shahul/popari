@@ -32,9 +32,10 @@ class PopariDataset(ad.AnnData):
         super().__init__(
             X=dataset.X,
             obs=dataset.obs,
-            obsp=dataset.obsp,
             obsm=dataset.obsm,
+            obsp=dataset.obsp,
             var=dataset.var,
+            varm=dataset.varm,
             varp=dataset.varp,
             uns=deepcopy(dataset.uns),
         )

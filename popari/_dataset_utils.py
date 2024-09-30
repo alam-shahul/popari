@@ -25,7 +25,7 @@ from sklearn.preprocessing import LabelEncoder
 
 from popari._binning_utils import chunked_downsample_on_grid, filter_gridpoints
 from popari._popari_dataset import PopariDataset
-from popari.util import bin_expression, compute_neighborhood_enrichment, concatenate
+from popari.util import bin_expression, compute_neighborhood_enrichment, concatenate, unconcatenate
 
 
 def setup_squarish_axes(num_axes, **subplots_kwargs):
@@ -190,8 +190,7 @@ def _cluster(
                 print(f"Resolution: {effective_resolution}")
 
     if joint:
-        indices = merged_dataset.obs.groupby("batch").indices.values()
-        unmerged_datasets = [merged_dataset[index] for index in indices]
+        unmerged_datasets = unconcatenate(merged_dataset)
         for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
             original_dataset.obs[method] = unmerged_dataset.obs[method]
 
@@ -211,23 +210,14 @@ def _pca(datasets: Sequence[PopariDataset], joint: bool = False, n_comps: int = 
 
     if joint:
         original_datasets = datasets
-        dataset_names = [dataset.name for dataset in datasets]
-        merged_dataset = ad.concat(
-            datasets,
-            label="batch",
-            keys=dataset_names,
-            merge="unique",
-            uns_merge="unique",
-            pairwise=True,
-        )
+        merged_dataset = concatenate(datasets)
         datasets = [merged_dataset]
 
     for dataset in datasets:
         sc.pp.pca(dataset, n_comps=n_comps, **pca_kwargs)
 
     if joint:
-        indices = merged_dataset.obs.groupby("batch").indices.values()
-        unmerged_datasets = [merged_dataset[index] for index in indices]
+        unmerged_datasets = unconcatenate(merged_dataset)
         for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
             original_dataset.obsm["X_pca"] = unmerged_dataset.obsm["X_pca"]
             original_dataset.varm["PCs"] = unmerged_dataset.varm["PCs"]
@@ -261,6 +251,7 @@ def _umap(datasets: Sequence[PopariDataset], joint: bool = False, n_neighbors: i
             uns_merge="unique",
             pairwise=True,
         )
+        merged_dataset = concatenate(datasets)
         datasets = [merged_dataset]
 
     for dataset in datasets:
@@ -268,8 +259,7 @@ def _umap(datasets: Sequence[PopariDataset], joint: bool = False, n_neighbors: i
         sc.tl.umap(dataset)
 
     if joint:
-        indices = merged_dataset.obs.groupby("batch").indices.values()
-        unmerged_datasets = [merged_dataset[index] for index in indices]
+        unmerged_datasets = unconcatenate(merged_dataset)
         for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
             original_dataset.obsm["X_umap"] = unmerged_dataset.obsm["X_umap"]
 
@@ -806,8 +796,9 @@ def _evaluate_classification_task(datasets: Sequence[PopariDataset], embeddings:
             dataset.uns[f"macroprecision_{split}"] = precision_score(y, y_hat, average="macro")
 
     if joint:
-        indices = merged_dataset.obs.groupby("batch").indices.values()
-        unmerged_datasets = [merged_dataset[index] for index in indices]
+        # indices = merged_dataset.obs.groupby("batch").indices.values()
+        # unmerged_datasets = [merged_dataset[index] for index in indices]
+        unmerged_datasets = unconcatenate(merged_dataset)
         for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
             for split in ("train", "validation"):
                 original_dataset.uns[f"microprecision_{split}"] = unmerged_dataset.uns[f"microprecision_{split}"]
