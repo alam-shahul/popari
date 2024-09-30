@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from popari.io import load_anndata, save_anndata
@@ -63,4 +64,8 @@ def test_load_hierarchical_model(dataset_path):
 
 
 def test_nll(trained_model):
-    _ = trained_model.nll()
+    nll = trained_model.nll(level=0)
+
+    expected_nll = 0
+
+    assert np.isnan(nll) == expected_nll  # TODO: why is this returning nan?

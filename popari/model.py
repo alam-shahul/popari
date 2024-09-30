@@ -16,7 +16,7 @@ from tqdm import trange
 from popari._hierarchical_view import HierarchicalView, Hierarchy
 from popari._popari_dataset import PopariDataset
 from popari.io import load_anndata, merge_anndata, save_anndata, unmerge_anndata
-from popari.util import compute_nll, convert_numpy_to_pytorch_sparse_coo, get_datetime
+from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
 
 class Popari:
@@ -432,7 +432,8 @@ class Popari:
     def nll(self, level: int = 0, use_spatial: bool = False):
         """Compute the nll for the current configuration of model parameters."""
 
-        return compute_nll(self, level=level, use_spatial=use_spatial)
+        view = self.hierarchy[level]
+        return view.nll(use_spatial=use_spatial)
 
     def set_superresolution_lr(self, new_lr: float, target_level: Optional[int] = None):
         """Change learning rate for superresolution optimization.

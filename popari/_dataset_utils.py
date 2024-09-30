@@ -25,7 +25,7 @@ from sklearn.preprocessing import LabelEncoder
 
 from popari._binning_utils import chunked_downsample_on_grid, filter_gridpoints
 from popari._popari_dataset import PopariDataset
-from popari.util import bin_expression, compute_neighborhood_enrichment
+from popari.util import bin_expression, compute_neighborhood_enrichment, concatenate
 
 
 def setup_squarish_axes(num_axes, **subplots_kwargs):
@@ -160,14 +160,7 @@ def _cluster(
     if joint:
         original_datasets = datasets
         dataset_names = [dataset.name for dataset in datasets]
-        merged_dataset = ad.concat(
-            datasets,
-            label="batch",
-            keys=dataset_names,
-            merge="unique",
-            uns_merge="unique",
-            pairwise=True,
-        )
+        merged_dataset = concatenate(datasets)
         datasets = [merged_dataset]
 
     clustering_function = getattr(sc.tl, method)
