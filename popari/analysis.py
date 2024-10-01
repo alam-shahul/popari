@@ -1,4 +1,4 @@
-from functools import partial
+from functools import partial, wraps
 from typing import Optional, Sequence
 
 import numpy as np
@@ -9,7 +9,6 @@ from matplotlib.colors import ListedColormap
 from scipy.stats import pearsonr, spearmanr, wasserstein_distance
 
 from popari._dataset_utils import (
-    _broadcast_operator,
     _cluster,
     _compute_ari_score,
     _compute_columnwise_autocorrelation,
@@ -19,65 +18,24 @@ from popari._dataset_utils import (
     _compute_spatial_gene_correlation,
     _evaluate_classification_task,
     _multigroup_heatmap,
-    _multireplicate_heatmap,
     _pca,
-    _plot_all_embeddings,
-    _plot_confusion_matrix,
-    _plot_metagene_embedding,
-    _plot_umap,
     _preprocess_embeddings,
     _umap,
+    for_model,
+    setup_squarish_axes,
 )
 from popari.model import Popari
 
-
-def setup_squarish_axes(num_axes, **subplots_kwargs):
-    """Create matplotlib subplots as squarely as possible."""
-
-    height = int(np.sqrt(num_axes))
-    width = num_axes // height
-    height += width * height != num_axes
-
-    constrained_layout = (
-        True if "constrained_layout" not in subplots_kwargs else subplots_kwargs.pop("constrained_layout")
-    )
-    dpi = 300 if "dpi" not in subplots_kwargs else subplots_kwargs.pop("dpi")
-    sharex = True if "sharex" not in subplots_kwargs else subplots_kwargs.pop("sharex")
-    sharey = True if "sharey" not in subplots_kwargs else subplots_kwargs.pop("sharey")
-
-    fig, axes = plt.subplots(
-        height,
-        width,
-        squeeze=False,
-        constrained_layout=constrained_layout,
-        dpi=dpi,
-        sharex=sharex,
-        sharey=sharey,
-        **subplots_kwargs,
-    )
-
-    return fig, axes
-
-
-def preprocess_embeddings(
-    trained_model: Popari,
-    joint: bool = False,
-    level: int = 0,
-    normalized_key: str = "normalized_X",
-):
-    """Normalize embeddings per each cell.
-
-    This step helps to make cell embeddings comparable, and facilitates downstream tasks like clustering.
-
-    Args:
-        trained_model: the trained Popari model.
-        joint: if `True`, jointly compute z-scores across all replicates.
-
-    """
-
-    datasets = trained_model.hierarchy[level].datasets
-
-    _preprocess_embeddings(datasets, normalized_key=normalized_key, joint=joint)
+preprocess_embeddings = for_model(_preprocess_embeddings)
+cluster = for_model(_cluster)
+pca = for_model(_pca)
+umap = for_model(_umap)
+compute_ari_scores = for_model(_compute_ari_score)
+compute_silhouette_scores = for_model(_compute_silhouette_score)
+evaluate_classification_task = for_model(_evaluate_classification_task)
+compute_confusion_matrix = for_model(_compute_confusion_matrix)
+compute_columnwise_autocorrelation = for_model(_compute_columnwise_autocorrelation)
+compute_spatial_gene_correlation = for_model(_compute_spatial_gene_correlation)
 
 
 def leiden(
@@ -111,108 +69,6 @@ def leiden(
     )
 
 
-def cluster(
-    trained_model: Popari,
-    use_rep="normalized_X",
-    joint: bool = False,
-    verbose: bool = False,
-    method: str = "leiden",
-    resolution: float = 1.0,
-    target_clusters: Optional[int] = None,
-    level=0,
-    tolerance: float = 0.01,
-):
-    r"""Compute clustering for all datasets.
-
-    Args:
-        trained_model: the trained Popari model.
-        joint: if `True`, jointly cluster the spots
-        use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
-        resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters.
-
-    """
-
-    datasets = trained_model.hierarchy[level].datasets
-
-    _cluster(
-        datasets,
-        use_rep=use_rep,
-        joint=joint,
-        method=method,
-        verbose=verbose,
-        resolution=resolution,
-        target_clusters=target_clusters,
-        tolerance=tolerance,
-    )
-
-
-def pca(trained_model: Popari, joint: bool = False, level=0, n_comps: int = 50):
-    r"""Compute PCA for all datasets.
-
-    Args:
-        trained_model: the trained Popari model.
-        joint: if `True`, jointly reduce dimensionality.
-
-    """
-
-    datasets = trained_model.hierarchy[level].datasets
-
-    _pca(datasets, joint=joint, n_comps=n_comps)
-
-
-def umap(trained_model: Popari, joint: bool = False, level=0, n_neighbors: int = 20):
-    r"""Compute UMAP for all datasets.
-
-    Args:
-        trained_model: the trained Popari model.
-        joint: if `True`, jointly reduce dimensionality.
-
-    """
-
-    datasets = trained_model.hierarchy[level].datasets
-
-    _umap(datasets, joint=joint, n_neighbors=n_neighbors)
-
-
-def multireplicate_heatmap(
-    trained_model: Popari,
-    title_font_size: Optional[int] = None,
-    axes: Optional[Sequence[Axes]] = None,
-    obsm: Optional[str] = None,
-    obsp: Optional[str] = None,
-    uns: Optional[str] = None,
-    nested: bool = True,
-    level=0,
-    **heatmap_kwargs,
-):
-    r"""Plot 2D heatmap data across all datasets.
-
-    Wrapper function to enable plotting of continuous 2D data across multiple replicates. Only
-    one of ``obsm``, ``obsp`` or ``uns`` should be used.
-
-    Args:
-        trained_model: the trained Popari model.
-        axes: A predefined set of matplotlib axes to plot on.
-        obsm: the key in the ``.obsm`` dataframe to plot.
-        obsp: the key in the ``.obsp`` dataframe to plot.
-        uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
-        **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
-
-    """
-    datasets = trained_model.hierarchy[level].datasets
-
-    _multireplicate_heatmap(
-        datasets,
-        title_font_size=title_font_size,
-        axes=axes,
-        obsm=obsm,
-        obsp=obsp,
-        uns=uns,
-        nested=nested,
-        **heatmap_kwargs,
-    )
-
-
 def multigroup_heatmap(
     trained_model: Popari,
     title_font_size: Optional[int] = None,
@@ -240,50 +96,6 @@ def multigroup_heatmap(
 
     groups = trained_model.metagene_groups if group_type == "metagene" else trained_model.spatial_affinity_groups
     _multigroup_heatmap(datasets, title_font_size=title_font_size, groups=groups, axes=axes, key=key, **heatmap_kwargs)
-
-
-def compute_ari_scores(trained_model: Popari, labels: str, predictions: str, level=0, ari_key: str = "ari"):
-    r"""Compute adjusted Rand index (ARI) score  between a set of ground truth
-    labels and an unsupervised clustering.
-
-    Useful for assessing clustering validity. ARI score is computed per dataset.
-
-    Args:
-        trained_model: the trained Popari model.
-        labels: the key in the ``.obs`` dataframe for the label data.
-        predictions: the key in the ``.obs`` dataframe for the predictions data.
-        ari_key: the key in the ``.uns`` dictionary where the ARI score will be stored.
-
-    """
-    datasets = trained_model.hierarchy[level].datasets
-
-    _broadcast_operator(datasets, partial(_compute_ari_score, labels=labels, predictions=predictions, ari_key=ari_key))
-
-
-def compute_silhouette_scores(
-    trained_model: Popari,
-    labels: str,
-    embeddings: str,
-    level=0,
-    silhouette_key: str = "silhouette",
-):
-    r"""Compute silhouette score for a clustering based on Popari embeddings.
-
-    Useful for assessing clustering validity. ARI score is computed per dataset.
-
-    Args:
-        trained_model: the trained Popari model.
-        labels: the key in the ``.obs`` dataframe for the label data.
-        predictions: the key in the ``.obs`` dataframe for the predictions data.
-        ari_key: the key in the ``.uns`` dictionary where the ARI score will be stored.
-
-    """
-    datasets = trained_model.hierarchy[level].datasets
-
-    _broadcast_operator(
-        datasets,
-        partial(_compute_silhouette_score, labels=labels, embeddings=embeddings, silhouette_key=silhouette_key),
-    )
 
 
 def compute_empirical_correlations(
@@ -404,83 +216,6 @@ def plot_gene_trajectories(
         r = np.corrcoef(covariate_values, y=trend)[0, 1]
         im = ax.plot(covariate_values, trend)
         ax.set_title(f"{gene}, R = {r:.2f}")
-
-
-def evaluate_classification_task(trained_model: Popari, embeddings: str, labels: str, joint: bool, level=0):
-    r"""Use cell labels to train classifier on Popari embeddings, and evaluate
-    train/test accuracy.
-
-    Args:
-        trained_model: the trained Popari model.
-        embeddings: the key in the ``.obsm`` dataframe where the embeddings are stored.
-        labels: the key in the ``.obs`` dataframe for the label data.
-        joint: if `True`, jointly train the classifier across all datasets.
-
-    """
-
-    datasets = trained_model.hierarchy[level].datasets
-
-    _evaluate_classification_task(datasets, embeddings=embeddings, labels=labels, joint=joint)
-
-
-def compute_confusion_matrix(
-    trained_model: Popari,
-    labels: str,
-    predictions: str,
-    level=0,
-    result_key: str = "confusion_matrix",
-):
-    r"""Compute confusion matrix for labels and predictions.
-
-    Useful for visualizing clustering validity.
-
-    Args:
-        trained_model: the trained Popari model.
-        labels: the key in the ``.obs`` dataframe for the label data.
-        predictions: the key in the ``.obs`` dataframe for the predictions data.
-        result_key: the key in the ``.uns`` dictionary where the reordered confusion matrix will be stored.
-
-    """
-    datasets = trained_model.hierarchy[level].datasets
-
-    _broadcast_operator(
-        datasets,
-        partial(_compute_confusion_matrix, labels=labels, predictions=predictions, result_key=result_key),
-    )
-
-
-def compute_columnwise_autocorrelation(
-    trained_model: Popari,
-    uns: str = "ground_truth_M",
-    level=0,
-    result_key: str = "ground_truth_M_correlation",
-):
-    datasets = trained_model.hierarchy[level].datasets
-
-    _broadcast_operator(datasets, partial(_compute_columnwise_autocorrelation, uns=uns, result_key=result_key))
-
-
-def compute_spatial_gene_correlation(
-    trained_model: Popari,
-    spatial_key: str = "Sigma_x_inv",
-    metagene_key: str = "M",
-    spatial_gene_correlation_key: str = "spatial_gene_correlation",
-    level=0,
-    neighbor_interactions_key: str = "neighbor_interactions",
-):
-    """Computes spatial gene correlation according to learned metagenes."""
-    datasets = trained_model.hierarchy[level].datasets
-
-    _broadcast_operator(
-        datasets,
-        partial(
-            _compute_spatial_gene_correlation,
-            spatial_key=spatial_key,
-            metagene_key=metagene_key,
-            spatial_gene_correlation_key=spatial_gene_correlation_key,
-            neighbor_interactions_key=neighbor_interactions_key,
-        ),
-    )
 
 
 def normalized_affinity_trends(

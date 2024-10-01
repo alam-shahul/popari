@@ -1,23 +1,30 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from popari import pl, tl
 from popari.model import load_trained_model
+from popari.util import concatenate
 
 
 @pytest.fixture(scope="module")
-def trained_model():
+def dataset_path():
     path2dataset = Path("tests/test_data/synthetic_dataset")
-    trained_model = load_trained_model(path2dataset / "trained_4_iterations.h5ad")
+
+    return path2dataset
+
+
+@pytest.fixture(scope="module")
+def trained_model(dataset_path):
+    trained_model = load_trained_model(dataset_path / "trained_4_iterations.h5ad")
 
     return trained_model
 
 
 @pytest.fixture(scope="module")
-def trained_differential_model():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
-    trained_model = load_trained_model(path2dataset / "trained_differential_metagenes_4_iterations.h5ad")
+def trained_differential_model(dataset_path):
+    trained_model = load_trained_model(dataset_path / "trained_differential_metagenes_4_iterations.h5ad")
 
     return trained_model
 
@@ -35,7 +42,8 @@ def test_differential_analysis(trained_differential_model):
 
 @pytest.fixture(scope="module")
 def preprocessed_model(trained_model):
-    tl.preprocess_embeddings(trained_model)
+    tl.preprocess_embeddings(trained_model, joint=True)
+    tl.preprocess_embeddings(trained_model, joint=False)
 
     return trained_model
 
@@ -43,8 +51,24 @@ def preprocessed_model(trained_model):
 def test_preprocess_model(preprocessed_model): ...
 
 
-def test_pca(preprocessed_model):
+def test_pca(preprocessed_model, dataset_path):
+    tl.pca(preprocessed_model, joint=False)
+    merged_dataset = concatenate(preprocessed_model.datasets)
+    disjoint_pca = merged_dataset.obsm["X_pca"]
+    if not (dataset_path / "pca_disjoint.npy").exists():
+        np.save(dataset_path / "pca_disjoint.npy", disjoint_pca)
+
+    saved_pca = np.load(dataset_path / "pca_disjoint.npy")
+    assert np.allclose(disjoint_pca, saved_pca)
+
     tl.pca(preprocessed_model, joint=True)
+    merged_dataset = concatenate(preprocessed_model.datasets)
+    joint_pca = merged_dataset.obsm["X_pca"]
+    if not (dataset_path / "pca_joint.npy").exists():
+        np.save(dataset_path / "pca_joint.npy", joint_pca)
+
+    saved_pca = np.load(dataset_path / "pca_joint.npy")
+    assert np.allclose(joint_pca, saved_pca)
 
 
 @pytest.fixture(scope="module")
@@ -114,6 +138,12 @@ def test_confusion_matrix(clustered_model):
     except Exception as e:
         assert type(e) is ValueError
 
+    try:
+        tl.compute_confusion_matrix(clustered_model, labels="cell_type", predictions="leiden", joint=True)
+        pl.confusion_matrix(clustered_model, labels="cell_type")
+    except Exception as e:
+        assert type(e) is ValueError
+
 
 def test_columnwise_autocorrelation(clustered_model):
     tl.compute_columnwise_autocorrelation(clustered_model, uns="M")
@@ -126,6 +156,7 @@ def test_plot_in_situ(clustered_model):
 def test_umap(clustered_model):
     tl.umap(clustered_model)
     pl.umap(clustered_model, color="leiden")
+    pl.umap(clustered_model, color="leiden", joint=True)
 
 
 def test_multireplicate_heatmap(clustered_model):

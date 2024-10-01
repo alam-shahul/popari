@@ -8,7 +8,7 @@ import torch
 from scipy.sparse import csr_matrix, issparse
 
 from popari.components import PopariDataset
-from popari.util import convert_numpy_to_pytorch_sparse_coo
+from popari.util import concatenate, convert_numpy_to_pytorch_sparse_coo, unconcatenate
 
 
 def load_anndata(filepath: Union[str, Path]):
@@ -23,15 +23,10 @@ def load_anndata(filepath: Union[str, Path]):
 def unmerge_anndata(merged_dataset: ad.AnnData):
     """Unmerge composite AnnData object into constituent datasets."""
 
-    indices = merged_dataset.obs.groupby("batch").indices.values()
-    datasets = [merged_dataset[index].copy() for index in indices]
+    datasets = unconcatenate(merged_dataset)
 
-    replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
-
-    datasets = [PopariDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
-
-    for replicate, dataset in zip(replicate_names, datasets):
-        replicate_string = f"{replicate}"
+    for dataset in datasets:
+        replicate_string = f"{dataset.name}"
         if "Sigma_x_inv" in dataset.uns:
             # Keep only Sigma_x_inv corresponding to a particular replicate
             replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][replicate_string]
@@ -139,6 +134,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
         if issparse(dataset.X):
             dataset.X = dataset.X.toarray()
 
+    replicate_names = [dataset.name for dataset in datasets]
     return datasets, replicate_names
 
 
@@ -155,13 +151,8 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
         else:
             X = dataset.X
 
-        dataset_copy = ad.AnnData(
-            X=X,
-            obs=dataset.obs,
-            var=dataset.var,
-            uns=dataset.uns,
-            obsm=dataset.obsm,
-        )
+        dataset_copy = PopariDataset(dataset, dataset.name)
+
         # Hacks to store adjacency matrices efficiently
         if "adjacency_matrix" in dataset.obsp:
             adjacency_matrix = make_hdf5_compatible(dataset.obsp["adjacency_matrix"])
@@ -228,15 +219,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
         if "adjacency_list" in dataset_copy.obs:
             del dataset_copy.obsm["adjacency_list"]
 
-    dataset_names = [dataset.name for dataset in datasets]
-    merged_dataset = ad.concat(
-        dataset_copies,
-        join="outer",
-        label="batch",
-        keys=dataset_names,
-        merge="unique",
-        uns_merge="unique",
-    )
+    merged_dataset = concatenate(dataset_copies, join="outer")
 
     return merged_dataset
 
