@@ -510,8 +510,8 @@ class Popari:
             for index, (dataset, binned_dataset, previous_Y) in enumerate(
                 zip(view.datasets, low_res_view.datasets, view.Ys),
             ):
-                bin_assignments = dataset.obsm[f"bin_assignments_{dataset.name}_level_{level+1}"]
-                binned_expression = bin_assignments.T @ dataset.X
+                bin_assignments = binned_dataset.obsm[f"bin_assignments_{binned_dataset.name}"]
+                binned_expression = bin_assignments @ dataset.X
                 binned_dataset.X = binned_expression
 
                 bin_assignments_tensor = convert_numpy_to_pytorch_sparse_coo(
@@ -519,7 +519,7 @@ class Popari:
                     context=self.initial_context,
                 )
 
-                binned_Y = bin_assignments_tensor.T @ previous_Y
+                binned_Y = bin_assignments_tensor @ previous_Y
                 low_res_view.Ys[index] = binned_Y
 
             low_res_view.parameter_optimizer.update_sigma_yx()

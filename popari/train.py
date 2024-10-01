@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 from popari.model import Popari
 
@@ -7,11 +8,12 @@ from popari.model import Popari
 class TrainParameters:
     nmf_iterations: int
     iterations: int
+    savepath: Path
     synchronization_frequency: int = 10
 
 
 class Trainer:
-    def __init__(parameters: TrainParameters, model: Popari, verbose: int = 0):
+    def __init__(self, parameters: TrainParameters, model: Popari, verbose: int = 0):
         self.model = model
         self.parameters = parameters
         self.verbose = verbose
@@ -40,7 +42,8 @@ class Trainer:
 
             self.iterations += 1
 
-    def save_results(): ...
+    def save_results():
+        model.save_results(self.parameters.savepath)
 
     # TODO: decide whether to separate out saving of model training hyperparameters and
     # Popari parameters saving completely. This will obvious imply huge changes with how
