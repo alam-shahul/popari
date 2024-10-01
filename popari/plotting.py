@@ -9,16 +9,9 @@ from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 
 from popari._dataset_utils import (
-    _cluster,
-    _compute_ari_score,
-    _compute_columnwise_autocorrelation,
-    _compute_confusion_matrix,
-    _compute_empirical_correlations,
-    _compute_silhouette_score,
     _evaluate_classification_task,
     _multigroup_heatmap,
     _multireplicate_heatmap,
-    _pca,
     _plot_all_embeddings,
     _plot_cell_type_to_metagene,
     _plot_cell_type_to_metagene_difference,
@@ -26,53 +19,16 @@ from popari._dataset_utils import (
     _plot_in_situ,
     _plot_metagene_embedding,
     _plot_umap,
-    _preprocess_embeddings,
+    for_model,
     setup_squarish_axes,
 )
 from popari.model import Popari
 
-
-def in_situ(trained_model: Popari, color="leiden", axes=None, level=0, **spatial_kwargs):
-    r"""Plot a categorical label across all datasets in-situ.
-
-    Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
-
-    Args:
-        trained_model: the trained Popari model.
-        color: the key in the ``.obs`` dataframe to plot.
-        axes: A predefined set of matplotlib axes to plot on.
-
-    """
-    datasets = trained_model.hierarchy[level].datasets
-
-    return _plot_in_situ(datasets, color=color, axes=axes, **spatial_kwargs)
-
-
-def metagene_embedding(
-    trained_model: Popari,
-    metagene_index: int,
-    axes: Optional[Sequence[Axes]] = None,
-    level=0,
-    **scatterplot_kwargs,
-):
-    r"""Plot a single metagene in-situ across all datasets.
-
-    Args:
-        trained_model: the trained Popari model.
-        metagene_index: the index of the metagene to plot.
-        axes: A predefined set of matplotlib axes to plot on.
-
-    """
-    datasets = trained_model.hierarchy[level].datasets
-
-    return _plot_metagene_embedding(datasets, metagene_index=metagene_index, axes=axes, **scatterplot_kwargs)
-
-
-def confusion_matrix(trained_model: Popari, labels: str, level=0, confusion_matrix_key: str = "confusion_matrix"):
-    """Plot confusion matrix."""
-    datasets = trained_model.hierarchy[level].datasets
-
-    _plot_confusion_matrix(datasets, labels=labels, confusion_matrix_key=confusion_matrix_key)
+in_situ = for_model(_plot_in_situ)
+metagene_embedding = for_model(_plot_metagene_embedding)
+confusion_matrix = for_model(_plot_confusion_matrix)
+umap = for_model(_plot_umap)
+multireplicate_heatmap = for_model(_multireplicate_heatmap)
 
 
 def multigroup_heatmap(
@@ -104,61 +60,6 @@ def multigroup_heatmap(
     _multigroup_heatmap(datasets, title_font_size=title_font_size, groups=groups, axes=axes, key=key, **heatmap_kwargs)
 
 
-def umap(trained_model: Popari, joint: bool = False, color="leiden", axes=None, level=0, **kwargs):
-    r"""Plot a categorical label across all datasets in-situ.
-
-    Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
-
-    Args:
-        trained_model: the trained Popari model.
-        color: the key in the ``.obs`` dataframe to plot.
-        axes: A predefined set of matplotlib axes to plot on.
-
-    """
-    datasets = trained_model.hierarchy[level].datasets
-
-    _plot_umap(datasets, joint=joint, color=color, axes=axes, **kwargs)
-
-
-def multireplicate_heatmap(
-    trained_model: Popari,
-    title_font_size: Optional[int] = None,
-    axes: Optional[Sequence[Axes]] = None,
-    obsm: Optional[str] = None,
-    obsp: Optional[str] = None,
-    uns: Optional[str] = None,
-    nested: bool = True,
-    level=0,
-    **heatmap_kwargs,
-):
-    r"""Plot 2D heatmap data across all datasets.
-
-    Wrapper function to enable plotting of continuous 2D data across multiple replicates. Only
-    one of ``obsm``, ``obsp`` or ``uns`` should be used.
-
-    Args:
-        trained_model: the trained Popari model.
-        axes: A predefined set of matplotlib axes to plot on.
-        obsm: the key in the ``.obsm`` dataframe to plot.
-        obsp: the key in the ``.obsp`` dataframe to plot.
-        uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
-        **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
-
-    """
-    datasets = trained_model.hierarchy[level].datasets
-
-    _multireplicate_heatmap(
-        datasets,
-        title_font_size=title_font_size,
-        axes=axes,
-        obsm=obsm,
-        obsp=obsp,
-        uns=uns,
-        nested=nested,
-        **heatmap_kwargs,
-    )
-
-
 def spatial_affinities(
     trained_model: Popari,
     title_font_size: Optional[int] = None,
@@ -181,7 +82,6 @@ def spatial_affinities(
         **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
 
     """
-
     datasets = trained_model.hierarchy[level].datasets
 
     # Override following kwargs with

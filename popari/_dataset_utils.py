@@ -28,6 +28,17 @@ from popari._popari_dataset import PopariDataset
 from popari.util import compute_neighborhood_enrichment, concatenate, unconcatenate
 
 
+def for_model(function):
+    @wraps(function)
+    def model_wrapper(trained_model: "Popari", *args, **kwargs):
+        level = kwargs.pop("level", 0)
+        datasets = trained_model.hierarchy[level].datasets
+
+        return function(datasets, *args, **kwargs)
+
+    return model_wrapper
+
+
 def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Sequence[str]] = None):
     """Copy updates from one AnnData to another.
 
