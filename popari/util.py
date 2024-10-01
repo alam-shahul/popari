@@ -83,11 +83,9 @@ def unconcatenate(merged_dataset: ad.AnnData):
     """Unmerge concatenated."""
 
     indices = merged_dataset.obs.groupby("batch").indices.values()
-    datasets = [merged_dataset[index] for index in indices]
+    datasets = [merged_dataset[index].copy() for index in indices]
 
     replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
-
-    # Copying happens in PopariDataset constructor
     unmerged_datasets = [PopariDataset(dataset, name) for dataset, name in zip(datasets, replicate_names)]
 
     return unmerged_datasets

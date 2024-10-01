@@ -23,13 +23,6 @@ def load_anndata(filepath: Union[str, Path]):
 def unmerge_anndata(merged_dataset: ad.AnnData):
     """Unmerge composite AnnData object into constituent datasets."""
 
-    # indices = merged_dataset.obs.groupby("batch").indices.values()
-    # datasets = [merged_dataset[index].copy() for index in indices]
-
-    # replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
-
-    # datasets = [PopariDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)]
-
     datasets = unconcatenate(merged_dataset)
 
     for dataset in datasets:
@@ -226,7 +219,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
         if "adjacency_list" in dataset_copy.obs:
             del dataset_copy.obsm["adjacency_list"]
 
-    merged_dataset = concatenate(dataset_copies, joint="outer")
+    merged_dataset = concatenate(dataset_copies, join="outer")
 
     return merged_dataset
 

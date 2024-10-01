@@ -42,7 +42,8 @@ def test_differential_analysis(trained_differential_model):
 
 @pytest.fixture(scope="module")
 def preprocessed_model(trained_model):
-    tl.preprocess_embeddings(trained_model)
+    tl.preprocess_embeddings(trained_model, joint=True)
+    tl.preprocess_embeddings(trained_model, joint=False)
 
     return trained_model
 
@@ -137,6 +138,12 @@ def test_confusion_matrix(clustered_model):
     except Exception as e:
         assert type(e) is ValueError
 
+    try:
+        tl.compute_confusion_matrix(clustered_model, labels="cell_type", predictions="leiden", joint=True)
+        pl.confusion_matrix(clustered_model, labels="cell_type")
+    except Exception as e:
+        assert type(e) is ValueError
+
 
 def test_columnwise_autocorrelation(clustered_model):
     tl.compute_columnwise_autocorrelation(clustered_model, uns="M")
@@ -149,6 +156,7 @@ def test_plot_in_situ(clustered_model):
 def test_umap(clustered_model):
     tl.umap(clustered_model)
     pl.umap(clustered_model, color="leiden")
+    pl.umap(clustered_model, color="leiden", joint=True)
 
 
 def test_multireplicate_heatmap(clustered_model):

@@ -8,6 +8,7 @@ from sklearn.decomposition import PCA, TruncatedSVD
 
 from popari._dataset_utils import _cluster, _pca
 from popari._popari_dataset import PopariDataset
+from popari.util import concatenate
 
 
 def initialize_kmeans(
@@ -82,13 +83,14 @@ def initialize_leiden(
 
     assert "random_state" in kwargs_leiden
 
-    _, merged_dataset = _pca(datasets, n_comps=n_components, joint=True)
+    _pca(datasets, n_comps=n_components, joint=True)
 
     # Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
 
     while True:
         _cluster(
-            [merged_dataset],
+            datasets,
+            joint=True,
             method="leiden",
             use_rep="X_pca",
             target_clusters=K,
@@ -97,6 +99,7 @@ def initialize_leiden(
             **kwargs_leiden,
         )
 
+        merged_dataset = concatenate(datasets)
         labels = merged_dataset.obs["leiden"].astype(int)
         num_clusters = len(labels.unique())
         if num_clusters == K:

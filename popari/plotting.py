@@ -9,7 +9,6 @@ from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 
 from popari._dataset_utils import (
-    _broadcast_operator,
     _cluster,
     _compute_ari_score,
     _compute_columnwise_autocorrelation,
@@ -73,10 +72,7 @@ def confusion_matrix(trained_model: Popari, labels: str, level=0, confusion_matr
     """Plot confusion matrix."""
     datasets = trained_model.hierarchy[level].datasets
 
-    _broadcast_operator(
-        datasets,
-        partial(_plot_confusion_matrix, labels=labels, confusion_matrix_key=confusion_matrix_key),
-    )
+    _plot_confusion_matrix(datasets, labels=labels, confusion_matrix_key=confusion_matrix_key)
 
 
 def multigroup_heatmap(
@@ -108,7 +104,7 @@ def multigroup_heatmap(
     _multigroup_heatmap(datasets, title_font_size=title_font_size, groups=groups, axes=axes, key=key, **heatmap_kwargs)
 
 
-def umap(trained_model: Popari, color="leiden", axes=None, level=0, **kwargs):
+def umap(trained_model: Popari, joint: bool = False, color="leiden", axes=None, level=0, **kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
@@ -121,7 +117,7 @@ def umap(trained_model: Popari, color="leiden", axes=None, level=0, **kwargs):
     """
     datasets = trained_model.hierarchy[level].datasets
 
-    _plot_umap(datasets, color=color, axes=axes, **kwargs)
+    _plot_umap(datasets, joint=joint, color=color, axes=axes, **kwargs)
 
 
 def multireplicate_heatmap(
@@ -237,10 +233,7 @@ def all_embeddings(
     if column_names == None:
         column_names = [f"{embedding_key}_{index}" for index in range(K)]
 
-    _broadcast_operator(
-        datasets,
-        partial(_plot_all_embeddings, embedding_key=embedding_key, column_names=column_names, **spatial_kwargs),
-    )
+    _plot_all_embeddings(datasets, embedding_key=embedding_key, column_names=column_names, **spatial_kwargs)
 
 
 def cell_type_to_metagene(trained_model: Popari, cell_type_de_genes: dict, level=0, **correspondence_kwargs):

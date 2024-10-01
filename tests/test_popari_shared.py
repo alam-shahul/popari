@@ -110,11 +110,11 @@ def test_louvain_clustering(popari_with_neighbors):
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=False)
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=True)
 
-    expected_aris = [0.7638266995561214, 0.8126115509883821]
+    expected_aris = [0.8048152350936736, 0.827531498882079]
     for expected_ari, dataset in zip(expected_aris, popari_with_neighbors.datasets):
         assert expected_ari == pytest.approx(dataset.uns["ari"])
 
-    expected_silhouettes = [0.30699036262154916, 0.34466040612221843]
+    expected_silhouettes = [0.31084134914999734, 0.3413229798705868]
     for expected_silhouette, dataset in zip(expected_silhouettes, popari_with_neighbors.datasets):
         print(f"Silhouette score: {dataset.uns['silhouette']}")
         assert expected_silhouette == pytest.approx(dataset.uns["silhouette"])

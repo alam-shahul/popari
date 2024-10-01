@@ -9,7 +9,6 @@ from matplotlib.colors import ListedColormap
 from scipy.stats import pearsonr, spearmanr, wasserstein_distance
 
 from popari._dataset_utils import (
-    _broadcast_operator,
     _cluster,
     _compute_ari_score,
     _compute_columnwise_autocorrelation,
@@ -242,7 +241,13 @@ def multigroup_heatmap(
     _multigroup_heatmap(datasets, title_font_size=title_font_size, groups=groups, axes=axes, key=key, **heatmap_kwargs)
 
 
-def compute_ari_scores(trained_model: Popari, labels: str, predictions: str, level=0, ari_key: str = "ari"):
+def compute_ari_scores(
+    trained_model: Popari,
+    labels: str,
+    predictions: str,
+    level=0,
+    ari_key: str = "ari",
+):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth
     labels and an unsupervised clustering.
 
@@ -257,13 +262,14 @@ def compute_ari_scores(trained_model: Popari, labels: str, predictions: str, lev
     """
     datasets = trained_model.hierarchy[level].datasets
 
-    _broadcast_operator(datasets, partial(_compute_ari_score, labels=labels, predictions=predictions, ari_key=ari_key))
+    _compute_ari_score(datasets, labels=labels, predictions=predictions, ari_key=ari_key)
 
 
 def compute_silhouette_scores(
     trained_model: Popari,
     labels: str,
     embeddings: str,
+    joint: bool = False,
     level=0,
     silhouette_key: str = "silhouette",
 ):
@@ -280,9 +286,12 @@ def compute_silhouette_scores(
     """
     datasets = trained_model.hierarchy[level].datasets
 
-    _broadcast_operator(
+    _compute_silhouette_score(
         datasets,
-        partial(_compute_silhouette_score, labels=labels, embeddings=embeddings, silhouette_key=silhouette_key),
+        joint=joint,
+        labels=labels,
+        embeddings=embeddings,
+        silhouette_key=silhouette_key,
     )
 
 
@@ -427,6 +436,7 @@ def compute_confusion_matrix(
     trained_model: Popari,
     labels: str,
     predictions: str,
+    joint: bool = False,
     level=0,
     result_key: str = "confusion_matrix",
 ):
@@ -443,25 +453,24 @@ def compute_confusion_matrix(
     """
     datasets = trained_model.hierarchy[level].datasets
 
-    _broadcast_operator(
-        datasets,
-        partial(_compute_confusion_matrix, labels=labels, predictions=predictions, result_key=result_key),
-    )
+    _compute_confusion_matrix(datasets, joint=joint, labels=labels, predictions=predictions, result_key=result_key)
 
 
 def compute_columnwise_autocorrelation(
     trained_model: Popari,
     uns: str = "ground_truth_M",
     level=0,
+    joint: bool = False,
     result_key: str = "ground_truth_M_correlation",
 ):
     datasets = trained_model.hierarchy[level].datasets
 
-    _broadcast_operator(datasets, partial(_compute_columnwise_autocorrelation, uns=uns, result_key=result_key))
+    _compute_columnwise_autocorrelation(datasets, joint=joint, uns=uns, result_key=result_key)
 
 
 def compute_spatial_gene_correlation(
     trained_model: Popari,
+    joint: bool = False,
     spatial_key: str = "Sigma_x_inv",
     metagene_key: str = "M",
     spatial_gene_correlation_key: str = "spatial_gene_correlation",
@@ -471,15 +480,13 @@ def compute_spatial_gene_correlation(
     """Computes spatial gene correlation according to learned metagenes."""
     datasets = trained_model.hierarchy[level].datasets
 
-    _broadcast_operator(
+    _compute_spatial_gene_correlation(
         datasets,
-        partial(
-            _compute_spatial_gene_correlation,
-            spatial_key=spatial_key,
-            metagene_key=metagene_key,
-            spatial_gene_correlation_key=spatial_gene_correlation_key,
-            neighbor_interactions_key=neighbor_interactions_key,
-        ),
+        joint=joint,
+        spatial_key=spatial_key,
+        metagene_key=metagene_key,
+        spatial_gene_correlation_key=spatial_gene_correlation_key,
+        neighbor_interactions_key=neighbor_interactions_key,
     )
 
 

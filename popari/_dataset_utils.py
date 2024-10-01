@@ -1,3 +1,4 @@
+from functools import partial, wraps
 from typing import Callable, Optional, Sequence
 
 import anndata as ad
@@ -13,19 +14,99 @@ from matplotlib import cm, colormaps
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
-from matplotlib.projections import PolarAxes
 from matplotlib.transforms import Affine2D
 from mpl_toolkits.axisartist.grid_finder import DictFormatter, FixedLocator, MaxNLocator
 from scipy.sparse import issparse
 from scipy.stats import wilcoxon, zscore
-from sklearn.metrics import accuracy_score, adjusted_rand_score, confusion_matrix, precision_score, silhouette_score
+from sklearn.metrics import adjusted_rand_score, confusion_matrix, precision_score, silhouette_score
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
 from popari._binning_utils import chunked_downsample_on_grid, filter_gridpoints
 from popari._popari_dataset import PopariDataset
-from popari.util import bin_expression, compute_neighborhood_enrichment, concatenate, unconcatenate
+from popari.util import compute_neighborhood_enrichment, concatenate, unconcatenate
+
+
+def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Sequence[str]] = None):
+    """Copy updates from one AnnData to another.
+
+    Note that this is a bit wasteful, as it copies every key in a given
+    annotation layer.
+
+    """
+    if annotations is None:
+        annotations = ()
+
+    for annotation in annotations:
+        original_annotation = getattr(original_dataset, annotation)
+        updated_annotation = getattr(updated_dataset, annotation)
+
+        for key in updated_annotation:
+            original_annotation[key] = updated_annotation[key]
+
+
+def enable_joint(function=None, *, annotations: Optional[Sequence[str]] = None):
+    """Decorator to extend functions that operate on lists of dataset to work on
+    a joint, merged dataset.
+
+    Args:
+        function: function to decorate. Must accept a list of datasets as its first argument.
+
+    """
+    if function is None:
+        return partial(enable_joint, annotations=annotations)
+
+    @wraps(function)
+    def joint_wrapper(datasets, *args, **kwargs):
+        """
+        Args:
+            joint: if `True`, apply `function` to merged dataset.
+        """
+        joint = kwargs.pop("joint", False)
+        if joint:
+            original_datasets = datasets
+            merged_dataset = concatenate(datasets)
+            datasets = [merged_dataset]
+
+        outputs = function(datasets, *args, **kwargs)
+
+        if joint:
+            unmerged_datasets = unconcatenate(merged_dataset)
+
+            for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
+                copy_annotations(original_dataset, unmerged_dataset, annotations=annotations)
+
+            outputs = original_datasets, outputs
+
+        return outputs
+
+    return joint_wrapper
+
+
+def broadcast(function):
+    """Decorator to extend a function from a single dataset to multiple
+    datasets.
+
+    TODO: Doesn't work in the case that the function's return values are meaningful...
+
+    """
+
+    @wraps(function)
+    def broadcast_wrapper(datasets, *args, **kwargs):
+        """"""
+
+        outputs = []
+        for dataset in datasets:
+            output = function(dataset, *args, **kwargs)
+            outputs.append(output)
+
+        if len(outputs) == 1:
+            outputs = outputs[0]
+
+        return outputs
+
+    return broadcast_wrapper
 
 
 def setup_squarish_axes(num_axes, **subplots_kwargs):
@@ -38,9 +119,9 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
     constrained_layout = (
         True if "constrained_layout" not in subplots_kwargs else subplots_kwargs.pop("constrained_layout")
     )
-    dpi = 300 if "dpi" not in subplots_kwargs else subplots_kwargs.pop("dpi")
-    sharex = True if "sharex" not in subplots_kwargs else subplots_kwargs.pop("sharex")
-    sharey = True if "sharey" not in subplots_kwargs else subplots_kwargs.pop("sharey")
+    dpi = subplots_kwargs.pop("dpi", 300)
+    sharex = subplots_kwargs.pop("sharex", True)
+    sharey = subplots_kwargs.pop("sharey", True)
 
     fig, axes = plt.subplots(
         height,
@@ -56,9 +137,9 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
     return fig, axes
 
 
+@enable_joint(annotations=["obsm"])
 def _preprocess_embeddings(
     datasets: Sequence[PopariDataset],
-    joint: bool = False,
     input_key="X",
     normalized_key="normalized_X",
 ):
@@ -68,8 +149,6 @@ def _preprocess_embeddings(
     downstream tasks like clustering.
 
     """
-    # TODO: implement joint functionality...?
-
     for dataset in datasets:
         if "X" not in dataset.obsm:
             raise ValueError("Must initialize embeddings before normalizing them.")
@@ -99,10 +178,10 @@ def _plot_metagene_embedding(
 
     """
 
-    legend = False if "legend" not in scatterplot_kwargs else scatterplot_kwargs.pop("legend")
-    default_s = None if "s" not in scatterplot_kwargs else scatterplot_kwargs.pop("s")
-    linewidth = 0 if "linewidth" not in scatterplot_kwargs else scatterplot_kwargs.pop("linewidth")
-    palette = "viridis" if "palette" not in scatterplot_kwargs else scatterplot_kwargs.pop("palette")
+    legend = scatterplot_kwargs.pop("legend", False)
+    default_s = scatterplot_kwargs.pop("s", None)
+    linewidth = scatterplot_kwargs.pop("linewidth", 0)
+    palette = scatterplot_kwargs.pop("palette", "viridis")
     if axes is None:
         fig, axes = setup_squarish_axes(len(datasets), sharex=False, sharey=False)
 
@@ -137,10 +216,10 @@ def _plot_metagene_embedding(
     return fig
 
 
+@enable_joint(annotations=["obs"])
 def _cluster(
     datasets: Sequence[PopariDataset],
     use_rep="normalized_X",
-    joint: bool = False,
     method: str = "leiden",
     n_neighbors: int = 20,
     target_clusters: Optional[int] = None,
@@ -152,16 +231,10 @@ def _cluster(
 
     Args:
         datasets: list of datasets to cluster
-        joint: if `True`, jointly cluster the spots
         use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
         resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters.
 
     """
-    if joint:
-        original_datasets = datasets
-        dataset_names = [dataset.name for dataset in datasets]
-        merged_dataset = concatenate(datasets)
-        datasets = [merged_dataset]
 
     clustering_function = getattr(sc.tl, method)
 
@@ -189,83 +262,33 @@ def _cluster(
                 print(f"Current number of clusters: {num_clusters}")
                 print(f"Resolution: {effective_resolution}")
 
-    if joint:
-        unmerged_datasets = unconcatenate(merged_dataset)
-        for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
-            original_dataset.obs[method] = unmerged_dataset.obs[method]
-
-        return original_datasets, merged_dataset
-
     return datasets
 
 
-def _pca(datasets: Sequence[PopariDataset], joint: bool = False, n_comps: int = 50, **pca_kwargs):
+@enable_joint(annotations=["obsm", "varm", "uns"])
+@broadcast
+def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
     r"""Compute PCA for all datasets.
 
     Args:
         datasets: list of datasets to process
-        joint: if `True`, jointly reduce dimensionality.
 
     """
-
-    if joint:
-        original_datasets = datasets
-        merged_dataset = concatenate(datasets)
-        datasets = [merged_dataset]
-
-    for dataset in datasets:
-        sc.pp.pca(dataset, n_comps=n_comps, **pca_kwargs)
-
-    if joint:
-        unmerged_datasets = unconcatenate(merged_dataset)
-        for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
-            original_dataset.obsm["X_pca"] = unmerged_dataset.obsm["X_pca"]
-            original_dataset.varm["PCs"] = unmerged_dataset.varm["PCs"]
-            original_dataset.uns["pca"] = {
-                "variance_ratio": unmerged_dataset.uns["pca"]["variance_ratio"],
-                "variance": unmerged_dataset.uns["pca"]["variance"],
-            }
-
-        return original_datasets, merged_dataset
-
-    return datasets
+    sc.pp.pca(dataset, n_comps=n_comps, **pca_kwargs)
 
 
-def _umap(datasets: Sequence[PopariDataset], joint: bool = False, n_neighbors: int = 20):
-    r"""Compute PCA for all datasets.
+@enable_joint(annotations=["obsm"])
+@broadcast
+def _umap(dataset: PopariDataset, n_neighbors: int = 20):
+    r"""Compute UMAP for all datasets.
 
     Args:
         datasets: list of datasets to process
-        joint: if `True`, jointly reduce dimensionality.
 
     """
 
-    if joint:
-        original_datasets = datasets
-        dataset_names = [dataset.name for dataset in datasets]
-        merged_dataset = ad.concat(
-            datasets,
-            label="batch",
-            keys=dataset_names,
-            merge="unique",
-            uns_merge="unique",
-            pairwise=True,
-        )
-        merged_dataset = concatenate(datasets)
-        datasets = [merged_dataset]
-
-    for dataset in datasets:
-        sc.pp.neighbors(dataset, n_neighbors=n_neighbors)
-        sc.tl.umap(dataset)
-
-    if joint:
-        unmerged_datasets = unconcatenate(merged_dataset)
-        for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
-            original_dataset.obsm["X_umap"] = unmerged_dataset.obsm["X_umap"]
-
-        return original_datasets, merged_dataset
-
-    return datasets
+    sc.pp.neighbors(dataset, n_neighbors=n_neighbors)
+    sc.tl.umap(dataset)
 
 
 def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False, axes=None, **spatial_kwargs):
@@ -280,27 +303,21 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False
 
     """
 
-    sharex = False if "sharex" not in spatial_kwargs else spatial_kwargs.pop("sharex")
-    sharey = False if "sharey" not in spatial_kwargs else spatial_kwargs.pop("sharey")
+    sharex = spatial_kwargs.pop("sharex", False)
+    sharey = spatial_kwargs.pop("sharey", False)
 
     fig = None
     if axes is None:
         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
 
-    edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
-    default_size = None if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
-    palette = (
-        ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
-    )
-    legend_fontsize = "xx-small" if "legend_fontsize" not in spatial_kwargs else spatial_kwargs.pop("legend_fontsize")
-    edgecolors = "none" if "edgecolors" not in spatial_kwargs else spatial_kwargs.pop("edgecolors")
-    connectivity_key = (
-        "adjacency_matrix" if "connectivity_key" not in spatial_kwargs else spatial_kwargs.pop("connectivity_key")
-    )
+    edges_width = spatial_kwargs.pop("edges_width", 0.2)
+    default_size = spatial_kwargs.pop("size", None)
+    palette = spatial_kwargs.pop("palette", ListedColormap(sc.pl.palettes.godsnot_102))
+    legend_fontsize = spatial_kwargs.pop("legend_fontsize", "xx-small")
+    edgecolors = spatial_kwargs.pop("edgecolors", "none")
+    connectivity_key = spatial_kwargs.pop("connectivity_key", "adjacency_matrix")
 
-    neighbors_key = (
-        "spatial_neighbors" if "spatial_neighbors" not in spatial_kwargs else spatial_kwargs.pop("neighbors_key")
-    )
+    neighbors_key = spatial_kwargs.pop("neighbors_key", "spatial_neighbors")
 
     if joint:
         categories = set()
@@ -355,6 +372,7 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False
     return fig
 
 
+@enable_joint(annotations=[])
 def _plot_umap(datasets: Sequence[PopariDataset], color="leiden", axes=None, **kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
@@ -425,15 +443,15 @@ def _multireplicate_heatmap(
 
     """
 
-    sharex = True if "sharex" not in heatmap_kwargs else heatmap_kwargs.pop("sharex")
-    sharey = True if "sharey" not in heatmap_kwargs else heatmap_kwargs.pop("sharey")
+    sharex = True if "sharex" not in heatmap_kwargs else heatmap_kwargs.pop("sharex", True)
+    sharey = True if "sharey" not in heatmap_kwargs else heatmap_kwargs.pop("sharey", True)
 
     fig = None
     if axes is None:
         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
 
-    aspect = 1 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")
-    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")
+    aspect = heatmap_kwargs.pop("aspect", 1)
+    cmap = heatmap_kwargs.pop("cmap", "hot")
 
     images = []
     for dataset_index, ax in enumerate(axes.flat):
@@ -499,15 +517,15 @@ def _multigroup_heatmap(
 
     """
 
-    sharex = True if "sharex" not in heatmap_kwargs else heatmap_kwargs.pop("sharex")
-    sharey = True if "sharey" not in heatmap_kwargs else heatmap_kwargs.pop("sharey")
+    sharex = True if "sharex" not in heatmap_kwargs else heatmap_kwargs.pop("sharex", True)
+    sharey = True if "sharey" not in heatmap_kwargs else heatmap_kwargs.pop("sharey", True)
 
     fig = None
     if axes is None:
         fig, axes = setup_squarish_axes(len(groups), sharex=sharex, sharey=sharey)
 
-    aspect = 0.05 if "aspect" not in heatmap_kwargs else heatmap_kwargs.pop("aspect")
-    cmap = "hot" if "cmap" not in heatmap_kwargs else heatmap_kwargs.pop("cmap")
+    aspect = heatmap_kwargs.pop("aspect", 0.05)
+    cmap = heatmap_kwargs.pop("cmap", "hot")
 
     for group_index, (ax, group_name) in enumerate(zip(axes.flat, groups)):
         first_dataset_name = groups[group_name][0]
@@ -579,21 +597,6 @@ def _compute_empirical_correlations(
     for dataset, empirical_correlation in zip(datasets, empirical_correlations):
         all_correlations = {dataset.name: empirical_correlation}
         dataset.uns[output] = all_correlations
-
-    return datasets
-
-
-def _broadcast_operator(datasets: Sequence[PopariDataset], operator: Callable):
-    r"""Broadcast a dataset operator to a list of datasets.
-
-    Args:
-        datasets: list of datasets to broadcast to
-        dataset_function: function that takes in a single dataset
-
-    """
-
-    for dataset in datasets:
-        operator(dataset)
 
     return datasets
 
@@ -676,6 +679,8 @@ def _adjacency_permutation_test(
     return dataset
 
 
+@enable_joint(annotations=["uns"])
+@broadcast
 def _compute_ari_score(dataset: PopariDataset, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth
     labels and an unsupervised clustering.
@@ -694,6 +699,8 @@ def _compute_ari_score(dataset: PopariDataset, labels: str, predictions: str, ar
     dataset.uns[ari_key] = ari
 
 
+@enable_joint(annotations=["uns"])
+@broadcast
 def _compute_silhouette_score(dataset: PopariDataset, labels: str, embeddings: str, silhouette_key: str = "silhouette"):
     r"""Compute silhouette score for a clustering based on Popari embeddings.
 
@@ -711,6 +718,7 @@ def _compute_silhouette_score(dataset: PopariDataset, labels: str, embeddings: s
     dataset.uns[silhouette_key] = silhouette
 
 
+@broadcast
 def _plot_all_embeddings(
     dataset: PopariDataset,
     embedding_key: str = "X",
@@ -734,11 +742,9 @@ def _plot_all_embeddings(
         # TODO: remove dependence on trained_model
         column_names = [f"{embedding_key}_{index}" for index in range(K)]
 
-    edges_width = 0.2 if "edges_width" not in spatial_kwargs else spatial_kwargs.pop("edges_width")
-    default_size = None if "size" not in spatial_kwargs else spatial_kwargs.pop("size")
-    palette = (
-        ListedColormap(sc.pl.palettes.godsnot_102) if "palette" not in spatial_kwargs else spatial_kwargs.pop("palette")
-    )
+    edges_width = spatial_kwargs.pop("edges_width", 0.2)
+    default_size = spatial_kwargs.pop("size", None)
+    palette = spatial_kwargs.pop("palette", ListedColormap(sc.pl.palettes.godsnot_102))
 
     size = len(dataset) / 100
     if default_size is not None:
@@ -757,58 +763,37 @@ def _plot_all_embeddings(
     )
 
 
-def _evaluate_classification_task(datasets: Sequence[PopariDataset], embeddings: str, labels: str, joint: bool):
+@enable_joint(annotations=["uns"])
+@broadcast
+def _evaluate_classification_task(dataset: PopariDataset, embeddings: str, labels: str):
     """"""
 
-    if joint:
-        original_datasets = datasets
-        dataset_names = [dataset.name for dataset in datasets]
-        merged_dataset = ad.concat(
-            datasets,
-            label="batch",
-            keys=dataset_names,
-            merge="unique",
-            uns_merge="unique",
-            pairwise=True,
-        )
-        datasets = [merged_dataset]
+    le = LabelEncoder()
+    encoded_labels = le.fit_transform(dataset.obs[labels].astype(str))
+    dataset_embeddings = dataset.obsm[embeddings]
 
-    for dataset in datasets:
-        le = LabelEncoder()
-        encoded_labels = le.fit_transform(dataset.obs[labels].astype(str))
-        dataset_embeddings = dataset.obsm[embeddings]
+    X_train, X_valid, y_train, y_valid = train_test_split(
+        dataset_embeddings,
+        encoded_labels,
+        train_size=0.25,
+        random_state=42,
+        stratify=encoded_labels,
+    )
+    model = KNeighborsClassifier(n_neighbors=10)
+    model.fit(X_train, y_train)
 
-        X_train, X_valid, y_train, y_valid = train_test_split(
-            dataset_embeddings,
-            encoded_labels,
-            train_size=0.25,
-            random_state=42,
-            stratify=encoded_labels,
-        )
-        model = KNeighborsClassifier(n_neighbors=10)
-        model.fit(X_train, y_train)
+    df = []
+    for split, X, y in [("train", X_train, y_train), ("validation", X_valid, y_valid)]:
+        y_soft = model.predict_proba(X)
+        y_hat = np.argmax(y_soft, 1)
+        dataset.uns[f"microprecision_{split}"] = precision_score(y, y_hat, average="micro")
+        dataset.uns[f"macroprecision_{split}"] = precision_score(y, y_hat, average="macro")
 
-        df = []
-        for split, X, y in [("train", X_train, y_train), ("validation", X_valid, y_valid)]:
-            y_soft = model.predict_proba(X)
-            y_hat = np.argmax(y_soft, 1)
-            dataset.uns[f"microprecision_{split}"] = precision_score(y, y_hat, average="micro")
-            dataset.uns[f"macroprecision_{split}"] = precision_score(y, y_hat, average="macro")
-
-    if joint:
-        # indices = merged_dataset.obs.groupby("batch").indices.values()
-        # unmerged_datasets = [merged_dataset[index] for index in indices]
-        unmerged_datasets = unconcatenate(merged_dataset)
-        for unmerged_dataset, original_dataset in zip(unmerged_datasets, original_datasets):
-            for split in ("train", "validation"):
-                original_dataset.uns[f"microprecision_{split}"] = unmerged_dataset.uns[f"microprecision_{split}"]
-                original_dataset.uns[f"macroprecision_{split}"] = unmerged_dataset.uns[f"macroprecision_{split}"]
-
-        return original_datasets, merged_dataset
-
-    return datasets
+    return dataset
 
 
+@enable_joint(annotations=["obs", "uns"])
+@broadcast
 def _compute_confusion_matrix(
     dataset: PopariDataset,
     labels: str,
@@ -881,6 +866,8 @@ def get_optimal_permutation(confusion_output):
     return perm, index
 
 
+@enable_joint(annotations=["uns"])
+@broadcast
 def _compute_columnwise_autocorrelation(
     dataset: PopariDataset,
     uns: str = "ground_truth_M",
@@ -895,6 +882,7 @@ def _compute_columnwise_autocorrelation(
     dataset.uns[result_key] = correlation_coefficient_matrix
 
 
+@broadcast
 def _plot_confusion_matrix(dataset: PopariDataset, labels: str, confusion_matrix_key: str = "confusion_matrix"):
 
     ordered_labels = sorted(dataset.obs[labels].unique())
@@ -908,6 +896,8 @@ def _plot_confusion_matrix(dataset: PopariDataset, labels: str, confusion_matrix
     plt.show()
 
 
+@enable_joint(annotations=["uns"])
+@broadcast
 def _compute_spatial_gene_correlation(
     dataset: PopariDataset,
     spatial_key: str = "Sigma_x_inv",
