@@ -40,13 +40,9 @@ compute_spatial_gene_correlation = for_model(_compute_spatial_gene_correlation)
 
 def leiden(
     trained_model: Popari,
-    use_rep: str = "normalized_X",
-    joint: bool = False,
-    verbose: bool = False,
     resolution: float = 1.0,
-    target_clusters: Optional[int] = None,
-    level: int = 0,
     tolerance: float = 0.05,
+    **kwargs,
 ):
     r"""Compute Leiden clustering for all datasets.
 
@@ -59,13 +55,9 @@ def leiden(
     """
     cluster(
         trained_model,
-        use_rep=use_rep,
-        joint=joint,
-        level=level,
-        verbose=verbose,
         resolution=resolution,
-        target_clusters=target_clusters,
         tolerance=tolerance,
+        **kwargs,
     )
 
 

@@ -28,15 +28,32 @@ from popari._popari_dataset import PopariDataset
 from popari.util import compute_neighborhood_enrichment, concatenate, unconcatenate
 
 
-def for_model(function):
-    @wraps(function)
-    def model_wrapper(trained_model: "Popari", *args, **kwargs):
-        level = kwargs.pop("level", 0)
-        datasets = trained_model.hierarchy[level].datasets
+def setup_squarish_axes(num_axes, **subplots_kwargs):
+    """Create matplotlib subplots as squarely as possible."""
 
-        return function(datasets, *args, **kwargs)
+    height = int(np.sqrt(num_axes))
+    width = num_axes // height
+    height += width * height != num_axes
 
-    return model_wrapper
+    constrained_layout = (
+        True if "constrained_layout" not in subplots_kwargs else subplots_kwargs.pop("constrained_layout")
+    )
+    dpi = subplots_kwargs.pop("dpi", 300)
+    sharex = subplots_kwargs.pop("sharex", True)
+    sharey = subplots_kwargs.pop("sharey", True)
+
+    fig, axes = plt.subplots(
+        height,
+        width,
+        squeeze=False,
+        constrained_layout=constrained_layout,
+        dpi=dpi,
+        sharex=sharex,
+        sharey=sharey,
+        **subplots_kwargs,
+    )
+
+    return fig, axes
 
 
 def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Sequence[str]] = None):
@@ -55,6 +72,17 @@ def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Se
 
         for key in updated_annotation:
             original_annotation[key] = updated_annotation[key]
+
+
+def for_model(function):
+    @wraps(function)
+    def model_wrapper(trained_model: "Popari", *args, **kwargs):
+        level = kwargs.pop("level", 0)
+        datasets = trained_model.hierarchy[level].datasets
+
+        return function(datasets, *args, **kwargs)
+
+    return model_wrapper
 
 
 def enable_joint(function=None, *, annotations: Optional[Sequence[str]] = None):
@@ -120,32 +148,37 @@ def broadcast(function):
     return broadcast_wrapper
 
 
-def setup_squarish_axes(num_axes, **subplots_kwargs):
-    """Create matplotlib subplots as squarely as possible."""
+def broadcast_plottable(function):
+    """Decorator to extend a plottable function from a single dataset to
+    multiple datasets.
 
-    height = int(np.sqrt(num_axes))
-    width = num_axes // height
-    height += width * height != num_axes
+    TODO: Doesn't work in the case that the function's return values are meaningful...
 
-    constrained_layout = (
-        True if "constrained_layout" not in subplots_kwargs else subplots_kwargs.pop("constrained_layout")
-    )
-    dpi = subplots_kwargs.pop("dpi", 300)
-    sharex = subplots_kwargs.pop("sharex", True)
-    sharey = subplots_kwargs.pop("sharey", True)
+    """
 
-    fig, axes = plt.subplots(
-        height,
-        width,
-        squeeze=False,
-        constrained_layout=constrained_layout,
-        dpi=dpi,
-        sharex=sharex,
-        sharey=sharey,
-        **subplots_kwargs,
-    )
+    @wraps(function)
+    def broadcast_wrapper(datasets, *args, **kwargs):
+        """"""
+        axes = kwargs.pop("axes", None)
 
-    return fig, axes
+        sharex = kwargs.pop("sharex", False)
+        sharey = kwargs.pop("sharey", False)
+
+        fig = None
+        if axes is None:
+            fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
+
+        outputs = []
+        for dataset, ax in zip(datasets, axes.flat):
+            output = function(dataset, *args, ax=ax, **kwargs)
+            outputs.append(output)
+
+        if len(outputs) == 1:
+            outputs = outputs[0]
+
+        return fig, outputs
+
+    return broadcast_wrapper
 
 
 @enable_joint(annotations=["obsm"])
@@ -235,6 +268,7 @@ def _cluster(
     n_neighbors: int = 20,
     target_clusters: Optional[int] = None,
     tolerance: float = 0.01,
+    compute_neighbors: bool = True,
     verbose: bool = False,
     **kwargs,
 ):
@@ -253,7 +287,9 @@ def _cluster(
     resolution = kwargs.pop("resolution", 1.0)
 
     for dataset in datasets:
-        sc.pp.neighbors(dataset, use_rep=use_rep, random_state=random_state, n_neighbors=n_neighbors)
+        if compute_neighbors:
+            sc.pp.neighbors(dataset, use_rep=use_rep, random_state=random_state, n_neighbors=n_neighbors)
+
         clustering_function(dataset, resolution=resolution, random_state=random_state, **kwargs)
 
         num_clusters = len(dataset.obs[method].unique())
@@ -384,7 +420,8 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False
 
 
 @enable_joint(annotations=[])
-def _plot_umap(datasets: Sequence[PopariDataset], color="leiden", axes=None, **kwargs):
+@broadcast_plottable
+def _plot_umap(dataset: PopariDataset, color="leiden", ax=None, **kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
@@ -396,35 +433,26 @@ def _plot_umap(datasets: Sequence[PopariDataset], color="leiden", axes=None, **k
 
     """
 
-    sharex = kwargs.pop("sharex", False)
-    sharey = kwargs.pop("sharey", False)
-
-    fig = None
-    if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
-
     edges_width = kwargs.pop("edges_width", 0.2)
     size = kwargs.pop("size", 0.04)
     edges = kwargs.pop("edges", sc.pl.palettes.godsnot_102)
     palette = kwargs.pop("palette", sc.pl.palettes.godsnot_102)
     legend_fontsize = kwargs.pop("legend_fontsize", "xx-small")
     neighbors_key = kwargs.pop("neighbors_key", "neighbors")
-    for dataset, ax in zip(datasets, axes.flat):
-        sc.pl.umap(
-            dataset,
-            size=size,
-            neighbors_key=neighbors_key,
-            color=color,
-            edges=edges,
-            edges_width=edges_width,
-            legend_fontsize=legend_fontsize,
-            ax=ax,
-            show=False,
-            palette=palette,
-            **kwargs,
-        )
 
-    return fig
+    sc.pl.umap(
+        dataset,
+        size=size,
+        neighbors_key=neighbors_key,
+        color=color,
+        edges=edges,
+        edges_width=edges_width,
+        legend_fontsize=legend_fontsize,
+        ax=ax,
+        show=False,
+        palette=palette,
+        **kwargs,
+    )
 
 
 def _multireplicate_heatmap(
@@ -893,15 +921,20 @@ def _compute_columnwise_autocorrelation(
     dataset.uns[result_key] = correlation_coefficient_matrix
 
 
-@broadcast
-def _plot_confusion_matrix(dataset: PopariDataset, labels: str, confusion_matrix_key: str = "confusion_matrix"):
-
+@broadcast_plottable
+def _plot_confusion_matrix(
+    dataset: PopariDataset,
+    labels: str,
+    ax=None,
+    confusion_matrix_key: str = "confusion_matrix",
+):
     ordered_labels = sorted(dataset.obs[labels].unique())
     sns.heatmap(
         dataset.uns[confusion_matrix_key],
         xticklabels=ordered_labels,
         yticklabels=ordered_labels,
         annot=True,
+        ax=ax,
         fmt="3d",
     )
     plt.show()
@@ -1466,5 +1499,40 @@ def _compile_de_genes(
         all_de_genes.update(filtered_genes)
 
     print(len(all_de_genes))
+
+    return cell_type_de_genes, all_de_genes
+
+
+def _call_de_genes(
+    dataset,
+    label_key: str,
+    output_key: str,
+    filter: bool = True,
+    min_fold_change: float = 1,
+    max_genes: int = 500,
+):
+    """Call differentially expressed genes using a t-test, and compile.
+
+    Args:
+
+    """
+    filtered_deg_key = output_key
+
+    sc.tl.rank_genes_groups(dataset, label_key, method="t-test", key_added=output_key, min_fold_change=min_fold_change)
+    if filter:
+        filtered_deg_key = f"{filtered_deg_key}_filtered"
+        sc.tl.filter_rank_genes_groups(
+            dataset,
+            key=output_key,
+            key_added=f"{output_key}_filtered",
+            min_fold_change=min_fold_change,
+        )
+
+    cell_type_de_genes, all_de_genes = _compile_de_genes(
+        dataset,
+        label_key,
+        max_genes=max_genes,
+        filtered_deg_key=filtered_deg_key,
+    )
 
     return cell_type_de_genes, all_de_genes
