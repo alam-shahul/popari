@@ -82,7 +82,7 @@ def concatenate(datasets: Sequence[PopariDataset], join="inner"):
 def unconcatenate(merged_dataset: ad.AnnData):
     """Unmerge concatenated."""
 
-    indices = merged_dataset.obs.groupby("batch").indices.values()
+    indices = merged_dataset.obs.groupby("batch", observed=False).indices.values()
     datasets = [merged_dataset[index].copy() for index in indices]
 
     replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
@@ -464,7 +464,7 @@ def sample_graph_iid(adjacency_list, indices_remaining, sample_size):
 
 
 def convert_numpy_to_pytorch_sparse_coo(numpy_coo, context):
-    indices = numpy_coo.nonzero()
+    indices = np.array(numpy_coo.nonzero())
     values = numpy_coo.data[numpy_coo.data.nonzero()]
 
     i = torch.LongTensor(indices)
