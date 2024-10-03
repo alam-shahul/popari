@@ -260,7 +260,7 @@ def _plot_metagene_embedding(
     return fig
 
 
-@enable_joint(annotations=["obs"])
+@enable_joint(annotations=["obs", "uns", "obsp"])
 def _cluster(
     datasets: Sequence[PopariDataset],
     use_rep="normalized_X",
