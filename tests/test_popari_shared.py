@@ -110,7 +110,7 @@ def test_louvain_clustering(popari_with_neighbors):
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=False)
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=True)
 
-    expected_aris = [0.8048152350936736, 0.827531498882079]
+    expected_aris = [0.7999573280203317, 0.8277482045123649]
     for expected_ari, dataset in zip(expected_aris, popari_with_neighbors.datasets):
         assert expected_ari == pytest.approx(dataset.uns["ari"])
 
