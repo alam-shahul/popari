@@ -17,6 +17,7 @@ from popari._dataset_utils import (
     _compute_silhouette_score,
     _compute_spatial_gene_correlation,
     _evaluate_classification_task,
+    _leiden,
     _multigroup_heatmap,
     _pca,
     _preprocess_embeddings,
@@ -28,6 +29,7 @@ from popari.model import Popari
 
 preprocess_embeddings = for_model(_preprocess_embeddings)
 cluster = for_model(_cluster)
+leiden = for_model(_leiden)
 pca = for_model(_pca)
 umap = for_model(_umap)
 compute_ari_scores = for_model(_compute_ari_score)
@@ -38,27 +40,29 @@ compute_columnwise_autocorrelation = for_model(_compute_columnwise_autocorrelati
 compute_spatial_gene_correlation = for_model(_compute_spatial_gene_correlation)
 
 
-def leiden(
-    trained_model: Popari,
-    resolution: float = 1.0,
-    tolerance: float = 0.05,
-    **kwargs,
-):
-    r"""Compute Leiden clustering for all datasets.
-
-    Args:
-        trained_model: the trained Popari model.
-        joint: if `True`, jointly cluster the spots
-        use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
-        resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
-
-    """
-    cluster(
-        trained_model,
-        resolution=resolution,
-        tolerance=tolerance,
-        **kwargs,
-    )
+# def leiden(
+#     trained_model: Popari,
+#     resolution: float = 1.0,
+#     tolerance: float = 0.05,
+#     **kwargs,
+# ):
+#     r"""Compute Leiden clustering for all datasets.
+#
+#     Args:
+#         trained_model: the trained Popari model.
+#         joint: if `True`, jointly cluster the spots
+#         use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
+#         resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
+#
+#     """
+#     cluster(
+#         trained_model,
+#         resolution=resolution,
+#         tolerance=tolerance,
+#         flavor="igraph",
+#         n_iterations=2,
+#         **kwargs,
+#     )
 
 
 def multigroup_heatmap(

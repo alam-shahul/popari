@@ -82,7 +82,7 @@ def test_leiden_clustering(clustered_model): ...
 
 
 def test_ari_score(clustered_model):
-    expected_aris = [0.7638266995561214, 0.8126115509883821]
+    expected_aris = [0.74071433754464, 0.7694805741910644]
     tl.compute_ari_scores(clustered_model, labels="cell_type", predictions="leiden")
 
     for expected_ari, dataset in zip(expected_aris, clustered_model.datasets):

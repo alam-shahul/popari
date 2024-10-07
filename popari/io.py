@@ -8,7 +8,7 @@ import torch
 from scipy.sparse import csr_matrix, issparse
 
 from popari.components import PopariDataset
-from popari.util import concatenate, convert_numpy_to_pytorch_sparse_coo, unconcatenate
+from popari.util import concatenate, unconcatenate
 
 
 def load_anndata(filepath: Union[str, Path]):

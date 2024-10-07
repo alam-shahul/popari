@@ -261,6 +261,35 @@ def _plot_metagene_embedding(
 
 
 @enable_joint(annotations=["obs", "uns", "obsp"])
+def _leiden(
+    datasets: Sequence[PopariDataset],
+    resolution: float = 1.0,
+    tolerance: float = 0.05,
+    **kwargs,
+):
+    r"""Compute Leiden clustering for all datasets.
+
+    Args:
+        trained_model: the trained Popari model.
+        joint: if `True`, jointly cluster the spots
+        datasets: list of datasets to cluster
+        use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
+        resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
+
+    """
+    n_iterations = kwargs.pop("n_iterations", 2)
+    _cluster.__wrapped__(
+        datasets,
+        resolution=resolution,
+        method="leiden",
+        tolerance=tolerance,
+        flavor="igraph",
+        n_iterations=n_iterations,
+        **kwargs,
+    )
+
+
+@enable_joint(annotations=["obs", "uns", "obsp"])
 def _cluster(
     datasets: Sequence[PopariDataset],
     use_rep="normalized_X",
@@ -285,21 +314,28 @@ def _cluster(
 
     random_state = kwargs.pop("random_state", 0)
     resolution = kwargs.pop("resolution", 1.0)
+    key_added = kwargs.pop("key_added", method)
 
     for dataset in datasets:
         if compute_neighbors:
             sc.pp.neighbors(dataset, use_rep=use_rep, random_state=random_state, n_neighbors=n_neighbors)
 
-        clustering_function(dataset, resolution=resolution, random_state=random_state, **kwargs)
+        clustering_function(dataset, resolution=resolution, random_state=random_state, key_added=key_added, **kwargs)
 
-        num_clusters = len(dataset.obs[method].unique())
+        num_clusters = len(dataset.obs[key_added].unique())
 
         lower_bound = 0.1 * resolution
         upper_bound = 10 * resolution
         while target_clusters and num_clusters != target_clusters and np.abs(lower_bound - upper_bound) > tolerance:
             effective_resolution = (lower_bound * upper_bound) ** 0.5
-            clustering_function(dataset, resolution=effective_resolution, random_state=random_state, **kwargs)
-            num_clusters = len(dataset.obs[method].unique())
+            clustering_function(
+                dataset,
+                resolution=effective_resolution,
+                random_state=random_state,
+                key_added=key_added,
+                **kwargs,
+            )
+            num_clusters = len(dataset.obs[key_added].unique())
             if num_clusters < target_clusters:
                 lower_bound = effective_resolution
             elif num_clusters >= target_clusters:
@@ -326,7 +362,7 @@ def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
 
 @enable_joint(annotations=["obsm"])
 @broadcast
-def _umap(dataset: PopariDataset, n_neighbors: int = 20):
+def _umap(dataset: PopariDataset, use_rep: str = "X", compute_neighbors: bool = True, n_neighbors: int = 20):
     r"""Compute UMAP for all datasets.
 
     Args:
@@ -334,7 +370,9 @@ def _umap(dataset: PopariDataset, n_neighbors: int = 20):
 
     """
 
-    sc.pp.neighbors(dataset, n_neighbors=n_neighbors)
+    if compute_neighbors:
+        sc.pp.neighbors(dataset, use_rep=use_rep, n_neighbors=n_neighbors)
+
     sc.tl.umap(dataset)
 
 
@@ -526,7 +564,8 @@ def _multireplicate_heatmap(
                 if mask is None or not mask[j, i]:
                     ax.text(i, j, label, ha="center", va="center", fontsize=label_font_size)
 
-        plt.colorbar(im, ax=ax, orientation="vertical")
+        ax.set_title(dataset.name)
+        plt.colorbar(im, ax=ax, orientation="vertical", fraction=0.046, pad=0.04)
 
     return fig
 
@@ -1467,12 +1506,49 @@ def _plot_cell_type_to_metagene_difference(
     return fig, means
 
 
+# def _compile_de_genes(
+#     dataset,
+#     de_category: str = "cell_type",
+#     filtered_deg_key: str = "t-test filtered",
+#     gene_limit: int = 500,
+#     p_value_threshold: float = 1e-5,
+# ):
+#     """Compile DE genes.
+#
+#     After running ``sc.tl.rank_genes_groups`` and ``sc.tl.filter_rank_genes_groups``, call this
+#     function in order to summarize and collect the DE genes identified before.
+#
+#     Args:
+#         dataset:
+#
+#     """
+#     all_de_genes = set()
+#     ranked_genes = dataset.uns[filtered_deg_key]["names"]
+#     adjusted_pvals = dataset.uns[filtered_deg_key]["pvals_adj"]
+#     cell_type_de_genes = {}
+#     for cell_type in dataset.obs[de_category].unique():
+#         cell_type_genes = ranked_genes[cell_type]
+#         cell_type_pvals = adjusted_pvals[cell_type]
+#
+#         pval_filter = cell_type_pvals < p_value_threshold
+#
+#         filtered_genes = cell_type_genes[(pval_filter) & (~pd.isna(cell_type_genes))][:gene_limit]
+#         cell_type_de_genes[cell_type] = filtered_genes
+#         print(cell_type, len(filtered_genes))
+#         all_de_genes.update(filtered_genes)
+#
+#     print(len(all_de_genes))
+#
+#     return cell_type_de_genes, all_de_genes
+
+
 def _compile_de_genes(
     dataset,
     de_category: str = "cell_type",
     filtered_deg_key: str = "t-test filtered",
-    gene_limit: int = 500,
     p_value_threshold: float = 1e-5,
+    max_genes: int = 500,
+    format="disk",
 ):
     """Compile DE genes.
 
@@ -1485,6 +1561,12 @@ def _compile_de_genes(
     """
     all_de_genes = set()
     ranked_genes = dataset.uns[filtered_deg_key]["names"]
+
+    # Record arrays are nasty, and will be removed in Scanpy 2.0, probably
+    for cell_type in ranked_genes.dtype.names:
+        index = ranked_genes[cell_type] == "nan"
+        ranked_genes[cell_type][index] = np.nan
+
     adjusted_pvals = dataset.uns[filtered_deg_key]["pvals_adj"]
     cell_type_de_genes = {}
     for cell_type in dataset.obs[de_category].unique():
@@ -1493,10 +1575,16 @@ def _compile_de_genes(
 
         pval_filter = cell_type_pvals < p_value_threshold
 
-        filtered_genes = cell_type_genes[(pval_filter) & (~pd.isna(cell_type_genes))][:gene_limit]
+        filtered_genes = cell_type_genes[(pval_filter) & (~pd.isna(cell_type_genes))][:max_genes]
         cell_type_de_genes[cell_type] = filtered_genes
         print(cell_type, len(filtered_genes))
         all_de_genes.update(filtered_genes)
+
+    if format == "disk":
+        for cell_type in ranked_genes.dtype.names:
+            index = pd.isna(ranked_genes[cell_type])
+            ranked_genes[cell_type][index] = "nan"
+        # ranked_genes[cell_type][index] = ranked_genes[cell_type][index].astype(str)
 
     print(len(all_de_genes))
 
