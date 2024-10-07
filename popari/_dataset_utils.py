@@ -261,6 +261,35 @@ def _plot_metagene_embedding(
 
 
 @enable_joint(annotations=["obs", "uns", "obsp"])
+def _leiden(
+    datasets: Sequence[PopariDataset],
+    resolution: float = 1.0,
+    tolerance: float = 0.05,
+    **kwargs,
+):
+    r"""Compute Leiden clustering for all datasets.
+
+    Args:
+        trained_model: the trained Popari model.
+        joint: if `True`, jointly cluster the spots
+        datasets: list of datasets to cluster
+        use_rep: the key in the ``.obsm`` dataframe to ue as input to the Leiden clustering algorithm.
+        resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
+
+    """
+    n_iterations = kwargs.pop("n_iterations", 2)
+    _cluster.__wrapped__(
+        datasets,
+        resolution=resolution,
+        method="leiden",
+        tolerance=tolerance,
+        flavor="igraph",
+        n_iterations=n_iterations,
+        **kwargs,
+    )
+
+
+@enable_joint(annotations=["obs", "uns", "obsp"])
 def _cluster(
     datasets: Sequence[PopariDataset],
     use_rep="normalized_X",
@@ -285,21 +314,28 @@ def _cluster(
 
     random_state = kwargs.pop("random_state", 0)
     resolution = kwargs.pop("resolution", 1.0)
+    key_added = kwargs.pop("key_added", method)
 
     for dataset in datasets:
         if compute_neighbors:
             sc.pp.neighbors(dataset, use_rep=use_rep, random_state=random_state, n_neighbors=n_neighbors)
 
-        clustering_function(dataset, resolution=resolution, random_state=random_state, **kwargs)
+        clustering_function(dataset, resolution=resolution, random_state=random_state, key_added=key_added, **kwargs)
 
-        num_clusters = len(dataset.obs[method].unique())
+        num_clusters = len(dataset.obs[key_added].unique())
 
         lower_bound = 0.1 * resolution
         upper_bound = 10 * resolution
         while target_clusters and num_clusters != target_clusters and np.abs(lower_bound - upper_bound) > tolerance:
             effective_resolution = (lower_bound * upper_bound) ** 0.5
-            clustering_function(dataset, resolution=effective_resolution, random_state=random_state, **kwargs)
-            num_clusters = len(dataset.obs[method].unique())
+            clustering_function(
+                dataset,
+                resolution=effective_resolution,
+                random_state=random_state,
+                key_added=key_added,
+                **kwargs,
+            )
+            num_clusters = len(dataset.obs[key_added].unique())
             if num_clusters < target_clusters:
                 lower_bound = effective_resolution
             elif num_clusters >= target_clusters:
@@ -326,7 +362,7 @@ def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
 
 @enable_joint(annotations=["obsm"])
 @broadcast
-def _umap(dataset: PopariDataset, n_neighbors: int = 20):
+def _umap(dataset: PopariDataset, use_rep: str = "X", compute_neighbors: bool = True, n_neighbors: int = 20):
     r"""Compute UMAP for all datasets.
 
     Args:
@@ -334,7 +370,9 @@ def _umap(dataset: PopariDataset, n_neighbors: int = 20):
 
     """
 
-    sc.pp.neighbors(dataset, n_neighbors=n_neighbors)
+    if compute_neighbors:
+        sc.pp.neighbors(dataset, use_rep=use_rep, n_neighbors=n_neighbors)
+
     sc.tl.umap(dataset)
 
 
@@ -526,7 +564,8 @@ def _multireplicate_heatmap(
                 if mask is None or not mask[j, i]:
                     ax.text(i, j, label, ha="center", va="center", fontsize=label_font_size)
 
-        plt.colorbar(im, ax=ax, orientation="vertical")
+        ax.set_title(dataset.name)
+        plt.colorbar(im, ax=ax, orientation="vertical", fraction=0.046, pad=0.04)
 
     return fig
 
