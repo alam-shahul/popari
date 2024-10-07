@@ -1506,12 +1506,49 @@ def _plot_cell_type_to_metagene_difference(
     return fig, means
 
 
+# def _compile_de_genes(
+#     dataset,
+#     de_category: str = "cell_type",
+#     filtered_deg_key: str = "t-test filtered",
+#     gene_limit: int = 500,
+#     p_value_threshold: float = 1e-5,
+# ):
+#     """Compile DE genes.
+#
+#     After running ``sc.tl.rank_genes_groups`` and ``sc.tl.filter_rank_genes_groups``, call this
+#     function in order to summarize and collect the DE genes identified before.
+#
+#     Args:
+#         dataset:
+#
+#     """
+#     all_de_genes = set()
+#     ranked_genes = dataset.uns[filtered_deg_key]["names"]
+#     adjusted_pvals = dataset.uns[filtered_deg_key]["pvals_adj"]
+#     cell_type_de_genes = {}
+#     for cell_type in dataset.obs[de_category].unique():
+#         cell_type_genes = ranked_genes[cell_type]
+#         cell_type_pvals = adjusted_pvals[cell_type]
+#
+#         pval_filter = cell_type_pvals < p_value_threshold
+#
+#         filtered_genes = cell_type_genes[(pval_filter) & (~pd.isna(cell_type_genes))][:gene_limit]
+#         cell_type_de_genes[cell_type] = filtered_genes
+#         print(cell_type, len(filtered_genes))
+#         all_de_genes.update(filtered_genes)
+#
+#     print(len(all_de_genes))
+#
+#     return cell_type_de_genes, all_de_genes
+
+
 def _compile_de_genes(
     dataset,
     de_category: str = "cell_type",
     filtered_deg_key: str = "t-test filtered",
-    gene_limit: int = 500,
     p_value_threshold: float = 1e-5,
+    max_genes: int = 500,
+    format="disk",
 ):
     """Compile DE genes.
 
@@ -1524,6 +1561,12 @@ def _compile_de_genes(
     """
     all_de_genes = set()
     ranked_genes = dataset.uns[filtered_deg_key]["names"]
+
+    # Record arrays are nasty, and will be removed in Scanpy 2.0, probably
+    for cell_type in ranked_genes.dtype.names:
+        index = ranked_genes[cell_type] == "nan"
+        ranked_genes[cell_type][index] = np.nan
+
     adjusted_pvals = dataset.uns[filtered_deg_key]["pvals_adj"]
     cell_type_de_genes = {}
     for cell_type in dataset.obs[de_category].unique():
@@ -1532,10 +1575,16 @@ def _compile_de_genes(
 
         pval_filter = cell_type_pvals < p_value_threshold
 
-        filtered_genes = cell_type_genes[(pval_filter) & (~pd.isna(cell_type_genes))][:gene_limit]
+        filtered_genes = cell_type_genes[(pval_filter) & (~pd.isna(cell_type_genes))][:max_genes]
         cell_type_de_genes[cell_type] = filtered_genes
         print(cell_type, len(filtered_genes))
         all_de_genes.update(filtered_genes)
+
+    if format == "disk":
+        for cell_type in ranked_genes.dtype.names:
+            index = pd.isna(ranked_genes[cell_type])
+            ranked_genes[cell_type][index] = "nan"
+        # ranked_genes[cell_type][index] = ranked_genes[cell_type][index].astype(str)
 
     print(len(all_de_genes))
 
