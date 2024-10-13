@@ -15,6 +15,7 @@ from popari._dataset_utils import (
     _plot_all_embeddings,
     _plot_cell_type_to_metagene,
     _plot_cell_type_to_metagene_difference,
+    _plot_clusters_to_categories,
     _plot_confusion_matrix,
     _plot_in_situ,
     _plot_metagene_embedding,
@@ -29,6 +30,7 @@ metagene_embedding = for_model(_plot_metagene_embedding)
 confusion_matrix = for_model(_plot_confusion_matrix)
 umap = for_model(_plot_umap)
 multireplicate_heatmap = for_model(_multireplicate_heatmap)
+clusters_to_categories = for_model(_plot_clusters_to_categories)
 
 
 def multigroup_heatmap(

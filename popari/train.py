@@ -1,5 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+import mlflow
 
 from popari.model import Popari
 
@@ -9,7 +11,11 @@ class TrainParameters:
     nmf_iterations: int
     iterations: int
     savepath: Path
-    synchronization_frequency: int = 10
+    synchronization_frequency: int = field(default=10, kw_only=True)
+
+
+@dataclass
+class MLFlowTrainParameters(TrainParameters): ...
 
 
 class Trainer:
@@ -20,7 +26,7 @@ class Trainer:
         self.nmf_iterations = 0
         self.iterations = 0
 
-    def train():
+    def train(self):
         for _ in range(self.parameters.nmf_iterations):
             if verbose > 0:
                 print(f"-------------- NMF Iteration {self.nmf_iterations} --------------")
@@ -42,9 +48,13 @@ class Trainer:
 
             self.iterations += 1
 
-    def save_results():
+    def save_results(self):
         model.save_results(self.parameters.savepath)
 
     # TODO: decide whether to separate out saving of model training hyperparameters and
     # Popari parameters saving completely. This will obvious imply huge changes with how
     # MLflow should work. Perhaps even justifies switching entirely to WandB (a good excuse)
+
+
+class MLFlowTrainer(Trainer):
+    def save_results(self): ...

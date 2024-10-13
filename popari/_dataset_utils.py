@@ -296,7 +296,7 @@ def _cluster(
     method: str = "leiden",
     n_neighbors: int = 20,
     target_clusters: Optional[int] = None,
-    tolerance: float = 0.01,
+    tolerance: float = 0.005,
     compute_neighbors: bool = True,
     verbose: bool = False,
     **kwargs,
@@ -1624,3 +1624,114 @@ def _call_de_genes(
     )
 
     return cell_type_de_genes, all_de_genes
+
+
+@enable_joint
+@broadcast_plottable
+def _plot_embeddings_to_label(
+    dataset,
+    ax=None,
+    names: Optional[Sequence[str]] = None,
+    embedding_key: str = "normalized_X",
+    label_key: str = "leiden",
+    **dotplot_kwargs,
+):
+    """Plot enrichment of embedding dimensions for a label category.
+
+    Args:
+        names: Names of embedding dimensions
+        swap
+
+    """
+
+    X = dataset.obsm[embedding_key]
+    num_spots, K = X.shape
+
+    mock_dataset = ad.AnnData(
+        X=dataset.obsm[embedding_key],
+    )
+
+    if not names:
+        mock_dataset.var_names = [f"m{index}" for index in range(K)]
+    else:
+        mock_dataset.var_names = names
+
+    swap_axes = dotplot_kwargs.pop("swap_axes", True)
+    standard_scale = dotplot_kwargs.pop("standard_scale", "var")
+
+    mock_dataset.obs = dataset.obs.copy()
+
+    aggregated = sc.get.aggregate(
+        mock_dataset,
+        by=label_key,
+        func=["sum", "count_nonzero"],
+    )
+
+    mean_in_expressed = aggregated.to_df(layer="sum") / aggregated.to_df(layer="count_nonzero")
+
+    vmin = None
+    vmax = None
+    if standard_scale is None:
+        vmax = np.max(np.abs(mean_in_expressed))
+        vmin = -vmax
+
+    dotplot = sc.pl.dotplot(
+        mock_dataset,
+        mock_dataset.var_names,
+        groupby=label_key,
+        dendrogram=False,
+        ax=ax,
+        standard_scale=standard_scale,
+        swap_axes=swap_axes,
+        return_fig=True,
+        vmin=vmin,
+        vmax=vmax,
+        **dotplot_kwargs,
+    )
+
+    dotplot.add_totals()
+    dotplot.show()
+
+    return dotplot, mean_in_expressed
+
+
+@enable_joint(annotations=["obsm"])
+@broadcast
+def _score_marker_expression(dataset, de_genes: dict[str, Sequence[str]], output_key="marker_expression"):
+    """Given a mapping from cell types to marker genes, compute enrichment."""
+    zscored_expression = zscore(dataset.X)
+
+    marker_gene_expression = np.zeros((len(dataset), len(de_genes)))
+    for index, (subtype, gene_list) in enumerate(de_genes.items()):
+        gene_list_index = dataset.var_names.isin(gene_list)
+        marker_gene_expression[:, index] = zscored_expression[:, gene_list_index].sum(axis=1)
+
+    dataset.obsm[output_key] = marker_gene_expression
+
+
+@enable_joint(annotations=["obsm"])
+def _plot_clusters_to_categories(
+    datasets,
+    category_de_genes: dict[str, Sequence[str]],
+    output_key="marker_expression",
+    **dotplot_kwargs,
+):
+    """Plot clusters to category correspondence, based on category marker gene
+    expression.
+
+    Args:
+        category_de_genes: mapping from category to marker genes for that category
+
+    """
+    _score_marker_expression.__wrapped__(datasets, category_de_genes, output_key=output_key)
+    (cell_type_to_cluster_correspondence_fig, (_, mean_in_expressed)) = _plot_embeddings_to_label.__wrapped__(
+        datasets,
+        names=list(category_de_genes.keys()),
+        standard_scale=None,
+        cmap="bwr",
+        embedding_key=output_key,
+        title="Cell-type-to-cluster Correspondence",
+        **dotplot_kwargs,
+    )
+
+    return cell_type_to_cluster_correspondence_fig
