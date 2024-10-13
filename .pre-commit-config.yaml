@@ -15,6 +15,7 @@ repos:
     rev: v4.6.0
     hooks:
       - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
       - id: end-of-file-fixer
 
   - repo: https://github.com/asottile/add-trailing-comma
@@ -34,7 +35,7 @@ repos:
         args: ["--safe"]
 
   - repo: https://github.com/PyCQA/docformatter
-    rev: v1.7.5
+    rev: 06907d0267368b49b9180eed423fae5697c1e909
     hooks:
       - id: docformatter
         name: Format docstring

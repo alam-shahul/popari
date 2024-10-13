@@ -111,15 +111,22 @@ Functions for visualizing and evaluating Popari results.
 
 Tools to generate simulated (multisample) spatially-resolved transcriptomics, or (m)SRT.
 
-```{eval-rst}
-.. module:: popari.simulation_framework
-.. currentmodule:: popari
+# \`\`\`{eval-rst}
 
-.. autosummary::
-    :toctree: api/
-    :recursive:
+# .. module:: popari.simulation_framework
 
-    simulation_framework.SimulationParameters
-    simulation_framework.SyntheticDataset
-    simulation_framework.MultiReplicateSyntheticDataset
-```
+# .. currentmodule:: popari
+
+# .. autosummary::
+
+# :toctree: api/
+
+# :recursive:
+
+# simulation_framework.SimulationParameters
+
+# simulation_framework.SyntheticDataset
+
+# simulation_framework.MultiReplicateSyntheticDataset
+
+# \`\`\`
