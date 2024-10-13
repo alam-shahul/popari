@@ -8,6 +8,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import scanpy.external as sce
 import seaborn as sns
 import squidpy as sq
 from matplotlib import cm, colormaps
@@ -25,7 +26,14 @@ from sklearn.preprocessing import LabelEncoder
 
 from popari._binning_utils import chunked_downsample_on_grid, filter_gridpoints
 from popari._popari_dataset import PopariDataset
-from popari.util import compute_neighborhood_enrichment, concatenate, unconcatenate
+from popari.util import (
+    compute_neighborhood_enrichment,
+    concatenate,
+    normalize_expression_by_threshold,
+    smooth_labels,
+    smooth_metagene_expression,
+    unconcatenate,
+)
 
 
 def setup_squarish_axes(num_axes, **subplots_kwargs):
@@ -401,6 +409,7 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False
     legend_fontsize = spatial_kwargs.pop("legend_fontsize", "xx-small")
     edgecolors = spatial_kwargs.pop("edgecolors", "none")
     connectivity_key = spatial_kwargs.pop("connectivity_key", "adjacency_matrix")
+    shape = spatial_kwargs.pop("shape", None)
 
     neighbors_key = spatial_kwargs.pop("neighbors_key", "spatial_neighbors")
 
@@ -441,7 +450,7 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False
 
         sq.pl.spatial_scatter(
             dataset,
-            shape=None,
+            shape=shape,
             size=size,
             connectivity_key=connectivity_key,
             color=color,
@@ -554,9 +563,12 @@ def _multireplicate_heatmap(
         images.append(image)
 
     for dataset_index, (image, ax) in enumerate(zip(images, axes.flat)):
+        dataset = datasets[dataset_index]
         im = ax.imshow(image, cmap=cmap, interpolation="nearest", aspect=aspect, **heatmap_kwargs)
         if title_font_size is not None:
             ax.set_title(dataset.name, fontsize=title_font_size)
+        else:
+            ax.set_title(dataset.name)
 
         if label_values:
             truncated_image = image.astype(int)
@@ -564,7 +576,6 @@ def _multireplicate_heatmap(
                 if mask is None or not mask[j, i]:
                     ax.text(i, j, label, ha="center", va="center", fontsize=label_font_size)
 
-        ax.set_title(dataset.name)
         plt.colorbar(im, ax=ax, orientation="vertical", fraction=0.046, pad=0.04)
 
     return fig
@@ -1506,42 +1517,6 @@ def _plot_cell_type_to_metagene_difference(
     return fig, means
 
 
-# def _compile_de_genes(
-#     dataset,
-#     de_category: str = "cell_type",
-#     filtered_deg_key: str = "t-test filtered",
-#     gene_limit: int = 500,
-#     p_value_threshold: float = 1e-5,
-# ):
-#     """Compile DE genes.
-#
-#     After running ``sc.tl.rank_genes_groups`` and ``sc.tl.filter_rank_genes_groups``, call this
-#     function in order to summarize and collect the DE genes identified before.
-#
-#     Args:
-#         dataset:
-#
-#     """
-#     all_de_genes = set()
-#     ranked_genes = dataset.uns[filtered_deg_key]["names"]
-#     adjusted_pvals = dataset.uns[filtered_deg_key]["pvals_adj"]
-#     cell_type_de_genes = {}
-#     for cell_type in dataset.obs[de_category].unique():
-#         cell_type_genes = ranked_genes[cell_type]
-#         cell_type_pvals = adjusted_pvals[cell_type]
-#
-#         pval_filter = cell_type_pvals < p_value_threshold
-#
-#         filtered_genes = cell_type_genes[(pval_filter) & (~pd.isna(cell_type_genes))][:gene_limit]
-#         cell_type_de_genes[cell_type] = filtered_genes
-#         print(cell_type, len(filtered_genes))
-#         all_de_genes.update(filtered_genes)
-#
-#     print(len(all_de_genes))
-#
-#     return cell_type_de_genes, all_de_genes
-
-
 def _compile_de_genes(
     dataset,
     de_category: str = "cell_type",
@@ -1735,3 +1710,49 @@ def _plot_clusters_to_categories(
     )
 
     return cell_type_to_cluster_correspondence_fig
+
+
+def _cluster_domains(
+    datasets,
+    target_domains: int = 10,
+    n_neighbors: int = 40,
+    skip_preprocessing: bool = False,
+    batch_correct: bool = True,
+    domain_key: str = "domain",
+):
+    """Annotate spatial domains from Popari output."""
+
+    if not skip_preprocessing:
+        # _preprocess_embeddings(datasets, joint=True) # Assume that preprocessing has already been done
+        for dataset in datasets:
+            normalize_expression_by_threshold(dataset, thresholded_key="normalized_X")
+
+        if batch_correct:
+            merged_dataset = concatenate(datasets)
+            sce.pp.scanorama_integrate(merged_dataset, "batch", basis="normalized_thresholded_expression", verbose=1)
+
+        for dataset in datasets:
+            normalized_key = "normalized_thresholded_expression"
+
+        if batch_correct:
+            normalized_key = "X_scanorama"
+            for dataset in datasets:
+                dataset.obsm["X_scanorama"] = (
+                    merged_dataset[merged_dataset.obs["batch"] == dataset.name].obsm["X_scanorama"].copy()
+                )
+
+        for dataset in datasets:
+            smooth_metagene_expression(dataset, normalized_key=normalized_key)
+
+    _leiden(
+        datasets,
+        verbose=True,
+        use_rep="smoothed_expression",
+        n_neighbors=n_neighbors,
+        joint=True,
+        target_clusters=target_domains,
+        key_added=domain_key,
+    )
+
+    for dataset in datasets:
+        smooth_labels(dataset, label_key=domain_key, output_key=f"smoothed_{domain_key}")

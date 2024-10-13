@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import mlflow
+from tqdm.auto import trange
 
 from popari.model import Popari
 
@@ -27,9 +28,11 @@ class Trainer:
         self.iterations = 0
 
     def train(self):
-        for _ in range(self.parameters.nmf_iterations):
-            if verbose > 0:
-                print(f"-------------- NMF Iteration {self.nmf_iterations} --------------")
+        nmf_progress_bar = trange(self.parameters.nmf_iterations, leave=True, disable=not self.verbose)
+        for _ in nmf_progress_bar:
+            if self.verbose > 0:
+                description = f"-------------- NMF Iteration {self.nmf_iterations} --------------"
+                nmf_progress_bar.set_description(description)
 
             synchronize = not (self.nmf_iterations % self.parameters.synchronization_frequency)
             self.model.estimate_parameters(update_spatial_affinities=False, synchronize=synchronize)
@@ -37,9 +40,11 @@ class Trainer:
 
             self.nmf_iterations += 1
 
-        for _ in range(self.parameters.iterations):
-            if verbose > 0:
-                print(f"------------------ Iteration {self.iterations} ------------------")
+        progress_bar = trange(self.parameters.iterations, leave=True, disable=not self.verbose)
+        for _ in progress_bar:
+            if self.verbose > 0:
+                description = f"------------------ Iteration {self.iterations} ------------------"
+                progress_bar.set_description(description)
 
             synchronize = not (self.iterations % self.parameters.synchronization_frequency)
 
@@ -48,8 +53,11 @@ class Trainer:
 
             self.iterations += 1
 
-    def save_results(self):
-        model.save_results(self.parameters.savepath)
+    def save_results(self, **kwargs):
+        model.save_results(self.parameters.savepath, **kwargs)
+
+    def superresolve(self, **kwargs):
+        new_lr = kwargs.pop("new_lr", 1e-1)
 
     # TODO: decide whether to separate out saving of model training hyperparameters and
     # Popari parameters saving completely. This will obvious imply huge changes with how

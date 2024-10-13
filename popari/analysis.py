@@ -10,6 +10,7 @@ from scipy.stats import pearsonr, spearmanr, wasserstein_distance
 
 from popari._dataset_utils import (
     _cluster,
+    _cluster_domains,
     _compute_ari_score,
     _compute_columnwise_autocorrelation,
     _compute_confusion_matrix,
@@ -38,6 +39,7 @@ evaluate_classification_task = for_model(_evaluate_classification_task)
 compute_confusion_matrix = for_model(_compute_confusion_matrix)
 compute_columnwise_autocorrelation = for_model(_compute_columnwise_autocorrelation)
 compute_spatial_gene_correlation = for_model(_compute_spatial_gene_correlation)
+cluster_domains = for_model(_cluster_domains)
 
 
 # def leiden(
