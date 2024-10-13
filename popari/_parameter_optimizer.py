@@ -1054,6 +1054,8 @@ class SpatialAffinityState(dict):
             metagene_affinities = 0  # attention mechanism here
             for dataset_index, dataset in enumerate(self.datasets):
                 self.__setitem__(dataset.name, metagene_affinities[dataset_index])
+        else:
+            raise NotImplementedError(f"{mode=} is not implemented.")
 
     def initialize(self, initial_embeddings):
         use_spatial_info = ["adjacency_list" in dataset.obsm for dataset in self.datasets]

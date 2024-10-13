@@ -54,10 +54,13 @@ class Trainer:
             self.iterations += 1
 
     def save_results(self, **kwargs):
-        model.save_results(self.parameters.savepath, **kwargs)
+        self.model.save_results(self.parameters.savepath, **kwargs)
 
     def superresolve(self, **kwargs):
         new_lr = kwargs.pop("new_lr", 1e-1)
+        target_level = kwargs.pop("target_level", None)
+        self.model.set_superresolution_lr(new_lr, target_level)
+        self.model.superresolve(**kwargs)
 
     # TODO: decide whether to separate out saving of model training hyperparameters and
     # Popari parameters saving completely. This will obvious imply huge changes with how

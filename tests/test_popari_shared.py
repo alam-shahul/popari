@@ -40,13 +40,13 @@ def popari_with_neighbors(test_datapath, context):
     train_parameters = TrainParameters(
         nmf_iterations=0,
         iterations=iterations,
-        verbose=1,
         savepath=(test_datapath / f"trained_{iterations}_iterations.h5ad"),
     )
 
     trainer = Trainer(
         parameters=train_parameters,
         model=obj,
+        verbose=True,
     )
 
     trainer.train()
