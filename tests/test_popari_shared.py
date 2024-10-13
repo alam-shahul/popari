@@ -6,6 +6,7 @@ import torch
 
 from popari import tl
 from popari.model import Popari
+from popari.train import Trainer, TrainParameters
 
 
 @pytest.fixture(scope="module")
@@ -35,27 +36,44 @@ def popari_with_neighbors(test_datapath, context):
         verbose=4,
     )
 
-    for iteration in range(1, 5):
-        print(f"-----  Iteration {iteration} -----")
-        obj.estimate_parameters()
-        nll_metagenes = obj.base_view.parameter_optimizer.nll_metagenes()
-        nll_spatial_affinities = obj.base_view.parameter_optimizer.nll_spatial_affinities()
-        nll_sigma_yx = obj.base_view.parameter_optimizer.nll_sigma_yx()
-        print(f"Metagene loss: {nll_metagenes}")
-        print(f"Spatial affinity loss: {nll_spatial_affinities}")
-        print(f"Sigma_yx loss: {nll_sigma_yx}")
-        obj.estimate_weights()
-        nll_embeddings = obj.base_view.embedding_optimizer.nll_embeddings()
-        print(f"Embedding loss: {nll_embeddings}")
-        print(f"Overall loss: {obj.base_view.nll()}")
+    iterations = 4
+    train_parameters = TrainParameters(
+        nmf_iterations=0,
+        iterations=iterations,
+        verbose=1,
+        savepath=(test_datapath / f"trained_{iterations}_iterations.h5ad"),
+    )
+
+    trainer = Trainer(
+        parameters=train_parameters,
+        model=obj,
+    )
+
+    trainer.train()
+
+    # for iteration in range(1, 5):
+    #     print(f"-----  Iteration {iteration} -----")
+    #     obj.estimate_parameters()
+    #     nll_metagenes = obj.base_view.parameter_optimizer.nll_metagenes()
+    #     nll_spatial_affinities = obj.base_view.parameter_optimizer.nll_spatial_affinities()
+    #     nll_sigma_yx = obj.base_view.parameter_optimizer.nll_sigma_yx()
+    #     print(f"Metagene loss: {nll_metagenes}")
+    #     print(f"Spatial affinity loss: {nll_spatial_affinities}")
+    #     print(f"Sigma_yx loss: {nll_sigma_yx}")
+    #     obj.estimate_weights()
+    #     nll_embeddings = obj.base_view.embedding_optimizer.nll_embeddings()
+    #     print(f"Embedding loss: {nll_embeddings}")
+    #     print(f"Overall loss: {obj.base_view.nll()}")
 
     for dataset in obj.datasets:
         dataset.uns["multigroup_heatmap"] = {
             group_name: np.arange(4).reshape((2, 2)) for group_name in obj.metagene_groups
         }
 
-    if not (test_datapath / "trained_4_iterations.h5ad").exists():
-        obj.save_results(test_datapath / "trained_4_iterations.h5ad")
+    # if not (test_datapath / "trained_4_iterations.h5ad").exists():
+    #     obj.save_results(test_datapath / "trained_4_iterations.h5ad")
+
+    trainer.save_results()
 
     return obj
 

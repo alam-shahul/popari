@@ -541,3 +541,108 @@ def bin_expression(
         bin_expression[i] = np.sum(spot_expression[bin_spots], axis=0)
 
     return bin_expression, bin_assignments
+
+
+def normalize_expression_by_threshold(
+    dataset,
+    thresholded_key: str = "elbowed_X",
+    output_key: str = "normalized_thresholded_expression",
+    threshold: float = 99.0,
+):
+    """Replacement for Z-score threshold."""
+
+    thresholded_expression = dataset.obsm[thresholded_key]
+    expression_threshold = np.percentile(thresholded_expression, threshold, axis=0)
+    mask = thresholded_expression > expression_threshold
+
+    _ = mask.sum(axis=0)
+    total_expression = (expression_threshold * mask).sum(axis=0)
+
+    normalized_thresholded_expression = thresholded_expression / total_expression
+
+    dataset.obsm[output_key] = normalized_thresholded_expression
+
+    return normalized_thresholded_expression
+
+
+def smooth_metagene_expression(
+    dataset,
+    normalized_key: str = "normalized_thresholded_expression",
+    output_key: str = "smoothed_expression",
+    adjacency_list_key: str = "adjacency_list",
+):
+    """"""
+
+    adjacency_list = dataset.obsm[adjacency_list_key]
+
+    normalized_thresholded_expression = dataset.obsm[normalized_key]
+    smoothed_expression = np.zeros_like(normalized_thresholded_expression)
+    for entity in np.arange(len(dataset)):
+        adjacencies = adjacency_list[entity]
+        neighbor_expressions = normalized_thresholded_expression[adjacencies]
+        average_expression = (normalized_thresholded_expression[entity] + neighbor_expressions.sum(axis=0)) / (
+            len(neighbor_expressions) + 1
+        )
+        smoothed_expression[entity] = average_expression
+
+    dataset.obsm[output_key] = smoothed_expression
+
+    return smoothed_expression
+
+
+def spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=10, smoothing_threshold=0.5):
+    """Smooth categorical feature over spatial graph."""
+    num_entities = len(labels)
+
+    smoothed_labels = labels.copy()
+    for _ in range(max_smoothing_rounds):
+        new_labels = smoothed_labels.copy()
+        for entity in range(num_entities):
+            current_cluster = labels[entity]
+
+            adjacencies = adjacency_list[entity]
+            neighbor_labels = labels[adjacencies]
+            num_neighbors = len(neighbor_labels)
+            if num_neighbors == 0:
+                new_labels[entity] = current_cluster
+                continue
+
+            values, counts = np.unique(neighbor_labels, return_counts=True)
+
+            max_index = np.argmax(counts)
+            max_cluster = values[max_index]
+
+            ratio = (counts[max_index] + (max_cluster == current_cluster)) / (num_neighbors + 1)
+            if ratio >= smoothing_threshold:
+                new_labels[entity] = max_cluster
+            else:
+                new_labels[entity] = current_cluster
+
+        if np.all(smoothed_labels == new_labels):
+            break
+
+        smoothed_labels = new_labels
+
+    return new_labels
+
+
+def smooth_labels(
+    dataset,
+    label_key: str = "rough_domain",
+    output_key: str = "domain",
+    smoothing_threshold: float = 0.5,
+    max_smoothing_rounds: int = 10,
+    adjacency_list_key: str = "adjacency_list",
+):
+    """"""
+    adjacency_list = dataset.obsm[adjacency_list_key]
+
+    labels = dataset.obs[label_key]
+    dataset.obs[output_key] = spatially_smooth_feature(
+        labels,
+        adjacency_list,
+        max_smoothing_rounds,
+        smoothing_threshold,
+    )
+
+    return dataset.obs[output_key]

@@ -78,7 +78,17 @@ def clustered_model(preprocessed_model):
     return preprocessed_model
 
 
+@pytest.fixture(scope="module")
+def domain_clustered_model(preprocessed_model):
+    tl.cluster_domains(preprocessed_model, target_domains=5)
+
+    return preprocessed_model
+
+
 def test_leiden_clustering(clustered_model): ...
+
+
+def test_cluster_domains(domain_clustered_model): ...
 
 
 def test_ari_score(clustered_model):
