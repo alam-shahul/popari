@@ -57,7 +57,7 @@ class Trainer:
         self.model.save_results(self.parameters.savepath, **kwargs)
 
     def superresolve(self, **kwargs):
-        new_lr = kwargs.pop("new_lr", 1e-1)
+        new_lr = kwargs.pop("new_lr", self.model.superresolution_lr)
         target_level = kwargs.pop("target_level", None)
         self.model.set_superresolution_lr(new_lr, target_level)
         self.model.superresolve(**kwargs)

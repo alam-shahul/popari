@@ -637,7 +637,7 @@ def smooth_labels(
     """"""
     adjacency_list = dataset.obsm[adjacency_list_key]
 
-    labels = dataset.obs[label_key]
+    labels = dataset.obs[label_key].values
     dataset.obs[output_key] = spatially_smooth_feature(
         labels,
         adjacency_list,

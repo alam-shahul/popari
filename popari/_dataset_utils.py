@@ -384,7 +384,91 @@ def _umap(dataset: PopariDataset, use_rep: str = "X", compute_neighbors: bool = 
     sc.tl.umap(dataset)
 
 
-def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False, axes=None, **spatial_kwargs):
+# def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False, axes=None, **spatial_kwargs):
+#     r"""Plot a categorical label across all datasets in-situ.
+#
+#     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
+#
+#     Args:
+#         datasets: list of datasets to process
+#         color: the key in the ``.obs`` dataframe to plot.
+#         axes: A predefined set of matplotlib axes to plot on.
+#
+#     """
+#
+#     sharex = spatial_kwargs.pop("sharex", False)
+#     sharey = spatial_kwargs.pop("sharey", False)
+#
+#     fig = None
+#     if axes is None:
+#         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
+#
+#     edges_width = spatial_kwargs.pop("edges_width", 0.2)
+#     default_size = spatial_kwargs.pop("size", None)
+#     palette = spatial_kwargs.pop("palette", ListedColormap(sc.pl.palettes.godsnot_102))
+#     legend_fontsize = spatial_kwargs.pop("legend_fontsize", "xx-small")
+#     edgecolors = spatial_kwargs.pop("edgecolors", "none")
+#     connectivity_key = spatial_kwargs.pop("connectivity_key", "adjacency_matrix")
+#     shape = spatial_kwargs.pop("shape", None)
+#
+#     neighbors_key = spatial_kwargs.pop("neighbors_key", "spatial_neighbors")
+#
+#     if joint:
+#         categories = set()
+#         for dataset in datasets:
+#             categories.update(dataset.obs[color].unique())
+#
+#     for dataset, ax in zip(datasets, axes.flat):
+#         dataset_name = dataset.name
+#         if joint:
+#             dataset_categories = set(dataset.obs[color].unique())
+#
+#             dummy_points = []
+#             average_coordinate = dataset.obsm["spatial"].mean(axis=0, keepdims=True)
+#             for extra_category in categories.difference(dataset_categories):
+#                 dummy_point = ad.AnnData(X=np.zeros((1, dataset.n_vars)))
+#                 dummy_point.obs[color] = [extra_category]
+#                 dummy_point.obsm["spatial"] = average_coordinate
+#                 dummy_points.append(dummy_point)
+#
+#             if len(dummy_points) > 0:
+#                 concatenables = [*dummy_points, dataset]
+#
+#                 dataset = ad.concat(
+#                     concatenables,
+#                     join="outer",
+#                     label="dummy",
+#                     merge="unique",
+#                     uns_merge="unique",
+#                     pairwise=True,
+#                 )
+#
+#         ax.set_aspect("equal", "box")
+#         size = 10000 / len(dataset)
+#         if default_size is not None:
+#             size *= default_size
+#
+#         sq.pl.spatial_scatter(
+#             dataset,
+#             shape=shape,
+#             size=size,
+#             connectivity_key=connectivity_key,
+#             color=color,
+#             edges_width=edges_width,
+#             legend_fontsize=legend_fontsize,
+#             title=dataset_name,
+#             ax=ax,
+#             palette=palette,
+#             edgecolors=edgecolors,
+#             **spatial_kwargs,
+#         )
+#
+#     return fig
+
+
+@enable_joint
+@broadcast
+def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="leiden", **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
@@ -396,12 +480,12 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False
 
     """
 
-    sharex = spatial_kwargs.pop("sharex", False)
-    sharey = spatial_kwargs.pop("sharey", False)
+    sharex = False if "sharex" not in spatial_kwargs else spatial_kwargs.pop("sharex")
+    sharey = False if "sharey" not in spatial_kwargs else spatial_kwargs.pop("sharey")
 
-    fig = None
+    # fig = None
     if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
+        fig, axes = setup_squarish_axes(1, sharex=sharex, sharey=sharey)
 
     edges_width = spatial_kwargs.pop("edges_width", 0.2)
     default_size = spatial_kwargs.pop("size", None)
@@ -413,41 +497,18 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False
 
     neighbors_key = spatial_kwargs.pop("neighbors_key", "spatial_neighbors")
 
-    if joint:
-        categories = set()
-        for dataset in datasets:
-            categories.update(dataset.obs[color].unique())
+    size = 10000 / len(dataset)
+    if default_size is not None:
+        size *= default_size
+
+    total_categories = len(dataset.obs[color].cat.categories)
+    leiden_colorlist = np.array(palette.colors)[np.linspace(0, len(palette.colors) - 1, total_categories, dtype=int)]
+    leiden_colors = dict(zip([str(category) for category in dataset.obs[color].cat.categories], leiden_colorlist))
+    datasets = unconcatenate(dataset)
 
     for dataset, ax in zip(datasets, axes.flat):
-        dataset_name = dataset.name
-        if joint:
-            dataset_categories = set(dataset.obs[color].unique())
-
-            dummy_points = []
-            average_coordinate = dataset.obsm["spatial"].mean(axis=0, keepdims=True)
-            for extra_category in categories.difference(dataset_categories):
-                dummy_point = ad.AnnData(X=np.zeros((1, dataset.n_vars)))
-                dummy_point.obs[color] = [extra_category]
-                dummy_point.obsm["spatial"] = average_coordinate
-                dummy_points.append(dummy_point)
-
-            if len(dummy_points) > 0:
-                concatenables = [*dummy_points, dataset]
-
-                dataset = ad.concat(
-                    concatenables,
-                    join="outer",
-                    label="dummy",
-                    merge="unique",
-                    uns_merge="unique",
-                    pairwise=True,
-                )
-
-        ax.set_aspect("equal", "box")
-        size = 10000 / len(dataset)
-        if default_size is not None:
-            size *= default_size
-
+        dataset_categories = dataset.obs[color].cat.categories
+        palette = ListedColormap([color for category, color in leiden_colors.items() if category in dataset_categories])
         sq.pl.spatial_scatter(
             dataset,
             shape=shape,
@@ -456,10 +517,11 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False
             color=color,
             edges_width=edges_width,
             legend_fontsize=legend_fontsize,
-            title=dataset_name,
             ax=ax,
+            fig=fig,
             palette=palette,
             edgecolors=edgecolors,
+            library_key="batch",
             **spatial_kwargs,
         )
 
