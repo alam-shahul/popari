@@ -2,6 +2,7 @@ from functools import partial, wraps
 from typing import Callable, Optional, Sequence
 
 import anndata as ad
+import matplotlib.patches as patches
 import mpl_toolkits.axisartist.angle_helper as angle_helper
 import mpl_toolkits.axisartist.floating_axes as floating_axes
 import networkx as nx
@@ -29,7 +30,9 @@ from popari._popari_dataset import PopariDataset
 from popari.util import (
     compute_neighborhood_enrichment,
     concatenate,
+    get_metagene_signature,
     normalize_expression_by_threshold,
+    run_gsea,
     smooth_labels,
     smooth_metagene_expression,
     unconcatenate,
@@ -1750,14 +1753,20 @@ def _cluster_domains(
         smooth_labels(dataset, label_key=domain_key, output_key=f"smoothed_{domain_key}")
 
 
-def _metagene_gsea(dataset: PopariDataset, metagene_index: int, metagene_key: str = "M", **gsea_kwargs):
+def _metagene_gsea(
+    dataset: PopariDataset,
+    metagene_index: int,
+    metagene_key: str = "M",
+    sensitivity: float = 0.5,
+    **gsea_kwargs,
+):
     """Compute GSEA for the top genes from a particular metagene."""
     metagenes = dataset.uns[metagene_key][dataset.name]
     metagene = metagenes[:, metagene_index]
 
     gene_names = dataset.var_names
 
-    signature = list(get_metagene_signature(metagene, gene_names, show_plot=False, sensitivity=0.5))
+    signature = list(get_metagene_signature(metagene, gene_names, show_plot=False, sensitivity=sensitivity))
 
     mode = gsea_kwargs.pop("mode", "barplot")
     try:
@@ -1773,3 +1782,75 @@ def _metagene_gsea(dataset: PopariDataset, metagene_index: int, metagene_key: st
         raise ValueError("Didn't find any enriched GO terms.")
 
     return fig
+
+
+def _plot_metagene_signature_enrichment(
+    datasets,
+    metagene_index,
+    categories=None,
+    category_key="domain",
+    sensitivity=1,
+    **subplot_kwargs,
+):
+    """Plot enrichment of metagene signature across categories."""
+
+    first_dataset = datasets[0]
+    M = list(first_dataset.uns["M"].values())[0]
+
+    gene_names = first_dataset.var_names
+
+    merged_dataset = concatenate(datasets)
+    if categories is None:
+        categories = merged_dataset.obs[category_key].unique()
+
+    metagene_signature = get_metagene_signature(
+        M[:, metagene_index],
+        gene_names,
+        sensitivity=sensitivity,
+        type="upregulated",
+        show_plot=False,
+    )
+
+    indices = gene_names.get_indexer(metagene_signature)
+
+    num_columns = len(datasets) * len(categories)
+    raw_genes = np.zeros((len(metagene_signature), num_columns))
+
+    for category_index, category in enumerate(categories):
+        for dataset_index, dataset in enumerate(datasets):
+
+            first_subtype = dataset[dataset.obs[category_key] == category]
+            raw_genes[:, dataset_index * len(categories) + category_index] = first_subtype.X[:, indices].mean(axis=0)
+
+    vmax = np.abs(raw_genes).max()
+    vmin = 0
+
+    dpi = subplot_kwargs.pop("dpi", 200)
+    figsize = subplot_kwargs.pop("figsize", (4, len(metagene_signature) / 5))
+    fig, ax = plt.subplots(dpi=dpi, figsize=figsize, **subplot_kwargs)
+    im = ax.imshow(raw_genes, cmap="Reds", vmax=vmax, vmin=vmin)
+
+    for index in range(0, len(datasets)):
+        ax.axvline((index) * len(categories) - 0.5, color="k")
+
+    ax.grid(False)
+
+    plt.colorbar(im, ax=ax)
+    ax.set_yticks(np.arange(len(metagene_signature)))
+    ax.set_yticklabels(metagene_signature)
+    ax.set_xticks(np.arange(num_columns))
+    ax.set_xticklabels([])
+    ax.set_aspect("equal")
+    colors = plt.get_cmap("tab20b").colors  # Colors for each tick
+
+    for i, tick in enumerate(ax.get_xticks()):
+        rect = patches.Rectangle(
+            ((tick + 0.1) / num_columns, 0),
+            0.04,
+            -0.5 / len(metagene_signature),
+            transform=ax.transAxes,
+            color=colors[i % len(categories)],
+        )
+        fig.add_artist(rect)
+
+    return fig, metagene_signature

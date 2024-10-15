@@ -19,6 +19,7 @@ from popari._dataset_utils import (
     _compute_spatial_gene_correlation,
     _evaluate_classification_task,
     _leiden,
+    _metagene_gsea,
     _multigroup_heatmap,
     _pca,
     _preprocess_embeddings,
@@ -317,3 +318,12 @@ def propagate_labels(trained_model, label_key: str, starting_level=None, smooth=
 
             high_res_dataset.obs[label_key] = list(high_res_labels)
             high_res_dataset.obs[label_key] = high_res_dataset.obs[label_key].astype("category")
+
+
+def metagene_gsea(trained_model, metagene_index: int, level=0, **gsea_kwargs):
+    """Run GSEA on metagenes from trained model."""
+
+    first_dataset = trained_model.hierarchy[level].datasets[0]
+    fig = _metagene_gsea(first_dataset, metagene_index, **gsea_kwargs)
+
+    return fig
