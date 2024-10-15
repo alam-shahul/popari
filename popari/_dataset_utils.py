@@ -82,13 +82,18 @@ def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Se
             original_annotation[key] = updated_annotation[key]
 
 
-def for_model(function):
+def for_model(function=None, *, return_outputs: bool = False):
+    if function is None:
+        return partial(for_model, return_outputs=return_outputs)
+
     @wraps(function)
     def model_wrapper(trained_model: "Popari", *args, **kwargs):
         level = kwargs.pop("level", 0)
         datasets = trained_model.hierarchy[level].datasets
 
-        return function(datasets, *args, **kwargs)
+        outputs = function(datasets, *args, **kwargs)
+
+        return outputs if return_outputs else None
 
     return model_wrapper
 
@@ -384,88 +389,6 @@ def _umap(dataset: PopariDataset, use_rep: str = "X", compute_neighbors: bool = 
     sc.tl.umap(dataset)
 
 
-# def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False, axes=None, **spatial_kwargs):
-#     r"""Plot a categorical label across all datasets in-situ.
-#
-#     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
-#
-#     Args:
-#         datasets: list of datasets to process
-#         color: the key in the ``.obs`` dataframe to plot.
-#         axes: A predefined set of matplotlib axes to plot on.
-#
-#     """
-#
-#     sharex = spatial_kwargs.pop("sharex", False)
-#     sharey = spatial_kwargs.pop("sharey", False)
-#
-#     fig = None
-#     if axes is None:
-#         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
-#
-#     edges_width = spatial_kwargs.pop("edges_width", 0.2)
-#     default_size = spatial_kwargs.pop("size", None)
-#     palette = spatial_kwargs.pop("palette", ListedColormap(sc.pl.palettes.godsnot_102))
-#     legend_fontsize = spatial_kwargs.pop("legend_fontsize", "xx-small")
-#     edgecolors = spatial_kwargs.pop("edgecolors", "none")
-#     connectivity_key = spatial_kwargs.pop("connectivity_key", "adjacency_matrix")
-#     shape = spatial_kwargs.pop("shape", None)
-#
-#     neighbors_key = spatial_kwargs.pop("neighbors_key", "spatial_neighbors")
-#
-#     if joint:
-#         categories = set()
-#         for dataset in datasets:
-#             categories.update(dataset.obs[color].unique())
-#
-#     for dataset, ax in zip(datasets, axes.flat):
-#         dataset_name = dataset.name
-#         if joint:
-#             dataset_categories = set(dataset.obs[color].unique())
-#
-#             dummy_points = []
-#             average_coordinate = dataset.obsm["spatial"].mean(axis=0, keepdims=True)
-#             for extra_category in categories.difference(dataset_categories):
-#                 dummy_point = ad.AnnData(X=np.zeros((1, dataset.n_vars)))
-#                 dummy_point.obs[color] = [extra_category]
-#                 dummy_point.obsm["spatial"] = average_coordinate
-#                 dummy_points.append(dummy_point)
-#
-#             if len(dummy_points) > 0:
-#                 concatenables = [*dummy_points, dataset]
-#
-#                 dataset = ad.concat(
-#                     concatenables,
-#                     join="outer",
-#                     label="dummy",
-#                     merge="unique",
-#                     uns_merge="unique",
-#                     pairwise=True,
-#                 )
-#
-#         ax.set_aspect("equal", "box")
-#         size = 10000 / len(dataset)
-#         if default_size is not None:
-#             size *= default_size
-#
-#         sq.pl.spatial_scatter(
-#             dataset,
-#             shape=shape,
-#             size=size,
-#             connectivity_key=connectivity_key,
-#             color=color,
-#             edges_width=edges_width,
-#             legend_fontsize=legend_fontsize,
-#             title=dataset_name,
-#             ax=ax,
-#             palette=palette,
-#             edgecolors=edgecolors,
-#             **spatial_kwargs,
-#         )
-#
-#     return fig
-
-
 @enable_joint
 @broadcast
 def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="leiden", **spatial_kwargs):
@@ -489,7 +412,10 @@ def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="
 
     edges_width = spatial_kwargs.pop("edges_width", 0.2)
     default_size = spatial_kwargs.pop("size", None)
-    palette = spatial_kwargs.pop("palette", ListedColormap(sc.pl.palettes.godsnot_102))
+    palette = spatial_kwargs.pop("palette", None)
+    palette = sc.pl.palettes.godsnot_102 if not palette else plt.get_cmap(palette).colors
+    palette = ListedColormap(palette)
+
     legend_fontsize = spatial_kwargs.pop("legend_fontsize", "xx-small")
     edgecolors = spatial_kwargs.pop("edgecolors", "none")
     connectivity_key = spatial_kwargs.pop("connectivity_key", "adjacency_matrix")
@@ -637,6 +563,10 @@ def _multireplicate_heatmap(
             for (j, i), label in np.ndenumerate(truncated_image):
                 if mask is None or not mask[j, i]:
                     ax.text(i, j, label, ha="center", va="center", fontsize=label_font_size)
+
+        num_rows, num_columns = image.shape
+        ax.set_xticks(np.arange(num_columns).astype(int))
+        ax.set_yticks(np.arange(num_rows).astype(int))
 
         plt.colorbar(im, ax=ax, orientation="vertical", fraction=0.046, pad=0.04)
 
@@ -1818,3 +1748,28 @@ def _cluster_domains(
 
     for dataset in datasets:
         smooth_labels(dataset, label_key=domain_key, output_key=f"smoothed_{domain_key}")
+
+
+def _metagene_gsea(dataset: PopariDataset, metagene_index: int, metagene_key: str = "M", **gsea_kwargs):
+    """Compute GSEA for the top genes from a particular metagene."""
+    metagenes = dataset.uns[metagene_key][dataset.name]
+    metagene = metagenes[:, metagene_index]
+
+    gene_names = dataset.var_names
+
+    signature = list(get_metagene_signature(metagene, gene_names, show_plot=False, sensitivity=0.5))
+
+    mode = gsea_kwargs.pop("mode", "barplot")
+    try:
+        enrichment_result, ax = run_gsea(
+            signature,
+            f"Metagene {metagene_index}",
+            gene_names,
+            mode=mode,
+        )
+
+        fig = ax.figure
+    except ValueError:
+        raise ValueError("Didn't find any enriched GO terms.")
+
+    return fig

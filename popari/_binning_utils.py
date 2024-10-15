@@ -110,6 +110,7 @@ class Downsampler(ABC):
             bin_assignments_key=bin_assignments_key,
             coordinates_key=coordinates_key,
         )
+        binned_dataset.var_names = dataset.var_names
 
         for key, kwarg in effective_kwargs.items():
             binned_dataset.uns[key] = kwarg

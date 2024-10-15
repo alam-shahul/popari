@@ -25,12 +25,12 @@ from popari._dataset_utils import (
 )
 from popari.model import Popari
 
-in_situ = for_model(_plot_in_situ)
-metagene_embedding = for_model(_plot_metagene_embedding)
-confusion_matrix = for_model(_plot_confusion_matrix)
-umap = for_model(_plot_umap)
-multireplicate_heatmap = for_model(_multireplicate_heatmap)
-clusters_to_categories = for_model(_plot_clusters_to_categories)
+in_situ = for_model(_plot_in_situ, return_outputs=True)
+metagene_embedding = for_model(_plot_metagene_embedding, return_outputs=True)
+confusion_matrix = for_model(_plot_confusion_matrix, return_outputs=True)
+umap = for_model(_plot_umap, return_outputs=True)
+multireplicate_heatmap = for_model(_multireplicate_heatmap, return_outputs=True)
+clusters_to_categories = for_model(_plot_clusters_to_categories, return_outputs=True)
 
 
 def multigroup_heatmap(
