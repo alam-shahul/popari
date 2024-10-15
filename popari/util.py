@@ -8,6 +8,7 @@ from collections import defaultdict
 from typing import Optional, Sequence
 
 import anndata as ad
+import gseapy as gp
 import matplotlib
 import matplotlib.patches as patches
 import networkx as nx
@@ -17,6 +18,7 @@ import scanpy as sc
 import seaborn as sns
 import torch
 from anndata import AnnData
+from kneed import KneeLocator
 from matplotlib import pyplot as plt
 from ortools.graph.python import min_cost_flow
 from scipy.sparse import csr_array, csr_matrix
@@ -646,3 +648,92 @@ def smooth_labels(
     )
 
     return dataset.obs[output_key]
+
+
+def run_gsea(
+    gene_list: Sequence[str],
+    name: str,
+    background: Sequence[str],
+    output_name=None,
+    mode: str = "dotplot",
+    **enrichr_kwargs,
+):
+    """GSEApy analysis.
+
+    Args:
+        gene_list: list of gene names to check for enrichment
+        background: list of background genes to use to for comparison
+        name: title for analysis plot
+        output_name: path where plot figure will be saved
+        enrichr_kwargs: keyword arguments for the call to `gp.enrichr`
+        mode: what type of plot to produce. Default: `"dotplot"`
+
+    """
+
+    organism = enrichr_kwargs.pop("organism", "mouse")
+    gene_sets = enrichr_kwargs.pop("gene_sets", ["GO_Biological_Process_2023"])
+
+    enrichment_result = gp.enrichr(
+        gene_list=gene_list,
+        gene_sets=gene_sets,
+        organism=organism,
+        background=background,
+        outdir=None,
+        **enrichr_kwargs,
+    )
+
+    enrichment_result.results.sort_values(by="Adjusted P-value")
+
+    if mode == "dotplot":
+        ax = gp.dotplot(
+            enrichment_result.results,
+            column="Adjusted P-value",
+            x="Gene_set",  # set x axis, so you could do a multi-sample/library comparsion
+            size=2,
+            top_term=5,
+            figsize=(3, 5),
+            title=f"{name} GSEA Enrichment",
+            xticklabels_rot=45,  # rotate xtick labels
+            show_ring=True,  # set to False to revmove outer ring
+            ofname=output_name,
+            marker="o",
+        )
+    elif mode == "barplot":
+        ax = gp.barplot(
+            enrichment_result.results,
+            column="Adjusted P-value",
+            group="Gene_set",  # set group, so you could do a multi-sample/library comparsion
+            size=10,
+            top_term=5,
+            figsize=(3, 5),
+            color=["red", "green", "blue"],
+            title=f"{name} GSEA Enrichment",
+            ofname=output_name,
+        )
+
+    return enrichment_result, ax
+
+
+def get_metagene_signature(
+    metagene,
+    gene_names,
+    sensitivity: float = 1.0,
+    type: str = "upregulated",
+    show_plot: bool = False,
+):
+    """Use knee-detection algorithm to get top genes for metagene."""
+
+    num_genes = len(metagene)
+
+    sort_indices = np.argsort(metagene)
+    curve = "convex" if type == "upregulated" else "concave"
+
+    kneedle = KneeLocator(range(num_genes), metagene[sort_indices], S=sensitivity, curve=curve, direction="increasing")
+
+    signature_range = slice(kneedle.knee, None) if type == "upregulated" else slice(None, kneedle.knee)
+    signature_genes = gene_names[sort_indices[signature_range]]
+
+    if show_plot:
+        kneedle.plot_knee()
+
+    return list(signature_genes)
