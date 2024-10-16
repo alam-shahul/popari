@@ -16,7 +16,7 @@ To use the optional experiment tracking/grid search functionality, install Popar
 pip install popari[mlflow]
 ```
 
-:::{note}
+````{note}
 Since Popari lies at the cutting edge of the mSRT analysis frontier, it is possible that the most
 updated version of Popari depends on some package versions which are not yet available on PyPI.
 Thus, it may be necessary to install as follows:
@@ -25,6 +25,7 @@ Thus, it may be necessary to install as follows:
 git clone https://github.com/alam-shahul/popari.git
 cd popari
 pip install .[mlflow,simulation]
-```
+````
 
-:::
+```
+```
