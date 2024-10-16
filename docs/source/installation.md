@@ -25,7 +25,5 @@ Thus, it may be necessary to install as follows:
 git clone https://github.com/alam-shahul/popari.git
 cd popari
 pip install .[mlflow,simulation]
+```
 ````
-
-```
-```
