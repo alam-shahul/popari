@@ -22,7 +22,7 @@ dependencies = [
     "scanpy>=1.9.2",
     "seaborn>=0.11.1",
     "matplotlib>=3.7.0",
-    "squidpy@git+https://github.com/alam-shahul/squidpy",
+    "squidpy@git+https://github.com/scverse/squidpy",
     "gseapy>=1.1.3",
     "kneed>=0.8.5",
     "louvain>=0.8.0",
