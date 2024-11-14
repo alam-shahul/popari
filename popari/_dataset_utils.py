@@ -293,14 +293,14 @@ def _leiden(
         resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
 
     """
-    n_iterations = kwargs.pop("n_iterations", 2)
+    # n_iterations = kwargs.pop("n_iterations", 2) # TODO: add these parameters back in after resolving issue
     _cluster.__wrapped__(
         datasets,
         resolution=resolution,
         method="leiden",
         tolerance=tolerance,
-        flavor="igraph",
-        n_iterations=n_iterations,
+        # flavor="igraph",
+        # n_iterations=n_iterations,
         **kwargs,
     )
 
