@@ -545,61 +545,73 @@ def bin_expression(
     return bin_expression, bin_assignments
 
 
-def normalize_expression_by_threshold(
-    dataset,
-    thresholded_key: str = "elbowed_X",
-    output_key: str = "normalized_thresholded_expression",
-    threshold: float = 99.0,
-):
+def expression_score(dataset, expression_key: str = "X", threshold: float = 99.0):
+    """Expression score for spatial domain detection."""
+
+    expression = dataset.obsm[expression_key]
+    expression_threshold = np.percentile(expression, threshold, axis=0)
+    mask = expression > expression_threshold
+
+    total_entities = mask.sum(axis=0)
+    total_expression = (expression_threshold * mask).sum(axis=0)
+    expression_score = total_expression / total_entities
+
+    dataset.uns["expression_score"] = {
+        "threshold": threshold,
+        "scores": expression_score,
+    }
+
+    return expression_score
+
+
+def normalize_expression_by_threshold(dataset, thresholded_key: str = "elbowed_X", threshold: float = 99.0):
     """Replacement for Z-score threshold."""
 
     thresholded_expression = dataset.obsm[thresholded_key]
     expression_threshold = np.percentile(thresholded_expression, threshold, axis=0)
     mask = thresholded_expression > expression_threshold
 
-    _ = mask.sum(axis=0)
+    total_entities = mask.sum(axis=0)
     total_expression = (expression_threshold * mask).sum(axis=0)
 
     normalized_thresholded_expression = thresholded_expression / total_expression
 
-    dataset.obsm[output_key] = normalized_thresholded_expression
+    dataset.obsm["normalized_thresholded_expression"] = normalized_thresholded_expression
 
     return normalized_thresholded_expression
 
 
 def smooth_metagene_expression(
     dataset,
-    normalized_key: str = "normalized_thresholded_expression",
-    output_key: str = "smoothed_expression",
+    processed_key: str = "normalized_thresholded_expression",
     adjacency_list_key: str = "adjacency_list",
 ):
     """"""
-
     adjacency_list = dataset.obsm[adjacency_list_key]
 
-    normalized_thresholded_expression = dataset.obsm[normalized_key]
-    smoothed_expression = np.zeros_like(normalized_thresholded_expression)
+    processed_expression = dataset.obsm[processed_key]
+    smoothed_expression = np.zeros_like(processed_expression)
     for entity in np.arange(len(dataset)):
         adjacencies = adjacency_list[entity]
-        neighbor_expressions = normalized_thresholded_expression[adjacencies]
-        average_expression = (normalized_thresholded_expression[entity] + neighbor_expressions.sum(axis=0)) / (
+        neighbor_expressions = processed_expression[adjacencies]
+        average_expression = (processed_expression[entity] + neighbor_expressions.sum(axis=0)) / (
             len(neighbor_expressions) + 1
         )
         smoothed_expression[entity] = average_expression
 
-    dataset.obsm[output_key] = smoothed_expression
+    dataset.obsm["smoothed_expression"] = smoothed_expression
 
     return smoothed_expression
 
 
 def spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=10, smoothing_threshold=0.5):
-    """Smooth categorical feature over spatial graph."""
+    """"""
     num_entities = len(labels)
 
     smoothed_labels = labels.copy()
     for _ in range(max_smoothing_rounds):
         new_labels = smoothed_labels.copy()
-        for entity in range(num_entities):
+        for entity in np.arange(num_entities):
             current_cluster = labels[entity]
 
             adjacencies = adjacency_list[entity]
@@ -630,8 +642,8 @@ def spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=10, sm
 
 def smooth_labels(
     dataset,
-    label_key: str = "rough_domain",
-    output_key: str = "domain",
+    label_key: str = "leiden",
+    output_key: str = "smoothed_leiden",
     smoothing_threshold: float = 0.5,
     max_smoothing_rounds: int = 10,
     adjacency_list_key: str = "adjacency_list",
@@ -639,7 +651,7 @@ def smooth_labels(
     """"""
     adjacency_list = dataset.obsm[adjacency_list_key]
 
-    labels = dataset.obs[label_key].values
+    labels = dataset.obs[label_key]
     dataset.obs[output_key] = spatially_smooth_feature(
         labels,
         adjacency_list,

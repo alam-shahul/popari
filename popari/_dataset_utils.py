@@ -1709,48 +1709,43 @@ def _plot_clusters_to_categories(
 
 def _cluster_domains(
     datasets,
-    target_domains: int = 10,
-    n_neighbors: int = 40,
-    skip_preprocessing: bool = False,
-    batch_correct: bool = True,
-    domain_key: str = "domain",
+    target_domains: Optional[int] = None,
+    skip_thresholding: bool = True,
+    batch_correct: bool = False,
 ):
-    """Annotate spatial domains from Popari output."""
+    """Discover domains from Popari embeddings."""
 
-    if not skip_preprocessing:
-        # _preprocess_embeddings(datasets, joint=True) # Assume that preprocessing has already been done
+    normalized_key = "normalized_X"
+    if not skip_thresholding:
+        normalized_key = "normalized_thresholded_expression"
         for dataset in datasets:
             normalize_expression_by_threshold(dataset, thresholded_key="normalized_X")
 
-        if batch_correct:
-            merged_dataset = concatenate(datasets)
-            sce.pp.scanorama_integrate(merged_dataset, "batch", basis="normalized_thresholded_expression", verbose=1)
+    processed_key = normalized_key
+    if batch_correct:
+        merged_dataset = concatenate(datasets)
+        sce.pp.scanorama_integrate(merged_dataset, "batch", basis=normalized_key, verbose=1)
 
+        processed_key = "X_scanorama"
         for dataset in datasets:
-            normalized_key = "normalized_thresholded_expression"
+            dataset.obsm[processed_key] = (
+                merged_dataset[merged_dataset.obs["batch"] == dataset.name].obsm[processed_key].copy()
+            )
 
-        if batch_correct:
-            normalized_key = "X_scanorama"
-            for dataset in datasets:
-                dataset.obsm["X_scanorama"] = (
-                    merged_dataset[merged_dataset.obs["batch"] == dataset.name].obsm["X_scanorama"].copy()
-                )
+    for dataset in datasets:
+        smooth_metagene_expression(dataset, processed_key=processed_key)
 
-        for dataset in datasets:
-            smooth_metagene_expression(dataset, normalized_key=normalized_key)
-
-    _leiden(
+    _cluster(
         datasets,
         verbose=True,
         use_rep="smoothed_expression",
-        n_neighbors=n_neighbors,
-        joint=True,
         target_clusters=target_domains,
-        key_added=domain_key,
+        n_neighbors=40,
+        joint=True,
     )
 
     for dataset in datasets:
-        smooth_labels(dataset, label_key=domain_key, output_key=f"smoothed_{domain_key}")
+        smooth_labels(dataset, output_key="smoothed_domain")
 
 
 def _metagene_gsea(
