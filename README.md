@@ -20,7 +20,7 @@ pip install hatch
 pip install keyrings.alt
 
 hatch build
-hatch publish
+hatch publish -r https://upload.pypi.org/legacy/
 ```
 
 Username: `__token__`
