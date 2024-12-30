@@ -42,8 +42,7 @@ def test_differential_analysis(trained_differential_model):
 
 @pytest.fixture(scope="module")
 def preprocessed_model(trained_model):
-    tl.preprocess_embeddings(trained_model, joint=True)
-    tl.preprocess_embeddings(trained_model, joint=False)
+    tl.preprocess_embeddings(trained_model)
 
     return trained_model
 
@@ -92,7 +91,7 @@ def test_cluster_domains(domain_clustered_model): ...
 
 
 def test_ari_score(clustered_model):
-    expected_aris = [0.74071433754464, 0.7694805741910644]
+    expected_aris = [0.5382314428340803, 0.494693308182705]
     tl.compute_ari_scores(clustered_model, labels="cell_type", predictions="leiden")
 
     for expected_ari, dataset in zip(expected_aris, clustered_model.datasets):
@@ -101,7 +100,7 @@ def test_ari_score(clustered_model):
 
 
 def test_silhouette_score(clustered_model):
-    expected_silhouettes = [0.30699036262154916, 0.34466040612221843]
+    expected_silhouettes = [0.3070153983625831, 0.3447067843923269]
     tl.compute_silhouette_scores(clustered_model, labels="cell_type", embeddings="normalized_X")
 
     for expected_silhouette, dataset in zip(expected_silhouettes, clustered_model.datasets):

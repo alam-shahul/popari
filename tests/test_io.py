@@ -71,8 +71,8 @@ def test_load_hierarchical_model(dataset_path):
 
 
 def test_nll(trained_model):
-    nll = trained_model.nll(level=0)
+    nll = trained_model.nll(level=0)[0]
 
-    expected_nll = 0
+    expected_nll = -266943.2440865346
 
-    assert nll == expected_nll  # TODO: why is this returning nan?
+    assert nll == pytest.approx(expected_nll)  # TODO: why is this returning nan?

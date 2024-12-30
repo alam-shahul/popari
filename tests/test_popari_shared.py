@@ -101,7 +101,7 @@ def test_Sigma_x_inv(popari_with_neighbors, test_datapath):
     Sigma_x_inv = (
         list(popari_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].cpu().detach().numpy()
     )
-    # np.save("outputs/Sigma_x_inv_shared.npy", Sigma_x_inv)
+    # np.save(test_datapath / "outputs/Sigma_x_inv_shared.npy", Sigma_x_inv)
     test_Sigma_x_inv = np.load(test_datapath / "outputs/Sigma_x_inv_shared.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
 
@@ -121,18 +121,18 @@ def test_X_0(popari_with_neighbors, test_datapath):
 
 
 def test_louvain_clustering(popari_with_neighbors):
-    tl.preprocess_embeddings(popari_with_neighbors, joint=True)
+    tl.preprocess_embeddings(popari_with_neighbors)
     tl.leiden(popari_with_neighbors, joint=True, target_clusters=8)
     tl.compute_ari_scores(popari_with_neighbors, labels="cell_type", predictions="leiden")
     tl.compute_silhouette_scores(popari_with_neighbors, labels="cell_type", embeddings="normalized_X")
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=False)
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=True)
 
-    expected_aris = [0.7999573280203317, 0.8277482045123649]
+    expected_aris = [0.7659552293827756, 0.8001246799953088]
     for expected_ari, dataset in zip(expected_aris, popari_with_neighbors.datasets):
         assert expected_ari == pytest.approx(dataset.uns["ari"])
 
-    expected_silhouettes = [0.31084134914999734, 0.3413229798705868]
+    expected_silhouettes = [0.3070153983625831, 0.3447067843923269]
     for expected_silhouette, dataset in zip(expected_silhouettes, popari_with_neighbors.datasets):
         print(f"Silhouette score: {dataset.uns['silhouette']}")
         assert expected_silhouette == pytest.approx(dataset.uns["silhouette"])

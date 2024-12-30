@@ -72,14 +72,14 @@ def test_X_0(popari_with_neighbors, test_datapath):
 
 
 def test_louvain_clustering(popari_with_neighbors):
-    tl.preprocess_embeddings(popari_with_neighbors, joint=True)
+    tl.preprocess_embeddings(popari_with_neighbors)
     tl.leiden(popari_with_neighbors, joint=True, target_clusters=8)
     tl.compute_ari_scores(popari_with_neighbors, labels="cell_type", predictions="leiden")
     tl.compute_silhouette_scores(popari_with_neighbors, labels="cell_type", embeddings="normalized_X")
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=False)
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=True)
 
-    expected_aris = [0.6875589280323212, 0.7723466717799486]
+    expected_aris = [0.6582165734532696, 0.719865660374264]
     for expected_ari, dataset in zip(expected_aris, popari_with_neighbors.datasets):
         assert expected_ari == pytest.approx(dataset.uns["ari"])
 
