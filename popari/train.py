@@ -1,7 +1,11 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import mlflow
+try:
+    import mlflow
+except ImportError:
+    pass
+
 from tqdm.auto import trange
 
 from popari.model import Popari

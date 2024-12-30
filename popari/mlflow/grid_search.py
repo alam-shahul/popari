@@ -43,6 +43,7 @@ def run():
         "num_iterations",
         "spatial_preiterations",
         "metagene_groups",
+        "downsampling_method",
         "spatial_affinity_groups",
     ]
 
@@ -184,6 +185,12 @@ def run():
 
             search_space = configuration["hyperparameters"][hyperparameter_name]
 
+            # Categorical hyperparameters are specified via the "options" field
+            if dtype == "categorical":
+                hyperparameter_options = search_space["options"]
+                continue
+
+            # Handling numerical hyperparameters
             start = search_space["start"]
             end = search_space["end"]
             scale = search_space["scale"]
