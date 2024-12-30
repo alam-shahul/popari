@@ -116,6 +116,7 @@ Functions for visualizing and evaluating Popari results.
 Tools to generate simulated (multisample) spatially-resolved transcriptomics, or (m)SRT.
 
 ```{eval-rst}
+
 .. module:: popari.simulation_framework
 .. currentmodule:: popari
 
