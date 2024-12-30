@@ -8,6 +8,7 @@ from collections import defaultdict
 from typing import Optional, Sequence
 
 import anndata as ad
+import gseapy as gp
 import matplotlib
 import matplotlib.patches as patches
 import networkx as nx
@@ -17,6 +18,7 @@ import scanpy as sc
 import seaborn as sns
 import torch
 from anndata import AnnData
+from kneed import KneeLocator
 from matplotlib import pyplot as plt
 from ortools.graph.python import min_cost_flow
 from scipy.sparse import csr_array, csr_matrix
@@ -541,3 +543,209 @@ def bin_expression(
         bin_expression[i] = np.sum(spot_expression[bin_spots], axis=0)
 
     return bin_expression, bin_assignments
+
+
+def expression_score(dataset, expression_key: str = "X", threshold: float = 99.0):
+    """Expression score for spatial domain detection."""
+
+    expression = dataset.obsm[expression_key]
+    expression_threshold = np.percentile(expression, threshold, axis=0)
+    mask = expression > expression_threshold
+
+    total_entities = mask.sum(axis=0)
+    total_expression = (expression_threshold * mask).sum(axis=0)
+    expression_score = total_expression / total_entities
+
+    dataset.uns["expression_score"] = {
+        "threshold": threshold,
+        "scores": expression_score,
+    }
+
+    return expression_score
+
+
+def normalize_expression_by_threshold(dataset, thresholded_key: str = "elbowed_X", threshold: float = 99.0):
+    """Replacement for Z-score threshold."""
+
+    thresholded_expression = dataset.obsm[thresholded_key]
+    expression_threshold = np.percentile(thresholded_expression, threshold, axis=0)
+    mask = thresholded_expression > expression_threshold
+
+    total_entities = mask.sum(axis=0)
+    total_expression = (expression_threshold * mask).sum(axis=0)
+
+    normalized_thresholded_expression = thresholded_expression / total_expression
+
+    dataset.obsm["normalized_thresholded_expression"] = normalized_thresholded_expression
+
+    return normalized_thresholded_expression
+
+
+def smooth_metagene_expression(
+    dataset,
+    processed_key: str = "normalized_thresholded_expression",
+    adjacency_list_key: str = "adjacency_list",
+):
+    """"""
+    adjacency_list = dataset.obsm[adjacency_list_key]
+
+    processed_expression = dataset.obsm[processed_key]
+    smoothed_expression = np.zeros_like(processed_expression)
+    for entity in np.arange(len(dataset)):
+        adjacencies = adjacency_list[entity]
+        neighbor_expressions = processed_expression[adjacencies]
+        average_expression = (processed_expression[entity] + neighbor_expressions.sum(axis=0)) / (
+            len(neighbor_expressions) + 1
+        )
+        smoothed_expression[entity] = average_expression
+
+    dataset.obsm["smoothed_expression"] = smoothed_expression
+
+    return smoothed_expression
+
+
+def spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=10, smoothing_threshold=0.5):
+    """"""
+    num_entities = len(labels)
+
+    smoothed_labels = labels.copy()
+    for _ in range(max_smoothing_rounds):
+        new_labels = smoothed_labels.copy()
+        for entity in np.arange(num_entities):
+            current_cluster = labels[entity]
+
+            adjacencies = adjacency_list[entity]
+            neighbor_labels = labels[adjacencies]
+            num_neighbors = len(neighbor_labels)
+            if num_neighbors == 0:
+                new_labels[entity] = current_cluster
+                continue
+
+            values, counts = np.unique(neighbor_labels, return_counts=True)
+
+            max_index = np.argmax(counts)
+            max_cluster = values[max_index]
+
+            ratio = (counts[max_index] + (max_cluster == current_cluster)) / (num_neighbors + 1)
+            if ratio >= smoothing_threshold:
+                new_labels[entity] = max_cluster
+            else:
+                new_labels[entity] = current_cluster
+
+        if np.all(smoothed_labels == new_labels):
+            break
+
+        smoothed_labels = new_labels
+
+    return new_labels
+
+
+def smooth_labels(
+    dataset,
+    label_key: str = "leiden",
+    output_key: str = "smoothed_leiden",
+    smoothing_threshold: float = 0.5,
+    max_smoothing_rounds: int = 10,
+    adjacency_list_key: str = "adjacency_list",
+):
+    """"""
+    adjacency_list = dataset.obsm[adjacency_list_key]
+
+    labels = dataset.obs[label_key]
+    dataset.obs[output_key] = spatially_smooth_feature(
+        labels,
+        adjacency_list,
+        max_smoothing_rounds,
+        smoothing_threshold,
+    )
+
+    return dataset.obs[output_key]
+
+
+def run_gsea(
+    gene_list: Sequence[str],
+    name: str,
+    background: Sequence[str],
+    output_name=None,
+    mode: str = "dotplot",
+    **enrichr_kwargs,
+):
+    """GSEApy analysis.
+
+    Args:
+        gene_list: list of gene names to check for enrichment
+        background: list of background genes to use to for comparison
+        name: title for analysis plot
+        output_name: path where plot figure will be saved
+        enrichr_kwargs: keyword arguments for the call to `gp.enrichr`
+        mode: what type of plot to produce. Default: `"dotplot"`
+
+    """
+
+    organism = enrichr_kwargs.pop("organism", "mouse")
+    gene_sets = enrichr_kwargs.pop("gene_sets", ["GO_Biological_Process_2023"])
+
+    enrichment_result = gp.enrichr(
+        gene_list=gene_list,
+        gene_sets=gene_sets,
+        organism=organism,
+        background=background,
+        outdir=None,
+        **enrichr_kwargs,
+    )
+
+    enrichment_result.results.sort_values(by="Adjusted P-value")
+
+    if mode == "dotplot":
+        ax = gp.dotplot(
+            enrichment_result.results,
+            column="Adjusted P-value",
+            x="Gene_set",  # set x axis, so you could do a multi-sample/library comparsion
+            size=2,
+            top_term=5,
+            figsize=(3, 5),
+            title=f"{name} GSEA Enrichment",
+            xticklabels_rot=45,  # rotate xtick labels
+            show_ring=True,  # set to False to revmove outer ring
+            ofname=output_name,
+            marker="o",
+        )
+    elif mode == "barplot":
+        ax = gp.barplot(
+            enrichment_result.results,
+            column="Adjusted P-value",
+            group="Gene_set",  # set group, so you could do a multi-sample/library comparsion
+            size=10,
+            top_term=5,
+            figsize=(3, 5),
+            color=["red", "green", "blue"],
+            title=f"{name} GSEA Enrichment",
+            ofname=output_name,
+        )
+
+    return enrichment_result, ax
+
+
+def get_metagene_signature(
+    metagene,
+    gene_names,
+    sensitivity: float = 1.0,
+    type: str = "upregulated",
+    show_plot: bool = False,
+):
+    """Use knee-detection algorithm to get top genes for metagene."""
+
+    num_genes = len(metagene)
+
+    sort_indices = np.argsort(metagene)
+    curve = "convex" if type == "upregulated" else "concave"
+
+    kneedle = KneeLocator(range(num_genes), metagene[sort_indices], S=sensitivity, curve=curve, direction="increasing")
+
+    signature_range = slice(kneedle.knee, None) if type == "upregulated" else slice(None, kneedle.knee)
+    signature_genes = gene_names[sort_indices[signature_range]]
+
+    if show_plot:
+        kneedle.plot_knee()
+
+    return list(signature_genes)

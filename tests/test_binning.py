@@ -79,21 +79,25 @@ def test_partition_binning(trained_model, test_datapath):
 
 @pytest.fixture(scope="module")
 def hierarchical_model(test_datapath, context):
-    replicate_names = [0, 1]
-    obj = Popari(
-        K=10,
-        lambda_Sigma_x_inv=1e-3,
-        torch_context=context,
-        initial_context=context,
-        initialization_method="svd",
-        spatial_affinity_mode="differential lookup",
-        dataset_path=test_datapath / "all_data.h5",
-        replicate_names=replicate_names,
-        hierarchical_levels=2,
-        binning_downsample_rate=0.5,
-        superresolution_lr=1e-2,
-        verbose=4,
-    )
+    replicate_names = ["0", "1"]
+    hierarchical_parameters = {
+        "K": 10,
+        "lambda_Sigma_x_inv": 1e-3,
+        "torch_context": context,
+        "initial_context": context,
+        "initialization_method": "svd",
+        "spatial_affinity_mode": "differential lookup",
+        "dataset_path": test_datapath / "all_data.h5",
+        "replicate_names": replicate_names,
+        "hierarchical_levels": 2,
+        "binning_downsample_rate": 0.5,
+        "superresolution_lr": 1e-2,
+        "verbose": 4,
+    }
+
+    obj = Popari(**hierarchical_parameters)
+
+    # TODO: add test for tl.propagate_labels
 
     return obj
 
@@ -216,16 +220,6 @@ def untrainable_model(superresolved_model, test_datapath, context):
     )
 
     raw_datasets, _ = load_anndata(test_datapath / "all_data.h5")
-
-    # for raw_dataset, dataset in zip(raw_datasets, reloaded_model.hierarchy[0].datasets):
-    #     dataset.X = raw_dataset.X.copy()
-
-    # for level in range(reloaded_model.hierarchical_levels-1):
-    #     for dataset, binned_dataset in zip(reloaded_model.hierarchy[level].datasets, reloaded_model.hierarchy[level+1].datasets):
-    #         bin_assignments = dataset.obsm[f"bin_assignments_{dataset.name}_level_{level+1}"]
-    #         binned_expression = bin_assignments.T @ dataset.X
-    #         binned_dataset.X = binned_expression
-
     reloaded_model._reload_expression(raw_datasets)
 
     return reloaded_model

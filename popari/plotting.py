@@ -15,20 +15,24 @@ from popari._dataset_utils import (
     _plot_all_embeddings,
     _plot_cell_type_to_metagene,
     _plot_cell_type_to_metagene_difference,
+    _plot_clusters_to_categories,
     _plot_confusion_matrix,
     _plot_in_situ,
     _plot_metagene_embedding,
+    _plot_metagene_signature_enrichment,
     _plot_umap,
     for_model,
     setup_squarish_axes,
 )
 from popari.model import Popari
 
-in_situ = for_model(_plot_in_situ)
-metagene_embedding = for_model(_plot_metagene_embedding)
-confusion_matrix = for_model(_plot_confusion_matrix)
-umap = for_model(_plot_umap)
-multireplicate_heatmap = for_model(_multireplicate_heatmap)
+in_situ = for_model(_plot_in_situ, return_outputs=True)
+metagene_embedding = for_model(_plot_metagene_embedding, return_outputs=True)
+confusion_matrix = for_model(_plot_confusion_matrix, return_outputs=True)
+umap = for_model(_plot_umap, return_outputs=True)
+multireplicate_heatmap = for_model(_multireplicate_heatmap, return_outputs=True)
+clusters_to_categories = for_model(_plot_clusters_to_categories, return_outputs=True)
+metagene_signature_enrichment = for_model(_plot_metagene_signature_enrichment, return_outputs=True)
 
 
 def multigroup_heatmap(

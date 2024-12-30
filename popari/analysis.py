@@ -10,6 +10,7 @@ from scipy.stats import pearsonr, spearmanr, wasserstein_distance
 
 from popari._dataset_utils import (
     _cluster,
+    _cluster_domains,
     _compute_ari_score,
     _compute_columnwise_autocorrelation,
     _compute_confusion_matrix,
@@ -18,6 +19,7 @@ from popari._dataset_utils import (
     _compute_spatial_gene_correlation,
     _evaluate_classification_task,
     _leiden,
+    _metagene_gsea,
     _multigroup_heatmap,
     _pca,
     _preprocess_embeddings,
@@ -26,6 +28,7 @@ from popari._dataset_utils import (
     setup_squarish_axes,
 )
 from popari.model import Popari
+from popari.util import spatially_smooth_feature
 
 preprocess_embeddings = for_model(_preprocess_embeddings)
 cluster = for_model(_cluster)
@@ -38,6 +41,7 @@ evaluate_classification_task = for_model(_evaluate_classification_task)
 compute_confusion_matrix = for_model(_compute_confusion_matrix)
 compute_columnwise_autocorrelation = for_model(_compute_columnwise_autocorrelation)
 compute_spatial_gene_correlation = for_model(_compute_spatial_gene_correlation)
+cluster_domains = for_model(_cluster_domains)
 
 
 # def leiden(
@@ -287,3 +291,39 @@ def normalized_affinity_trends(
         }
 
     return top_pairs, pearson_correlations, variances
+
+
+def propagate_labels(trained_model, label_key: str, starting_level=None, smooth=False):
+    """Propagate a label from the most binned layer to the least binned
+    layer."""
+
+    if starting_level is None:
+        starting_level = trained_model.hierarchical_levels - 1
+
+    for level in range(starting_level, 0, -1):
+        view = trained_model.hierarchy[level]
+        high_res_view = trained_model.hierarchy[level - 1]
+        for dataset, high_res_dataset in zip(view.datasets, high_res_view.datasets):
+            B = dataset.obsm[f"bin_assignments_{dataset.name}"]
+            labels = dataset.obs[label_key]
+
+            high_res_labels = np.array(labels) @ B.astype(int).toarray()
+            if smooth:
+                high_res_labels = spatially_smooth_feature(
+                    high_res_labels,
+                    high_res_dataset.obs["adjacency_list"],
+                    max_smoothing_rounds=200,
+                    smoothing_threshold=0.3,
+                )
+
+            high_res_dataset.obs[label_key] = list(high_res_labels)
+            high_res_dataset.obs[label_key] = high_res_dataset.obs[label_key].astype("category")
+
+
+def metagene_gsea(trained_model, metagene_index: int, level=0, **gsea_kwargs):
+    """Run GSEA on metagenes from trained model."""
+
+    first_dataset = trained_model.hierarchy[level].datasets[0]
+    fig = _metagene_gsea(first_dataset, metagene_index, **gsea_kwargs)
+
+    return fig

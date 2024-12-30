@@ -1,5 +1,12 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+try:
+    import mlflow
+except ImportError:
+    pass
+
+from tqdm.auto import trange
 
 from popari.model import Popari
 
@@ -9,7 +16,11 @@ class TrainParameters:
     nmf_iterations: int
     iterations: int
     savepath: Path
-    synchronization_frequency: int = 10
+    synchronization_frequency: int = field(default=10, kw_only=True)
+
+
+@dataclass
+class MLFlowTrainParameters(TrainParameters): ...
 
 
 class Trainer:
@@ -20,10 +31,12 @@ class Trainer:
         self.nmf_iterations = 0
         self.iterations = 0
 
-    def train():
-        for _ in range(self.parameters.nmf_iterations):
-            if verbose > 0:
-                print(f"-------------- NMF Iteration {self.nmf_iterations} --------------")
+    def train(self):
+        nmf_progress_bar = trange(self.parameters.nmf_iterations, leave=True, disable=not self.verbose)
+        for _ in nmf_progress_bar:
+            if self.verbose > 0:
+                description = f"-------------- NMF Iteration {self.nmf_iterations} --------------"
+                nmf_progress_bar.set_description(description)
 
             synchronize = not (self.nmf_iterations % self.parameters.synchronization_frequency)
             self.model.estimate_parameters(update_spatial_affinities=False, synchronize=synchronize)
@@ -31,9 +44,11 @@ class Trainer:
 
             self.nmf_iterations += 1
 
-        for _ in range(self.parameters.iterations):
-            if verbose > 0:
-                print(f"------------------ Iteration {self.iterations} ------------------")
+        progress_bar = trange(self.parameters.iterations, leave=True, disable=not self.verbose)
+        for _ in progress_bar:
+            if self.verbose > 0:
+                description = f"------------------ Iteration {self.iterations} ------------------"
+                progress_bar.set_description(description)
 
             synchronize = not (self.iterations % self.parameters.synchronization_frequency)
 
@@ -42,9 +57,19 @@ class Trainer:
 
             self.iterations += 1
 
-    def save_results():
-        model.save_results(self.parameters.savepath)
+    def save_results(self, **kwargs):
+        self.model.save_results(self.parameters.savepath, **kwargs)
+
+    def superresolve(self, **kwargs):
+        new_lr = kwargs.pop("new_lr", self.model.superresolution_lr)
+        target_level = kwargs.pop("target_level", None)
+        self.model.set_superresolution_lr(new_lr, target_level)
+        self.model.superresolve(**kwargs)
 
     # TODO: decide whether to separate out saving of model training hyperparameters and
     # Popari parameters saving completely. This will obvious imply huge changes with how
     # MLflow should work. Perhaps even justifies switching entirely to WandB (a good excuse)
+
+
+class MLFlowTrainer(Trainer):
+    def save_results(self): ...

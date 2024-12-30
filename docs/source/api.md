@@ -79,6 +79,8 @@ Functions for visualizing and evaluating Popari results.
     tl.compute_ari_scores
     tl.compute_silhouette_scores
     tl.compute_empirical_correlations
+    tl.propagate_labels
+    tl.metagene_gsea
     tl.find_differential_genes
     tl.plot_gene_activations
     tl.plot_gene_trajectories
@@ -105,6 +107,8 @@ Functions for visualizing and evaluating Popari results.
     pl.multireplicate_heatmap
     pl.multigroup_heatmap
     pl.confusion_matrix
+    pl.metagene_signature_enrichment
+    pl.clusters_to_categories
 ```
 
 ## Simulation

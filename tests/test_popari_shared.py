@@ -6,6 +6,7 @@ import torch
 
 from popari import tl
 from popari.model import Popari
+from popari.train import Trainer, TrainParameters
 
 
 @pytest.fixture(scope="module")
@@ -35,27 +36,44 @@ def popari_with_neighbors(test_datapath, context):
         verbose=4,
     )
 
-    for iteration in range(1, 5):
-        print(f"-----  Iteration {iteration} -----")
-        obj.estimate_parameters()
-        nll_metagenes = obj.base_view.parameter_optimizer.nll_metagenes()
-        nll_spatial_affinities = obj.base_view.parameter_optimizer.nll_spatial_affinities()
-        nll_sigma_yx = obj.base_view.parameter_optimizer.nll_sigma_yx()
-        print(f"Metagene loss: {nll_metagenes}")
-        print(f"Spatial affinity loss: {nll_spatial_affinities}")
-        print(f"Sigma_yx loss: {nll_sigma_yx}")
-        obj.estimate_weights()
-        nll_embeddings = obj.base_view.embedding_optimizer.nll_embeddings()
-        print(f"Embedding loss: {nll_embeddings}")
-        print(f"Overall loss: {obj.base_view.nll()}")
+    iterations = 4
+    train_parameters = TrainParameters(
+        nmf_iterations=0,
+        iterations=iterations,
+        savepath=(test_datapath / f"trained_{iterations}_iterations.h5ad"),
+    )
+
+    trainer = Trainer(
+        parameters=train_parameters,
+        model=obj,
+        verbose=True,
+    )
+
+    trainer.train()
+
+    # for iteration in range(1, 5):
+    #     print(f"-----  Iteration {iteration} -----")
+    #     obj.estimate_parameters()
+    #     nll_metagenes = obj.base_view.parameter_optimizer.nll_metagenes()
+    #     nll_spatial_affinities = obj.base_view.parameter_optimizer.nll_spatial_affinities()
+    #     nll_sigma_yx = obj.base_view.parameter_optimizer.nll_sigma_yx()
+    #     print(f"Metagene loss: {nll_metagenes}")
+    #     print(f"Spatial affinity loss: {nll_spatial_affinities}")
+    #     print(f"Sigma_yx loss: {nll_sigma_yx}")
+    #     obj.estimate_weights()
+    #     nll_embeddings = obj.base_view.embedding_optimizer.nll_embeddings()
+    #     print(f"Embedding loss: {nll_embeddings}")
+    #     print(f"Overall loss: {obj.base_view.nll()}")
 
     for dataset in obj.datasets:
         dataset.uns["multigroup_heatmap"] = {
             group_name: np.arange(4).reshape((2, 2)) for group_name in obj.metagene_groups
         }
 
-    if not (test_datapath / "trained_4_iterations.h5ad").exists():
-        obj.save_results(test_datapath / "trained_4_iterations.h5ad")
+    # if not (test_datapath / "trained_4_iterations.h5ad").exists():
+    #     obj.save_results(test_datapath / "trained_4_iterations.h5ad")
+
+    trainer.save_results()
 
     return obj
 
@@ -83,7 +101,7 @@ def test_Sigma_x_inv(popari_with_neighbors, test_datapath):
     Sigma_x_inv = (
         list(popari_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].cpu().detach().numpy()
     )
-    # np.save("outputs/Sigma_x_inv_shared.npy", Sigma_x_inv)
+    # np.save(test_datapath / "outputs/Sigma_x_inv_shared.npy", Sigma_x_inv)
     test_Sigma_x_inv = np.load(test_datapath / "outputs/Sigma_x_inv_shared.npy")
     assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
 
@@ -103,18 +121,18 @@ def test_X_0(popari_with_neighbors, test_datapath):
 
 
 def test_louvain_clustering(popari_with_neighbors):
-    tl.preprocess_embeddings(popari_with_neighbors, joint=True)
+    tl.preprocess_embeddings(popari_with_neighbors)
     tl.leiden(popari_with_neighbors, joint=True, target_clusters=8)
     tl.compute_ari_scores(popari_with_neighbors, labels="cell_type", predictions="leiden")
     tl.compute_silhouette_scores(popari_with_neighbors, labels="cell_type", embeddings="normalized_X")
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=False)
     tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=True)
 
-    expected_aris = [0.7999573280203317, 0.8277482045123649]
+    expected_aris = [0.7659552293827756, 0.8001246799953088]
     for expected_ari, dataset in zip(expected_aris, popari_with_neighbors.datasets):
         assert expected_ari == pytest.approx(dataset.uns["ari"])
 
-    expected_silhouettes = [0.31084134914999734, 0.3413229798705868]
+    expected_silhouettes = [0.3070153983625831, 0.3447067843923269]
     for expected_silhouette, dataset in zip(expected_silhouettes, popari_with_neighbors.datasets):
         print(f"Silhouette score: {dataset.uns['silhouette']}")
         assert expected_silhouette == pytest.approx(dataset.uns["silhouette"])

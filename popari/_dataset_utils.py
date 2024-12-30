@@ -2,12 +2,14 @@ from functools import partial, wraps
 from typing import Callable, Optional, Sequence
 
 import anndata as ad
+import matplotlib.patches as patches
 import mpl_toolkits.axisartist.angle_helper as angle_helper
 import mpl_toolkits.axisartist.floating_axes as floating_axes
 import networkx as nx
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import scanpy.external as sce
 import seaborn as sns
 import squidpy as sq
 from matplotlib import cm, colormaps
@@ -25,7 +27,16 @@ from sklearn.preprocessing import LabelEncoder
 
 from popari._binning_utils import chunked_downsample_on_grid, filter_gridpoints
 from popari._popari_dataset import PopariDataset
-from popari.util import compute_neighborhood_enrichment, concatenate, unconcatenate
+from popari.util import (
+    compute_neighborhood_enrichment,
+    concatenate,
+    get_metagene_signature,
+    normalize_expression_by_threshold,
+    run_gsea,
+    smooth_labels,
+    smooth_metagene_expression,
+    unconcatenate,
+)
 
 
 def setup_squarish_axes(num_axes, **subplots_kwargs):
@@ -74,13 +85,18 @@ def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Se
             original_annotation[key] = updated_annotation[key]
 
 
-def for_model(function):
+def for_model(function=None, *, return_outputs: bool = False):
+    if function is None:
+        return partial(for_model, return_outputs=return_outputs)
+
     @wraps(function)
     def model_wrapper(trained_model: "Popari", *args, **kwargs):
         level = kwargs.pop("level", 0)
         datasets = trained_model.hierarchy[level].datasets
 
-        return function(datasets, *args, **kwargs)
+        outputs = function(datasets, *args, **kwargs)
+
+        return outputs if return_outputs else None
 
     return model_wrapper
 
@@ -181,7 +197,6 @@ def broadcast_plottable(function):
     return broadcast_wrapper
 
 
-@enable_joint(annotations=["obsm"])
 def _preprocess_embeddings(
     datasets: Sequence[PopariDataset],
     input_key="X",
@@ -277,14 +292,14 @@ def _leiden(
         resolution: the resolution to use for Leiden clustering. Higher values yield finer clusters..
 
     """
-    n_iterations = kwargs.pop("n_iterations", 2)
+    # n_iterations = kwargs.pop("n_iterations", 2) # TODO: add these parameters back in after resolving issue
     _cluster.__wrapped__(
         datasets,
         resolution=resolution,
         method="leiden",
         tolerance=tolerance,
-        flavor="igraph",
-        n_iterations=n_iterations,
+        # flavor="igraph",
+        # n_iterations=n_iterations,
         **kwargs,
     )
 
@@ -296,7 +311,7 @@ def _cluster(
     method: str = "leiden",
     n_neighbors: int = 20,
     target_clusters: Optional[int] = None,
-    tolerance: float = 0.01,
+    tolerance: float = 0.005,
     compute_neighbors: bool = True,
     verbose: bool = False,
     **kwargs,
@@ -376,7 +391,9 @@ def _umap(dataset: PopariDataset, use_rep: str = "X", compute_neighbors: bool = 
     sc.tl.umap(dataset)
 
 
-def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False, axes=None, **spatial_kwargs):
+@enable_joint
+@broadcast
+def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="leiden", **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
@@ -388,69 +405,51 @@ def _plot_in_situ(datasets: Sequence[PopariDataset], color="leiden", joint=False
 
     """
 
-    sharex = spatial_kwargs.pop("sharex", False)
-    sharey = spatial_kwargs.pop("sharey", False)
+    sharex = False if "sharex" not in spatial_kwargs else spatial_kwargs.pop("sharex")
+    sharey = False if "sharey" not in spatial_kwargs else spatial_kwargs.pop("sharey")
 
-    fig = None
+    # fig = None
     if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
+        fig, axes = setup_squarish_axes(1, sharex=sharex, sharey=sharey)
 
     edges_width = spatial_kwargs.pop("edges_width", 0.2)
     default_size = spatial_kwargs.pop("size", None)
-    palette = spatial_kwargs.pop("palette", ListedColormap(sc.pl.palettes.godsnot_102))
+    palette = spatial_kwargs.pop("palette", None)
+    palette = sc.pl.palettes.godsnot_102 if not palette else plt.get_cmap(palette).colors
+    palette = ListedColormap(palette)
+
     legend_fontsize = spatial_kwargs.pop("legend_fontsize", "xx-small")
     edgecolors = spatial_kwargs.pop("edgecolors", "none")
     connectivity_key = spatial_kwargs.pop("connectivity_key", "adjacency_matrix")
+    shape = spatial_kwargs.pop("shape", None)
 
     neighbors_key = spatial_kwargs.pop("neighbors_key", "spatial_neighbors")
 
-    if joint:
-        categories = set()
-        for dataset in datasets:
-            categories.update(dataset.obs[color].unique())
+    size = 10000 / len(dataset)
+    if default_size is not None:
+        size *= default_size
+
+    total_categories = len(dataset.obs[color].cat.categories)
+    leiden_colorlist = np.array(palette.colors)[np.linspace(0, len(palette.colors) - 1, total_categories, dtype=int)]
+    leiden_colors = dict(zip([str(category) for category in dataset.obs[color].cat.categories], leiden_colorlist))
+    datasets = unconcatenate(dataset)
 
     for dataset, ax in zip(datasets, axes.flat):
-        dataset_name = dataset.name
-        if joint:
-            dataset_categories = set(dataset.obs[color].unique())
-
-            dummy_points = []
-            average_coordinate = dataset.obsm["spatial"].mean(axis=0, keepdims=True)
-            for extra_category in categories.difference(dataset_categories):
-                dummy_point = ad.AnnData(X=np.zeros((1, dataset.n_vars)))
-                dummy_point.obs[color] = [extra_category]
-                dummy_point.obsm["spatial"] = average_coordinate
-                dummy_points.append(dummy_point)
-
-            if len(dummy_points) > 0:
-                concatenables = [*dummy_points, dataset]
-
-                dataset = ad.concat(
-                    concatenables,
-                    join="outer",
-                    label="dummy",
-                    merge="unique",
-                    uns_merge="unique",
-                    pairwise=True,
-                )
-
-        ax.set_aspect("equal", "box")
-        size = 10000 / len(dataset)
-        if default_size is not None:
-            size *= default_size
-
+        dataset_categories = dataset.obs[color].cat.categories
+        palette = ListedColormap([color for category, color in leiden_colors.items() if category in dataset_categories])
         sq.pl.spatial_scatter(
             dataset,
-            shape=None,
+            shape=shape,
             size=size,
             connectivity_key=connectivity_key,
             color=color,
             edges_width=edges_width,
             legend_fontsize=legend_fontsize,
-            title=dataset_name,
             ax=ax,
+            fig=fig,
             palette=palette,
             edgecolors=edgecolors,
+            library_key="batch",
             **spatial_kwargs,
         )
 
@@ -554,9 +553,12 @@ def _multireplicate_heatmap(
         images.append(image)
 
     for dataset_index, (image, ax) in enumerate(zip(images, axes.flat)):
+        dataset = datasets[dataset_index]
         im = ax.imshow(image, cmap=cmap, interpolation="nearest", aspect=aspect, **heatmap_kwargs)
         if title_font_size is not None:
             ax.set_title(dataset.name, fontsize=title_font_size)
+        else:
+            ax.set_title(dataset.name)
 
         if label_values:
             truncated_image = image.astype(int)
@@ -564,7 +566,10 @@ def _multireplicate_heatmap(
                 if mask is None or not mask[j, i]:
                     ax.text(i, j, label, ha="center", va="center", fontsize=label_font_size)
 
-        ax.set_title(dataset.name)
+        num_rows, num_columns = image.shape
+        ax.set_xticks(np.arange(num_columns).astype(int))
+        ax.set_yticks(np.arange(num_rows).astype(int))
+
         plt.colorbar(im, ax=ax, orientation="vertical", fraction=0.046, pad=0.04)
 
     return fig
@@ -1506,42 +1511,6 @@ def _plot_cell_type_to_metagene_difference(
     return fig, means
 
 
-# def _compile_de_genes(
-#     dataset,
-#     de_category: str = "cell_type",
-#     filtered_deg_key: str = "t-test filtered",
-#     gene_limit: int = 500,
-#     p_value_threshold: float = 1e-5,
-# ):
-#     """Compile DE genes.
-#
-#     After running ``sc.tl.rank_genes_groups`` and ``sc.tl.filter_rank_genes_groups``, call this
-#     function in order to summarize and collect the DE genes identified before.
-#
-#     Args:
-#         dataset:
-#
-#     """
-#     all_de_genes = set()
-#     ranked_genes = dataset.uns[filtered_deg_key]["names"]
-#     adjusted_pvals = dataset.uns[filtered_deg_key]["pvals_adj"]
-#     cell_type_de_genes = {}
-#     for cell_type in dataset.obs[de_category].unique():
-#         cell_type_genes = ranked_genes[cell_type]
-#         cell_type_pvals = adjusted_pvals[cell_type]
-#
-#         pval_filter = cell_type_pvals < p_value_threshold
-#
-#         filtered_genes = cell_type_genes[(pval_filter) & (~pd.isna(cell_type_genes))][:gene_limit]
-#         cell_type_de_genes[cell_type] = filtered_genes
-#         print(cell_type, len(filtered_genes))
-#         all_de_genes.update(filtered_genes)
-#
-#     print(len(all_de_genes))
-#
-#     return cell_type_de_genes, all_de_genes
-
-
 def _compile_de_genes(
     dataset,
     de_category: str = "cell_type",
@@ -1624,3 +1593,258 @@ def _call_de_genes(
     )
 
     return cell_type_de_genes, all_de_genes
+
+
+@enable_joint
+@broadcast_plottable
+def _plot_embeddings_to_label(
+    dataset,
+    ax=None,
+    names: Optional[Sequence[str]] = None,
+    embedding_key: str = "normalized_X",
+    label_key: str = "leiden",
+    **dotplot_kwargs,
+):
+    """Plot enrichment of embedding dimensions for a label category.
+
+    Args:
+        names: Names of embedding dimensions
+        swap
+
+    """
+
+    X = dataset.obsm[embedding_key]
+    num_spots, K = X.shape
+
+    mock_dataset = ad.AnnData(
+        X=dataset.obsm[embedding_key],
+    )
+
+    if not names:
+        mock_dataset.var_names = [f"m{index}" for index in range(K)]
+    else:
+        mock_dataset.var_names = names
+
+    swap_axes = dotplot_kwargs.pop("swap_axes", True)
+    standard_scale = dotplot_kwargs.pop("standard_scale", "var")
+
+    mock_dataset.obs = dataset.obs.copy()
+
+    aggregated = sc.get.aggregate(
+        mock_dataset,
+        by=label_key,
+        func=["sum", "count_nonzero"],
+    )
+
+    mean_in_expressed = aggregated.to_df(layer="sum") / aggregated.to_df(layer="count_nonzero")
+
+    vmin = None
+    vmax = None
+    if standard_scale is None:
+        vmax = np.max(np.abs(mean_in_expressed))
+        vmin = -vmax
+
+    dotplot = sc.pl.dotplot(
+        mock_dataset,
+        mock_dataset.var_names,
+        groupby=label_key,
+        dendrogram=False,
+        ax=ax,
+        standard_scale=standard_scale,
+        swap_axes=swap_axes,
+        return_fig=True,
+        vmin=vmin,
+        vmax=vmax,
+        **dotplot_kwargs,
+    )
+
+    dotplot.add_totals()
+    dotplot.show()
+
+    return dotplot, mean_in_expressed
+
+
+@enable_joint(annotations=["obsm"])
+@broadcast
+def _score_marker_expression(dataset, de_genes: dict[str, Sequence[str]], output_key="marker_expression"):
+    """Given a mapping from cell types to marker genes, compute enrichment."""
+    zscored_expression = zscore(dataset.X)
+
+    marker_gene_expression = np.zeros((len(dataset), len(de_genes)))
+    for index, (subtype, gene_list) in enumerate(de_genes.items()):
+        gene_list_index = dataset.var_names.isin(gene_list)
+        marker_gene_expression[:, index] = zscored_expression[:, gene_list_index].sum(axis=1)
+
+    dataset.obsm[output_key] = marker_gene_expression
+
+
+@enable_joint(annotations=["obsm"])
+def _plot_clusters_to_categories(
+    datasets,
+    category_de_genes: dict[str, Sequence[str]],
+    output_key="marker_expression",
+    **dotplot_kwargs,
+):
+    """Plot clusters to category correspondence, based on category marker gene
+    expression.
+
+    Args:
+        category_de_genes: mapping from category to marker genes for that category
+
+    """
+    _score_marker_expression.__wrapped__(datasets, category_de_genes, output_key=output_key)
+    (cell_type_to_cluster_correspondence_fig, (_, mean_in_expressed)) = _plot_embeddings_to_label.__wrapped__(
+        datasets,
+        names=list(category_de_genes.keys()),
+        standard_scale=None,
+        cmap="bwr",
+        embedding_key=output_key,
+        title="Cell-type-to-cluster Correspondence",
+        **dotplot_kwargs,
+    )
+
+    return cell_type_to_cluster_correspondence_fig
+
+
+def _cluster_domains(
+    datasets,
+    target_domains: Optional[int] = None,
+    skip_thresholding: bool = True,
+    batch_correct: bool = False,
+):
+    """Discover domains from Popari embeddings."""
+
+    normalized_key = "normalized_X"
+    if not skip_thresholding:
+        normalized_key = "normalized_thresholded_expression"
+        for dataset in datasets:
+            normalize_expression_by_threshold(dataset, thresholded_key="normalized_X")
+
+    processed_key = normalized_key
+    if batch_correct:
+        merged_dataset = concatenate(datasets)
+        sce.pp.scanorama_integrate(merged_dataset, "batch", basis=normalized_key, verbose=1)
+
+        processed_key = "X_scanorama"
+        for dataset in datasets:
+            dataset.obsm[processed_key] = (
+                merged_dataset[merged_dataset.obs["batch"] == dataset.name].obsm[processed_key].copy()
+            )
+
+    for dataset in datasets:
+        smooth_metagene_expression(dataset, processed_key=processed_key)
+
+    _cluster(
+        datasets,
+        verbose=True,
+        use_rep="smoothed_expression",
+        target_clusters=target_domains,
+        n_neighbors=40,
+        joint=True,
+    )
+
+    for dataset in datasets:
+        smooth_labels(dataset, output_key="smoothed_domain")
+
+
+def _metagene_gsea(
+    dataset: PopariDataset,
+    metagene_index: int,
+    metagene_key: str = "M",
+    sensitivity: float = 0.5,
+    **gsea_kwargs,
+):
+    """Compute GSEA for the top genes from a particular metagene."""
+    metagenes = dataset.uns[metagene_key][dataset.name]
+    metagene = metagenes[:, metagene_index]
+
+    gene_names = dataset.var_names
+
+    signature = list(get_metagene_signature(metagene, gene_names, show_plot=False, sensitivity=sensitivity))
+
+    mode = gsea_kwargs.pop("mode", "barplot")
+    try:
+        enrichment_result, ax = run_gsea(
+            signature,
+            f"Metagene {metagene_index}",
+            gene_names,
+            mode=mode,
+        )
+
+        fig = ax.figure
+    except ValueError:
+        raise ValueError("Didn't find any enriched GO terms.")
+
+    return fig
+
+
+def _plot_metagene_signature_enrichment(
+    datasets,
+    metagene_index,
+    categories=None,
+    category_key="domain",
+    sensitivity=1,
+    **subplot_kwargs,
+):
+    """Plot enrichment of metagene signature across categories."""
+
+    first_dataset = datasets[0]
+    M = list(first_dataset.uns["M"].values())[0]
+
+    gene_names = first_dataset.var_names
+
+    merged_dataset = concatenate(datasets)
+    if categories is None:
+        categories = merged_dataset.obs[category_key].unique()
+
+    metagene_signature = get_metagene_signature(
+        M[:, metagene_index],
+        gene_names,
+        sensitivity=sensitivity,
+        type="upregulated",
+        show_plot=False,
+    )
+
+    indices = gene_names.get_indexer(metagene_signature)
+
+    num_columns = len(datasets) * len(categories)
+    raw_genes = np.zeros((len(metagene_signature), num_columns))
+
+    for category_index, category in enumerate(categories):
+        for dataset_index, dataset in enumerate(datasets):
+
+            first_subtype = dataset[dataset.obs[category_key] == category]
+            raw_genes[:, dataset_index * len(categories) + category_index] = first_subtype.X[:, indices].mean(axis=0)
+
+    vmax = np.abs(raw_genes).max()
+    vmin = 0
+
+    dpi = subplot_kwargs.pop("dpi", 200)
+    figsize = subplot_kwargs.pop("figsize", (4, len(metagene_signature) / 5))
+    fig, ax = plt.subplots(dpi=dpi, figsize=figsize, **subplot_kwargs)
+    im = ax.imshow(raw_genes, cmap="Reds", vmax=vmax, vmin=vmin)
+
+    for index in range(0, len(datasets)):
+        ax.axvline((index) * len(categories) - 0.5, color="k")
+
+    ax.grid(False)
+
+    plt.colorbar(im, ax=ax)
+    ax.set_yticks(np.arange(len(metagene_signature)))
+    ax.set_yticklabels(metagene_signature)
+    ax.set_xticks(np.arange(num_columns))
+    ax.set_xticklabels([])
+    ax.set_aspect("equal")
+    colors = plt.get_cmap("tab20b").colors  # Colors for each tick
+
+    for i, tick in enumerate(ax.get_xticks()):
+        rect = patches.Rectangle(
+            ((tick + 0.1) / num_columns, 0),
+            0.04,
+            -0.5 / len(metagene_signature),
+            transform=ax.transAxes,
+            color=colors[i % len(categories)],
+        )
+        fig.add_artist(rect)
+
+    return fig, metagene_signature
