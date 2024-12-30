@@ -197,7 +197,6 @@ def broadcast_plottable(function):
     return broadcast_wrapper
 
 
-@enable_joint(annotations=["obsm"])
 def _preprocess_embeddings(
     datasets: Sequence[PopariDataset],
     input_key="X",
