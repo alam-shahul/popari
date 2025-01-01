@@ -5,7 +5,7 @@ import anndata as ad
 import awkward as ak
 import numpy as np
 import torch
-from scipy.sparse import csr_matrix, issparse
+from scipy.sparse import csr_array, issparse
 
 from popari.components import PopariDataset
 from popari.util import concatenate, unconcatenate
@@ -15,6 +15,7 @@ def load_anndata(filepath: Union[str, Path]):
     """Load AnnData object from h5ad file and reformat for Popari."""
 
     merged_dataset = ad.read_h5ad(filepath)
+
     datasets, replicate_names = unmerge_anndata(merged_dataset)
 
     return datasets, replicate_names
@@ -23,6 +24,7 @@ def load_anndata(filepath: Union[str, Path]):
 def unmerge_anndata(merged_dataset: ad.AnnData):
     """Unmerge composite AnnData object into constituent datasets."""
 
+    merged_dataset.X = csr_array(merged_dataset.X)
     datasets = unconcatenate(merged_dataset)
 
     for dataset in datasets:
@@ -49,7 +51,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
 
         # Hacks to load adjacency matrices efficiently
         if "adjacency_matrix" in dataset.uns:
-            dataset.obsp["adjacency_matrix"] = csr_matrix(
+            dataset.obsp["adjacency_matrix"] = csr_array(
                 dataset.uns["adjacency_matrix"][replicate_string],
             )
 
@@ -131,9 +133,6 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
             replicate_X = make_hdf5_compatible(dataset.obsm["X"])
             dataset.obsm["X"] = replicate_X
 
-        if issparse(dataset.X):
-            dataset.X = dataset.X.toarray()
-
     replicate_names = [dataset.name for dataset in datasets]
     return datasets, replicate_names
 
@@ -147,9 +146,9 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
         replicate = dataset.name
         replicate_string = f"{replicate}"
         if ignore_raw_data:
-            X = csr_matrix(dataset.X.shape)
+            dataset.X = csr_array(dataset.X.shape)
         else:
-            X = dataset.X
+            dataset.X = csr_array(dataset.X)
 
         dataset_copy = PopariDataset(dataset, dataset.name)
 

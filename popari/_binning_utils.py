@@ -71,7 +71,10 @@ class Downsampler(ABC):
         #     index = bin_assignments[[i], :].toarray()
         #     binned_expression[i] = np.sum(dataset.X[index], axis=0)
 
+        print(f"{type(dataset.X)=}")
+
         binned_expression = bin_assignments @ dataset.X
+        print(f"{binned_expression=}")
 
         return binned_expression
 

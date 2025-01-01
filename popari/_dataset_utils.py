@@ -363,6 +363,9 @@ def _cluster(
     return datasets
 
 
+from scipy.sparse import csr_array, csr_matrix
+
+
 @enable_joint(annotations=["obsm", "varm", "uns"])
 @broadcast
 def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
@@ -372,7 +375,9 @@ def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
         datasets: list of datasets to process
 
     """
+    dataset.X = csr_matrix(dataset.X)  # Hack because sparse PCA isn't implemented
     sc.pp.pca(dataset, n_comps=n_comps, **pca_kwargs)
+    dataset.X = csr_array(dataset.X)
 
 
 @enable_joint(annotations=["obsm"])
