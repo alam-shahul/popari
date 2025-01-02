@@ -359,12 +359,15 @@ class Popari:
 
         if self.verbose:
             print(f"{get_datetime()} Updating metagenes")
+
         self.parameter_optimizer.update_metagenes(
             differentiate_metagenes=differentiate_metagenes,
             simplex_projection_mode=simplex_projection_mode,
         )
+
         if self.verbose:
             print(f"{get_datetime()} Updating sigma_yx")
+
         self.parameter_optimizer.update_sigma_yx()
 
         if synchronize:
