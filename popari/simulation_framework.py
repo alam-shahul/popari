@@ -229,6 +229,27 @@ class SimulationParameters:
     lambda_s: float = 1.0
 
 
+def get_grid_coordinates(width: float, height: float, grid_size: int):
+    """Generate grid coordinates for simulation.
+
+    Assumes exactly grid_size rows and grid_size columns, therefore yielding (grid_size)^2 rows.
+
+    Args:
+        width: width of grid, in relative units
+        height: height of grid, in relative units
+        grid_size: number of rows/columns in the grid.
+
+    """
+
+    x = np.linspace(0, width, grid_size)
+    y = np.linspace(0, height, grid_size)
+    xv, yv = np.meshgrid(x, y)
+
+    coordinates = np.vstack([xv.flatten() * width, yv.flatten() * height]).T
+
+    return coordinates
+
+
 class SyntheticDataset(AnnData):
     """Simulated spatial transcriptomics dataset.
 
@@ -288,11 +309,7 @@ class SyntheticDataset(AnnData):
             }
 
         if self.params.grid_size:
-            x = np.linspace(0, self.params.width, self.params.grid_size)
-            y = np.linspace(0, self.params.height, self.params.grid_size)
-            xv, yv = np.meshgrid(x, y)
-
-            self.obsm["spatial"] = np.vstack([xv.flatten() * self.params.width, yv.flatten() * self.params.height]).T
+            self.obsm["spatial"] = get_grid_coordinates(self.params.width, self.params.height, self.params.grid_size)
         else:
             if not self.params.minimum_distance:
                 minimum_distance = 0.75 / np.sqrt(self.params.num_cells)
