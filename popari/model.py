@@ -359,12 +359,15 @@ class Popari:
 
         if self.verbose:
             print(f"{get_datetime()} Updating metagenes")
+
         self.parameter_optimizer.update_metagenes(
             differentiate_metagenes=differentiate_metagenes,
             simplex_projection_mode=simplex_projection_mode,
         )
+
         if self.verbose:
             print(f"{get_datetime()} Updating sigma_yx")
+
         self.parameter_optimizer.update_sigma_yx()
 
         if synchronize:
@@ -497,9 +500,10 @@ class Popari:
         high_resolution_view = self.hierarchy[0]
         for index, (raw_dataset, dataset) in enumerate(zip(raw_datasets, high_resolution_view.datasets)):
             dataset.X = raw_dataset.X.copy()
+            num_cells, _ = dataset.shape
 
-            Y = torch.tensor(dataset.X, **self.context)
-            Y *= (self.K * 1) / Y.sum(axis=1, keepdim=True).mean()
+            Y = convert_numpy_to_pytorch_sparse_coo(dataset.X, self.context)
+            Y *= (self.K * 1) / (Y.sum() / num_cells)
             high_resolution_view.Ys[index] = Y
 
         high_resolution_view.parameter_optimizer.update_sigma_yx()  # This is necessary, since `sigma_yx` isn't loaded correctly from disk
@@ -523,31 +527,6 @@ class Popari:
                 low_res_view.Ys[index] = binned_Y
 
             low_res_view.parameter_optimizer.update_sigma_yx()
-
-    # def train(self, num_preiterations: int, num_iterations: int):
-    #     """Convenience function for training loop.
-
-    #     Args:
-    #         num_preiterations: number of NMF iterations to use for initialization
-    #         num_iterations: number of Popari iterations to train for
-
-    #     """
-
-    #     progress_bar = trange(num_preiterations, leave=True)
-    #     for preiteration in progress_bar:
-    #         description = f"Preiteration {preiteration}"
-    #         progress_bar.set_description(description)
-
-    #         self.estimate_parameters(update_spatial_affinities=False)
-    #         self.estimate_weights(use_neighbors=False)
-
-    #     progress_bar = trange(num_iterations, leave=True)
-    #     for iteration in progress_bar:
-    #         description = f"Iteration {iteration}"
-    #         progress_bar.set_description(description)
-
-    #         self.estimate_parameters()
-    #         self.estimate_weights()
 
 
 class SpiceMix(Popari):

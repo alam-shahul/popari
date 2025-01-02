@@ -65,12 +65,6 @@ class Downsampler(ABC):
         num_spots, num_genes = dataset.X.shape
         num_bins, _ = bin_assignments.shape
 
-        # binned_expression = np.zeros((num_bins, num_genes))
-
-        # for i in range(num_bins):  # TODO: can vectorize / make work with `csr_array`?
-        #     index = bin_assignments[[i], :].toarray()
-        #     binned_expression[i] = np.sum(dataset.X[index], axis=0)
-
         binned_expression = bin_assignments @ dataset.X
 
         return binned_expression

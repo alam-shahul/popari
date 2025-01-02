@@ -3,6 +3,7 @@ from typing import Sequence, Tuple
 
 import numpy as np
 import torch
+from scipy import sparse as sp
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA, TruncatedSVD
 
@@ -161,7 +162,7 @@ def initialize_svd(
     """
 
     # TODO: add check that number of genes is the same for all datasets
-    Y_cat = np.concatenate([dataset.X for dataset in datasets], axis=0)
+    Y_cat = sp.vstack([dataset.X for dataset in datasets])
 
     svd = TruncatedSVD(K)
     X_cat = svd.fit_transform(Y_cat)

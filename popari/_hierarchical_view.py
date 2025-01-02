@@ -124,8 +124,9 @@ class HierarchicalView:
         if binned_Ys is None:
             self.Ys = []
             for dataset in self.datasets:
-                Y = torch.tensor(dataset.X, **self.context)
-                Y *= (self.K * 1) / Y.sum(axis=1, keepdim=True).mean()
+                num_cells, _ = dataset.shape
+                Y = convert_numpy_to_pytorch_sparse_coo(dataset.X, self.context)
+                Y *= (self.K * 1) / (Y.sum() / num_cells)
                 self.Ys.append(Y)
         else:
             self.Ys = binned_Ys
@@ -377,7 +378,7 @@ class HierarchicalView:
             if prior_x_mode == "exponential shared fixed":
                 linear_term_gradient = linear_term_gradient - prior_x[0][None]
 
-            Ynorm = torch.linalg.norm(Y, ord="fro").item() ** 2 / (sigma_yx**2)
+            Ynorm = torch.square(Y).sum() / (sigma_yx**2)
             X_Bnorm = np.linalg.norm(X_B, ord="fro").item() ** 2
             loss_prev, loss = np.inf, np.nan
 
@@ -579,7 +580,7 @@ class HierarchicalView:
                 # Precomputing quantities
                 MTM = M.T @ M / (sigma_yx**2)
                 YM = Y.to(M.device) @ M / (sigma_yx**2)
-                Ynorm = torch.linalg.norm(Y, ord="fro").item() ** 2 / (sigma_yx**2)
+                Ynorm = torch.square(Y).sum() / (sigma_yx**2)
                 S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
 
                 Z = X / S

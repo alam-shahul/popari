@@ -57,7 +57,6 @@ def test_load_differential_from_shared(differential_from_shared):
 
 
 def test_save_anndata(trained_model, dataset_path, delete_mock_data):
-    dataset_path = Path("tests/test_data/synthetic_dataset")
     save_anndata(dataset_path / "mock_results.h5ad", trained_model.datasets)
     save_anndata(dataset_path / "mock_results_ignore_raw_data.h5ad", trained_model.datasets, ignore_raw_data=True)
 

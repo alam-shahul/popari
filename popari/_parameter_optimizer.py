@@ -588,7 +588,7 @@ class ParameterOptimizer:
         scaled_betas = betas / (sigma_yxs**2)
 
         # ||Y||_2^2
-        constant_magnitude = np.array([torch.linalg.norm(Y).item() ** 2 for Y in Ys]).sum()
+        constant_magnitude = np.array([torch.square(Y).sum().cpu() for Y in Ys]).sum()
 
         constant = (
             np.array(
@@ -695,7 +695,7 @@ class ParameterOptimizer:
 
         # ||Y||_2^2
         constant = np.array(
-            [torch.linalg.norm(Y).item() ** 2 / (sigma_yx**2) for Y, sigma_yx in zip(Ys, sigma_yxs)],
+            [torch.square(Y).sum().cpu() / (sigma_yx**2) for Y, sigma_yx in zip(Ys, sigma_yxs)],
         ).sum()
         # constant_magnitude = np.array([torch.linalg.norm(Y).item()**2 for Y in Ys]).sum()
 
@@ -907,9 +907,18 @@ class ParameterOptimizer:
     def update_sigma_yx(self):
         """Update sigma_yx for each replicate."""
 
+        # print((self.Ys[0]).is_sparse)
+        # print((self.embedding_optimizer.embedding_state[self.datasets[0].name]).is_sparse)
+        # print((self.metagene_state[self.datasets[0].name].T).is_sparse)
+        # squared_loss = np.zeros(len(self.datasets))
+        # for index, (Y, dataset) in enumerate(zip(self.Ys, self.datasets)):
+        #     result = torch.square(-(self.embedding_optimizer.embedding_state[dataset.name] @ self.metagene_state[dataset.name].T) + Y).sum()
+        #     print(result)
+        #     2/0
+        #     squared_loss[index] = result
         squared_terms = [
             torch.addmm(
-                Y,
+                Y.to_dense(),
                 self.embedding_optimizer.embedding_state[dataset.name],
                 self.metagene_state[dataset.name].T,
                 alpha=-1,
@@ -933,7 +942,7 @@ class ParameterOptimizer:
         with torch.no_grad():
             squared_terms = [
                 torch.addmm(
-                    Y,
+                    Y.to_dense(),
                     self.embedding_optimizer.embedding_state[dataset.name],
                     self.metagene_state[dataset.name].T,
                     alpha=-1,

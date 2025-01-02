@@ -5,7 +5,7 @@ import anndata as ad
 import awkward as ak
 import numpy as np
 import torch
-from scipy.sparse import csr_matrix, issparse
+from scipy.sparse import csr_array, issparse
 
 from popari.components import PopariDataset
 from popari.util import concatenate, unconcatenate
@@ -15,6 +15,7 @@ def load_anndata(filepath: Union[str, Path]):
     """Load AnnData object from h5ad file and reformat for Popari."""
 
     merged_dataset = ad.read_h5ad(filepath)
+
     datasets, replicate_names = unmerge_anndata(merged_dataset)
 
     return datasets, replicate_names
@@ -23,6 +24,7 @@ def load_anndata(filepath: Union[str, Path]):
 def unmerge_anndata(merged_dataset: ad.AnnData):
     """Unmerge composite AnnData object into constituent datasets."""
 
+    merged_dataset.X = csr_array(merged_dataset.X)
     datasets = unconcatenate(merged_dataset)
 
     for dataset in datasets:
@@ -49,7 +51,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
 
         # Hacks to load adjacency matrices efficiently
         if "adjacency_matrix" in dataset.uns:
-            dataset.obsp["adjacency_matrix"] = csr_matrix(
+            dataset.obsp["adjacency_matrix"] = csr_array(
                 dataset.uns["adjacency_matrix"][replicate_string],
             )
 
@@ -62,24 +64,24 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
 
         dataset.obsm["adjacency_list"] = ak.Array(adjacency_list)
 
-        if "M" in dataset.uns:
-            if replicate_string in dataset.uns["M"]:
-                replicate_M = make_hdf5_compatible(dataset.uns["M"][replicate_string])
-                dataset.uns["M"] = {replicate_string: replicate_M}
+        # if "M" in dataset.uns:
+        #     if replicate_string in dataset.uns["M"]:
+        #         replicate_M = make_hdf5_compatible(dataset.uns["M"][replicate_string])
+        #         dataset.uns["M"] = {replicate_string: replicate_M}
 
-        if "M_bar" in dataset.uns:
-            if replicate_string in dataset.uns["M_bar"]:
-                replicate_M_bar = make_hdf5_compatible(
-                    dataset.uns["M_bar"][replicate_string],
-                )
-                dataset.uns["M_bar"] = {replicate_string: replicate_M_bar}
+        # if "M_bar" in dataset.uns:
+        #     if replicate_string in dataset.uns["M_bar"]:
+        #         replicate_M_bar = make_hdf5_compatible(
+        #             dataset.uns["M_bar"][replicate_string],
+        #         )
+        #         dataset.uns["M_bar"] = {replicate_string: replicate_M_bar}
 
         if "popari_hyperparameters" in dataset.uns:
-            if "prior_x" in dataset.uns["popari_hyperparameters"]:
-                prior_x = make_hdf5_compatible(
-                    dataset.uns["popari_hyperparameters"]["prior_x"],
-                )
-                dataset.uns["popari_hyperparameters"]["prior_x"] = prior_x
+            # if "prior_x" in dataset.uns["popari_hyperparameters"]:
+            #     prior_x = make_hdf5_compatible(
+            #         dataset.uns["popari_hyperparameters"]["prior_x"],
+            #     )
+            #     dataset.uns["popari_hyperparameters"]["prior_x"] = prior_x
 
             if "spatial_affinity_groups" in dataset.uns["popari_hyperparameters"]:
                 name_parts = dataset.name.split("_level_")
@@ -127,12 +129,9 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
 
                 dataset.uns["popari_hyperparameters"]["metagene_groups"] = filtered_groups
 
-        if "X" in dataset.obsm:
-            replicate_X = make_hdf5_compatible(dataset.obsm["X"])
-            dataset.obsm["X"] = replicate_X
-
-        if issparse(dataset.X):
-            dataset.X = dataset.X.toarray()
+        # if "X" in dataset.obsm:
+        #     replicate_X = make_hdf5_compatible(dataset.obsm["X"])
+        #     dataset.obsm["X"] = replicate_X
 
     replicate_names = [dataset.name for dataset in datasets]
     return datasets, replicate_names
@@ -147,9 +146,9 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
         replicate = dataset.name
         replicate_string = f"{replicate}"
         if ignore_raw_data:
-            X = csr_matrix(dataset.X.shape)
+            dataset.X = csr_array(dataset.X.shape)
         else:
-            X = dataset.X
+            dataset.X = csr_array(dataset.X)
 
         dataset_copy = PopariDataset(dataset, dataset.name)
 
@@ -187,33 +186,33 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
                 replicate_string: replicate_Sigma_x_inv_bar,
             }
 
-        if "M" in dataset_copy.uns:
-            if replicate_string in dataset_copy.uns["M"]:
-                replicate_M = make_hdf5_compatible(
-                    dataset_copy.uns["M"][replicate_string],
-                )
-                dataset_copy.uns["M"] = {replicate_string: replicate_M}
+        # if "M" in dataset_copy.uns:
+        # if replicate_string in dataset_copy.uns["M"]:
+        #     replicate_M = make_hdf5_compatible(
+        #         dataset_copy.uns["M"][replicate_string],
+        #     )
+        #     dataset_copy.uns["M"] = {replicate_string: replicate_M}
 
-        if "M_bar" in dataset_copy.uns:
-            if replicate_string in dataset_copy.uns["M_bar"]:
-                replicate_M_bar = make_hdf5_compatible(
-                    dataset_copy.uns["M_bar"][replicate_string],
-                )
-                dataset_copy.uns["M_bar"] = {replicate_string: replicate_M_bar}
+        # if "M_bar" in dataset_copy.uns:
+        # if replicate_string in dataset_copy.uns["M_bar"]:
+        #     replicate_M_bar = make_hdf5_compatible(
+        #         dataset_copy.uns["M_bar"][replicate_string],
+        #     )
+        #     dataset_copy.uns["M_bar"] = {replicate_string: replicate_M_bar}
 
-        if "popari_hyperparameters" in dataset_copy.uns:
-            if "prior_x" in dataset_copy.uns["popari_hyperparameters"]:
-                prior_x = make_hdf5_compatible(
-                    dataset_copy.uns["popari_hyperparameters"]["prior_x"],
-                )
-                dataset_copy.uns["popari_hyperparameters"]["prior_x"] = prior_x
+        # if "popari_hyperparameters" in dataset_copy.uns:
+        # if "prior_x" in dataset_copy.uns["popari_hyperparameters"]:
+        #     prior_x = make_hdf5_compatible(
+        #         dataset_copy.uns["popari_hyperparameters"]["prior_x"],
+        #     )
+        #     dataset_copy.uns["popari_hyperparameters"]["prior_x"] = prior_x
 
         if "dataset_name" not in dataset_copy.uns:
             dataset_copy.uns["dataset_name"] = dataset.name
 
-        if "X" in dataset_copy.obsm:
-            replicate_X = make_hdf5_compatible(dataset_copy.obsm["X"])
-            dataset_copy.obsm["X"] = replicate_X
+        # if "X" in dataset_copy.obsm:
+        #     replicate_X = make_hdf5_compatible(dataset_copy.obsm["X"])
+        #     dataset_copy.obsm["X"] = replicate_X
         dataset_copies.append(dataset_copy)
 
         if "adjacency_list" in dataset_copy.obs:

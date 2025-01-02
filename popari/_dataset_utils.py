@@ -18,7 +18,7 @@ from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 from matplotlib.transforms import Affine2D
 from mpl_toolkits.axisartist.grid_finder import DictFormatter, FixedLocator, MaxNLocator
-from scipy.sparse import issparse
+from scipy.sparse import csr_array, csr_matrix, issparse
 from scipy.stats import wilcoxon, zscore
 from sklearn.metrics import adjusted_rand_score, confusion_matrix, precision_score, silhouette_score
 from sklearn.model_selection import train_test_split
@@ -372,7 +372,9 @@ def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
         datasets: list of datasets to process
 
     """
+    dataset.X = csr_matrix(dataset.X)  # Hack because sparse PCA isn't implemented
     sc.pp.pca(dataset, n_comps=n_comps, **pca_kwargs)
+    dataset.X = csr_array(dataset.X)
 
 
 @enable_joint(annotations=["obsm"])
