@@ -20,7 +20,7 @@ def context():
     return context
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="module")
 def shared_model(test_datapath, context):
     obj = Popari(
         K=10,
