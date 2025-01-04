@@ -192,8 +192,8 @@ class MLFlowTrainer(Trainer):
             for hierarchical_level in range(self.model.hierarchical_levels):
                 self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
 
-    def __enter__(self):
-        return mlflow.start_run()
+    def __enter__(self, log_system_metrics: bool = True):
+        return mlflow.start_run(log_system_metrics=log_system_metrics)
 
     def __exit__(self, error_type, value, traceback):
         mlflow.end_run()
