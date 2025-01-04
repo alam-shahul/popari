@@ -1,5 +1,5 @@
 from functools import partial, wraps
-from typing import Callable, Optional, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 import anndata as ad
 import matplotlib.patches as patches
@@ -67,7 +67,7 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
     return fig, axes
 
 
-def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Sequence[str]] = None):
+def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Mapping[str, Sequence[str]]] = None):
     """Copy updates from one AnnData to another.
 
     Note that this is a bit wasteful, as it copies every key in a given
@@ -75,13 +75,16 @@ def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Se
 
     """
     if annotations is None:
-        annotations = ()
+        annotations = dict()
 
-    for annotation in annotations:
+    for annotation, keys in annotations.items():
         original_annotation = getattr(original_dataset, annotation)
         updated_annotation = getattr(updated_dataset, annotation)
 
-        for key in updated_annotation:
+        if keys is None:
+            keys = updated_annotation.keys()
+
+        for key in keys:
             original_annotation[key] = updated_annotation[key]
 
 
@@ -101,7 +104,7 @@ def for_model(function=None, *, return_outputs: bool = False):
     return model_wrapper
 
 
-def enable_joint(function=None, *, annotations: Optional[Sequence[str]] = None):
+def enable_joint(function=None, *, annotations: Optional[Mapping[str, Sequence[str]]] = None):
     """Decorator to extend functions that operate on lists of dataset to work on
     a joint, merged dataset.
 
@@ -275,7 +278,8 @@ def _plot_metagene_embedding(
     return fig
 
 
-@enable_joint(annotations=["obs", "uns", "obsp"])
+# TODO: we need to copy `.uns` to keep all added info. But this is buggy, because copying `.uns` is not done correctly
+@enable_joint(annotations={"obs": None, "uns": ["leiden"], "obsp": None})
 def _leiden(
     datasets: Sequence[PopariDataset],
     resolution: float = 1.0,
@@ -304,7 +308,7 @@ def _leiden(
     )
 
 
-@enable_joint(annotations=["obs", "uns", "obsp"])
+@enable_joint(annotations={"obs": None, "uns": None, "obsp": None})
 def _cluster(
     datasets: Sequence[PopariDataset],
     use_rep="normalized_X",
@@ -363,7 +367,7 @@ def _cluster(
     return datasets
 
 
-@enable_joint(annotations=["obsm", "varm", "uns"])
+@enable_joint(annotations={"obsm": ["X_pca"], "varm": ["PCs"], "uns": ["pca"]})
 @broadcast
 def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
     r"""Compute PCA for all datasets.
@@ -377,7 +381,7 @@ def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
     dataset.X = csr_array(dataset.X)
 
 
-@enable_joint(annotations=["obsm"])
+@enable_joint(annotations={"obsm": ["X_umap"], "uns": ["umap"]})
 @broadcast
 def _umap(dataset: PopariDataset, use_rep: str = "X", compute_neighbors: bool = True, n_neighbors: int = 20):
     r"""Compute UMAP for all datasets.
@@ -458,7 +462,7 @@ def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="
     return fig
 
 
-@enable_joint(annotations=[])
+@enable_joint
 @broadcast_plottable
 def _plot_umap(dataset: PopariDataset, color="leiden", ax=None, **kwargs):
     r"""Plot a categorical label across all datasets in-situ.
@@ -764,7 +768,7 @@ def _adjacency_permutation_test(
     return dataset
 
 
-@enable_joint(annotations=["uns"])
+@enable_joint(annotations={"uns": ["ari"]})
 @broadcast
 def _compute_ari_score(dataset: PopariDataset, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth
@@ -784,7 +788,7 @@ def _compute_ari_score(dataset: PopariDataset, labels: str, predictions: str, ar
     dataset.uns[ari_key] = ari
 
 
-@enable_joint(annotations=["uns"])
+@enable_joint(annotations={"uns": ["silhouette"]})
 @broadcast
 def _compute_silhouette_score(dataset: PopariDataset, labels: str, embeddings: str, silhouette_key: str = "silhouette"):
     r"""Compute silhouette score for a clustering based on Popari embeddings.
@@ -848,7 +852,16 @@ def _plot_all_embeddings(
     )
 
 
-@enable_joint(annotations=["uns"])
+@enable_joint(
+    annotations={
+        "uns": [
+            "microprecision_train",
+            "microprecision_validation",
+            "macroprecision_train",
+            "macroprecision_validation",
+        ],
+    },
+)
 @broadcast
 def _evaluate_classification_task(dataset: PopariDataset, embeddings: str, labels: str):
     """"""
@@ -877,7 +890,7 @@ def _evaluate_classification_task(dataset: PopariDataset, embeddings: str, label
     return dataset
 
 
-@enable_joint(annotations=["obs", "uns"])
+@enable_joint(annotations={"obs": None, "uns": ["confusion_matrix"]})
 @broadcast
 def _compute_confusion_matrix(
     dataset: PopariDataset,
@@ -951,7 +964,7 @@ def get_optimal_permutation(confusion_output):
     return perm, index
 
 
-@enable_joint(annotations=["uns"])
+@enable_joint(annotations={"uns": ["ground_truth_M_correlation"]})
 @broadcast
 def _compute_columnwise_autocorrelation(
     dataset: PopariDataset,
@@ -986,7 +999,7 @@ def _plot_confusion_matrix(
     plt.show()
 
 
-@enable_joint(annotations=["uns"])
+@enable_joint(annotations={"uns": ["spatial_gene_correlation", "neighbor_interactions"]})
 @broadcast
 def _compute_spatial_gene_correlation(
     dataset: PopariDataset,
@@ -1666,7 +1679,7 @@ def _plot_embeddings_to_label(
     return dotplot, mean_in_expressed
 
 
-@enable_joint(annotations=["obsm"])
+@enable_joint(annotations={"obsm": ["marker_expression"]})
 @broadcast
 def _score_marker_expression(dataset, de_genes: dict[str, Sequence[str]], output_key="marker_expression"):
     """Given a mapping from cell types to marker genes, compute enrichment."""
@@ -1680,7 +1693,7 @@ def _score_marker_expression(dataset, de_genes: dict[str, Sequence[str]], output
     dataset.obsm[output_key] = marker_gene_expression
 
 
-@enable_joint(annotations=["obsm"])
+@enable_joint(annotations={"obsm": ["marker_expression"]})
 def _plot_clusters_to_categories(
     datasets,
     category_de_genes: dict[str, Sequence[str]],
