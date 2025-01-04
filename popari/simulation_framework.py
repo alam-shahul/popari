@@ -17,6 +17,7 @@ from scipy.spatial.distance import cdist
 from scipy.stats import gamma, truncnorm
 
 from popari._canvas import DomainCanvas, MetageneCanvas
+from popari.util import convert_adjacency_matrix_to_awkward_array
 
 
 def sample_gaussian(sigma: NDArray, means: NDArray, N: int = 1, random_state=0) -> NDArray:
@@ -713,8 +714,8 @@ class MultiReplicateSyntheticDataset:
             metagene_magnitudes = replicate_dataset.magnitudes
 
     def calculate_neighbors(self, **neighbors_kwargs):
-        coord_type = neighbors_kwargs.pop("coord_type") if "coord_type" in neighbors_kwargs else "generic"
-        delaunay = neighbors_kwargs.pop("delaunay") if "delaunay" in neighbors_kwargs else True
+        coord_type = neighbors_kwargs.pop("coord_type", "generic")
+        delaunay = neighbors_kwargs.pop("delaunay", True)
         for dataset in self:
             sq.gr.spatial_neighbors(
                 dataset,
@@ -724,11 +725,4 @@ class MultiReplicateSyntheticDataset:
                 **neighbors_kwargs,
             )
             dataset.obsp["adjacency_matrix"] = dataset.obsp["spatial_connectivities"]
-
-            num_cells, _ = dataset.obsp["adjacency_matrix"].shape
-
-            adjacency_list = [[] for _ in range(num_cells)]
-            for x, y in zip(*dataset.obsp["adjacency_matrix"].nonzero()):
-                adjacency_list[x].append(y)
-
-            dataset.obs["adjacency_list"] = adjacency_list
+            dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(dataset.obsp["adjacency_matrix"])

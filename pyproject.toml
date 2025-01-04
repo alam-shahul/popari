@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -10,7 +10,7 @@ authors = [
   { name="Shahul Alam", email="alam.shahul@gmail.com" },
 ]
 dependencies = [
-    "numpy>=1.20.1",
+    "numpy<2.0",
     "scipy>=1.10.1",
     "scanorama>=1.7.4",
     "scikit-learn>=0.24.1",

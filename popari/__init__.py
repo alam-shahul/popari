@@ -227,8 +227,8 @@ def main():
     output_path = Path(output_path)
 
     train_parameters = TrainParameters(
-        nmf_iterations=nmf_iterations,
-        nmf_preiterations=nmf_preiterations,
+        iterations=num_iterations,
+        nmf_iterations=nmf_preiterations,
         savepath=output_path,
     )
 
