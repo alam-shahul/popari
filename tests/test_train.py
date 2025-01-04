@@ -19,6 +19,7 @@ def cleanup_mlflow(request):
 
         (root / "leiden.png").unlink()
         (root / "Sigma_x_inv.png").unlink()
+        (root / "metagenes.png").unlink()
 
     request.addfinalizer(remove_mlflow_outputs)
 
