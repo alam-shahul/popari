@@ -34,6 +34,7 @@ def main():
     torch_device = filtered_args.pop("torch_device")
     initial_device = filtered_args.pop("initial_device")
     dtype = filtered_args.pop("dtype")
+    filtered_args["verbose"] -= 1
 
     superresolution_epochs = filtered_args.pop("superresolution_epochs", 0)
 
@@ -64,7 +65,7 @@ def main():
     mlflow_trainer = MLFlowTrainer(
         parameters=train_parameters,
         model=model,
-        verbose=filtered_args["verbose"],
+        verbose=filtered_args["verbose"] + 1,
     )
 
     with mlflow_trainer:
