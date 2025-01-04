@@ -20,7 +20,14 @@ def run():
     parser.add_argument("--mlflow_output_path", type=str, default=".", help="Where to output MLflow results.")
     parser.add_argument("--debug", action="store_true", help="Whether to dump print statements to console or to file.")
     # parser.add_argument('--include_benchmarks', action='store_true', help="Whether to include NMF and SpiceMix benchmarks for each hyperparameter combination.")
-    parser.add_argument("--benchmarks", action="extend", nargs="+", type=str, help="Which benchmarks to include.")
+    parser.add_argument(
+        "--benchmarks",
+        action="extend",
+        nargs="+",
+        default=[],
+        type=str,
+        help="Which benchmarks to include.",
+    )
 
     parser.add_argument("--only_benchmarks", action="store_true", help="Whether to only run benchmarks.")
 
