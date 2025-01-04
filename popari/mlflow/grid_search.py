@@ -50,8 +50,8 @@ def run():
         "num_iterations",
         "spatial_preiterations",
         "metagene_groups",
-        "downsampling_method",
         "spatial_affinity_groups",
+        "downsampling_method",
     ]
 
     if "dataset_paths" in configuration["runtime"]:
@@ -143,17 +143,18 @@ def run():
         null_evaluate = generate_evaluate_function(parent_run, experiment_id)
         null_hyperparameters = {
             "K": configuration["hyperparameters"]["K"]["start"],
-            "dataset_path": dataset_paths[0],
             "lambda_Sigma_x_inv": 0,
             "lambda_Sigma_bar": 0,
+            "random_state": 0,
             "hierarchical_levels": 2,
             "binning_downsample_rate": 0.1,
-            "random_state": 0,
             "nmf_preiterations": 0,
-            "spatial_preiterations": 0,
             "num_iterations": 0,
-            "spatial_affinity_groups": json.dumps(None),
+            "spatial_preiterations": 0,
             "metagene_groups": json.dumps(None),
+            "spatial_affinity_groups": json.dumps(None),
+            "downsampling_method": "partition",
+            "dataset_path": dataset_paths[0],
         }
         _, null_nll = null_evaluate(null_hyperparameters)
 
