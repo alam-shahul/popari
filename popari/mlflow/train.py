@@ -14,6 +14,13 @@ from popari.model import Popari
 def main():
     parser = get_parser()
 
+    parser.add_argument(
+        "--spatial_preiterations",
+        type=int,
+        default=0,
+        help="Number of SpiceMix preiterations to use for initialization.",
+    )
+
     args = parser.parse_args()
     filtered_args = {key: value for key, value in vars(args).items() if value is not None}
 
