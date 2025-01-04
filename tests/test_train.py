@@ -8,6 +8,11 @@ from popari.train import MLFlowTrainer, MLFlowTrainParameters, Trainer, TrainPar
 
 @pytest.fixture(scope="module", autouse=True)
 def cleanup_mlflow(request):
+    try:
+        import mlflow
+    except:
+        return
+
     def remove_mlflow_outputs():
         shutil.rmtree("mlruns")
         root = Path(".")
