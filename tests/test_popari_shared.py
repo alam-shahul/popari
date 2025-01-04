@@ -10,31 +10,8 @@ from popari.train import Trainer, TrainParameters
 
 
 @pytest.fixture(scope="module")
-def test_datapath():
-    return Path("tests/test_data/synthetic_dataset")
-
-
-@pytest.fixture(scope="module")
-def context():
-    context = {
-        "device": "cuda:0",
-        "dtype": torch.float64,
-    }
-    return context
-
-
-@pytest.fixture(scope="module")
-def popari_with_neighbors(test_datapath, context):
-    obj = Popari(
-        K=10,
-        lambda_Sigma_x_inv=1e-3,
-        metagene_mode="shared",
-        torch_context=context,
-        initial_context=context,
-        initialization_method="svd",
-        dataset_path=test_datapath / "all_data.h5",
-        verbose=4,
-    )
+def popari_with_neighbors(test_datapath, context, shared_model):
+    obj = shared_model
 
     iterations = 4
     train_parameters = TrainParameters(
@@ -50,20 +27,6 @@ def popari_with_neighbors(test_datapath, context):
     )
 
     trainer.train()
-
-    # for iteration in range(1, 5):
-    #     print(f"-----  Iteration {iteration} -----")
-    #     obj.estimate_parameters()
-    #     nll_metagenes = obj.base_view.parameter_optimizer.nll_metagenes()
-    #     nll_spatial_affinities = obj.base_view.parameter_optimizer.nll_spatial_affinities()
-    #     nll_sigma_yx = obj.base_view.parameter_optimizer.nll_sigma_yx()
-    #     print(f"Metagene loss: {nll_metagenes}")
-    #     print(f"Spatial affinity loss: {nll_spatial_affinities}")
-    #     print(f"Sigma_yx loss: {nll_sigma_yx}")
-    #     obj.estimate_weights()
-    #     nll_embeddings = obj.base_view.embedding_optimizer.nll_embeddings()
-    #     print(f"Embedding loss: {nll_embeddings}")
-    #     print(f"Overall loss: {obj.base_view.nll()}")
 
     for dataset in obj.datasets:
         dataset.uns["multigroup_heatmap"] = {

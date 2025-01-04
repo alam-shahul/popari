@@ -9,20 +9,6 @@ from popari.model import Popari
 
 
 @pytest.fixture(scope="module")
-def test_datapath():
-    return Path("tests/test_data/synthetic_dataset")
-
-
-@pytest.fixture(scope="module")
-def context():
-    context = {
-        "device": "cuda:0",
-        "dtype": torch.float64,
-    }
-    return context
-
-
-@pytest.fixture(scope="module")
 def popari_with_neighbors(test_datapath, context):
     replicate_names = [0, 1]
     obj = Popari(
