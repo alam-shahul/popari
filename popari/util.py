@@ -8,6 +8,7 @@ from collections import defaultdict
 from typing import Optional, Sequence
 
 import anndata as ad
+import awkward as ak
 import gseapy as gp
 import matplotlib
 import matplotlib.patches as patches
@@ -21,7 +22,7 @@ from anndata import AnnData
 from kneed import KneeLocator
 from matplotlib import pyplot as plt
 from ortools.graph.python import min_cost_flow
-from scipy.sparse import csr_array, csr_matrix
+from scipy.sparse import csr_array, sparray
 from scipy.spatial.distance import pdist, squareform
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import accuracy_score, adjusted_rand_score, f1_score, silhouette_score
@@ -478,7 +479,7 @@ def convert_numpy_to_pytorch_sparse_coo(numpy_coo, context):
     return torch_coo
 
 
-def compute_neighborhood_enrichment(features: np.ndarray, adjacency_matrix: csr_matrix):
+def compute_neighborhood_enrichment(features: np.ndarray, adjacency_matrix: csr_array):
     r"""Compute the normalized enrichment of features in direct neighbors on a
     graph.
 
@@ -749,3 +750,16 @@ def get_metagene_signature(
         kneedle.plot_knee()
 
     return list(signature_genes)
+
+
+def convert_adjacency_matrix_to_awkward_array(adjacency_matrix: sparray):
+    """Convert COO adjacency matrix to ragged Awkward Array."""
+
+    num_cells, _ = adjacency_matrix.shape
+    adjacency_list = [[] for _ in range(num_cells)]
+    for x, y in zip(*adjacency_matrix.nonzero()):
+        adjacency_list[x].append(y)
+
+    adjacency_list = ak.Array(adjacency_list)
+
+    return adjacency_list
