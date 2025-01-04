@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 
 from popari import get_parser, pl, tl
 from popari.model import Popari
+from popari.train import MLFlowTrainer, MLFlowTrainParameters
 
 
 def main():
