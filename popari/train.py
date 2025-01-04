@@ -186,8 +186,6 @@ class MLFlowTrainer(Trainer):
     def superresolve(self, **kwargs):
         super().superresolve(**kwargs)
 
-        self.save_results(self.parameters.savepath, ignore_raw_data=False)
-
         if self.nmf_iterations + self.iterations > 0:
             for hierarchical_level in range(self.model.hierarchical_levels):
                 self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
