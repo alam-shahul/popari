@@ -67,48 +67,49 @@ def main():
         verbose=filtered_args["verbose"],
     )
 
-    try:
-        with mlflow_trainer:
-            if "metagene_groups" in filtered_args:
-                mlflow.set_tag("disjoint_metagenes", (filtered_args["metagene_groups"] == "disjoint"))
-            if "spatial_affinity_groups" in filtered_args:
-                mlflow.set_tag("disjoint_spatial_affinities", (filtered_args["spatial_affinity_groups"] == "disjoint"))
+    with mlflow_trainer:
+        if "metagene_groups" in filtered_args:
+            mlflow.set_tag("disjoint_metagenes", (filtered_args["metagene_groups"] == "disjoint"))
+        if "spatial_affinity_groups" in filtered_args:
+            mlflow.set_tag("disjoint_spatial_affinities", (filtered_args["spatial_affinity_groups"] == "disjoint"))
 
-            trackable_hyperparameters = (
-                "K",
-                "lambda_Sigma_bar",
-                "lambda_Sigma_x_inv",
-                "hierarchical_levels",
-                "downsampling_method",
-                "binning_downsample_rate",
-                "spatial_affinity_mode",
-                "random_state",
-                "dataset_path",
-            )
+        trackable_hyperparameters = (
+            "K",
+            "lambda_Sigma_bar",
+            "lambda_Sigma_x_inv",
+            "hierarchical_levels",
+            "downsampling_method",
+            "binning_downsample_rate",
+            "spatial_affinity_mode",
+            "random_state",
+            "dataset_path",
+        )
 
-            mlflow.log_params(
-                {
-                    **{
-                        hyperparameter: filtered_args[hyperparameter]
-                        for hyperparameter in trackable_hyperparameters
-                        if hyperparameter in filtered_args
-                    },
-                    "nmf_preiterations": nmf_preiterations,
-                    "spatial_preiterations": spatial_preiterations,
-                    "num_iterations": num_iterations,
+        mlflow.log_params(
+            {
+                **{
+                    hyperparameter: filtered_args[hyperparameter]
+                    for hyperparameter in trackable_hyperparameters
+                    if hyperparameter in filtered_args
                 },
-            )
+                "nmf_preiterations": nmf_preiterations,
+                "spatial_preiterations": spatial_preiterations,
+                "num_iterations": num_iterations,
+            },
+        )
+
+        try:
             mlflow_trainer.train()
             mlflow_trainer.superresolve(n_epochs=superresolution_epochs)
             mlflow_trainer.save_results()
 
-    except Exception as e:
-        with open(Path(f"./output_{torch_device}.txt"), "a") as f:
-            tb = traceback.format_exc()
-            f.write(f"\n{tb}")
-    finally:
-        if Path(f"./output_{torch_device}.txt").is_file():
-            mlflow.log_artifact(f"output_{torch_device}.txt")
+        except Exception as e:
+            with open(Path(f"./output_{torch_device}.txt"), "a") as f:
+                tb = traceback.format_exc()
+                f.write(f"\n{tb}")
+        finally:
+            if Path(f"./output_{torch_device}.txt").is_file():
+                mlflow.log_artifact(f"output_{torch_device}.txt")
 
 
 if __name__ == "__main__":

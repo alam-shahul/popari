@@ -162,7 +162,7 @@ class EmbeddingOptimizer:
         # Precomputing quantities
         MTM = M.T @ M / (sigma_yx**2)
         YM = Y @ M / (sigma_yx**2)
-        Ynorm = torch.linalg.norm(Y, ord="fro").item() ** 2 / (sigma_yx**2)
+        Ynorm = torch.square(Y).sum() / (sigma_yx**2)
         step_size = 1 / torch.linalg.eigvalsh(MTM).max().item()
         loss_prev, loss = np.inf, np.nan
 
