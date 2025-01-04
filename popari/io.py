@@ -8,7 +8,7 @@ import torch
 from scipy.sparse import csr_array, issparse
 
 from popari.components import PopariDataset
-from popari.util import concatenate, unconcatenate
+from popari.util import concatenate, convert_adjacency_matrix_to_awkward_array, unconcatenate
 
 
 def load_anndata(filepath: Union[str, Path]):
@@ -57,12 +57,8 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
 
         adjacency_matrix = dataset.obsp["adjacency_matrix"].tocoo()
 
-        num_cells, _ = adjacency_matrix.shape
-        adjacency_list = [[] for _ in range(num_cells)]
-        for x, y in zip(*adjacency_matrix.nonzero()):
-            adjacency_list[x].append(y)
-
-        dataset.obsm["adjacency_list"] = ak.Array(adjacency_list)
+        if "adjacency_list" not in dataset.obsm:
+            dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(adjacency_matrix)
 
         # if "M" in dataset.uns:
         #     if replicate_string in dataset.uns["M"]:
@@ -214,9 +210,6 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
         #     replicate_X = make_hdf5_compatible(dataset_copy.obsm["X"])
         #     dataset_copy.obsm["X"] = replicate_X
         dataset_copies.append(dataset_copy)
-
-        if "adjacency_list" in dataset_copy.obs:
-            del dataset_copy.obsm["adjacency_list"]
 
     merged_dataset = concatenate(dataset_copies, join="outer")
 
