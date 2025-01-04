@@ -192,6 +192,8 @@ def run():
 
             search_space = configuration["hyperparameters"][hyperparameter_name]
 
+            dtype = search_space["dtype"]
+
             # Categorical hyperparameters are specified via the "options" field
             if dtype == "categorical":
                 hyperparameter_options = search_space["options"]
@@ -202,7 +204,6 @@ def run():
             end = search_space["end"]
             scale = search_space["scale"]
             gridpoints = search_space["gridpoints"]
-            dtype = search_space["dtype"]
 
             if scale == "log":
                 gridspace = np.logspace
