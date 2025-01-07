@@ -61,7 +61,7 @@ def create_neighbor_groups(replicate_names, covariate_values, window_size=1):
     return groups
 
 
-def concatenate(datasets: Sequence[PopariDataset], join="inner"):
+def concatenate(datasets: Sequence[PopariDataset], join: str = "inner", batch_key: str = "batch"):
     """Merge datasets in a way that is compatible with Popari.
 
     Args:
@@ -71,7 +71,7 @@ def concatenate(datasets: Sequence[PopariDataset], join="inner"):
     dataset_names = [dataset.name for dataset in datasets]
     merged_dataset = ad.concat(
         datasets,
-        label="batch",
+        label=batch_key,
         join=join,
         keys=dataset_names,
         merge="unique",
@@ -82,13 +82,13 @@ def concatenate(datasets: Sequence[PopariDataset], join="inner"):
     return merged_dataset
 
 
-def unconcatenate(merged_dataset: ad.AnnData):
+def unconcatenate(merged_dataset: ad.AnnData, batch_key: str = "batch"):
     """Unmerge concatenated."""
 
-    indices = merged_dataset.obs.groupby("batch", observed=False).indices.values()
+    indices = merged_dataset.obs.groupby(batch_key, observed=False).indices.values()
     datasets = [merged_dataset[index].copy() for index in indices]
 
-    replicate_names = [dataset.obs["batch"].unique()[0] for dataset in datasets]
+    replicate_names = [dataset.obs[batch_key].unique()[0] for dataset in datasets]
     unmerged_datasets = [PopariDataset(dataset, name) for dataset, name in zip(datasets, replicate_names)]
 
     return unmerged_datasets

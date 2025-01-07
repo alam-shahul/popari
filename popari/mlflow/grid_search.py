@@ -51,6 +51,7 @@ def run():
         "spatial_preiterations",
         "metagene_groups",
         "spatial_affinity_groups",
+        "dtype",
         "downsampling_method",
     ]
 
@@ -100,7 +101,6 @@ def run():
                     ),
                     # "dataset_path": configuration['runtime']['dataset_path'],
                     "output_path": f"./device_{device}_result",
-                    "dtype": "float64",
                     "torch_device": device,
                     "initial_device": device,
                     "spatial_affinity_mode": (
@@ -150,6 +150,7 @@ def run():
             "binning_downsample_rate": 0.1,
             "nmf_preiterations": 0,
             "num_iterations": 0,
+            "dtype": "torch32",
             "spatial_preiterations": 0,
             "metagene_groups": json.dumps(None),
             "spatial_affinity_groups": json.dumps(None),
@@ -198,6 +199,7 @@ def run():
             # Categorical hyperparameters are specified via the "options" field
             if dtype == "categorical":
                 hyperparameter_options = search_space["options"]
+                hyperparameter_options_list.append(hyperparameter_options)
                 continue
 
             # Handling numerical hyperparameters
