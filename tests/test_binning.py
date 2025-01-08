@@ -11,20 +11,6 @@ from popari.model import Popari, load_trained_model
 
 
 @pytest.fixture(scope="module")
-def test_datapath():
-    return Path("tests/test_data/synthetic_dataset")
-
-
-@pytest.fixture(scope="module")
-def context():
-    context = {
-        "device": "cuda:0",
-        "dtype": torch.float64,
-    }
-    return context
-
-
-@pytest.fixture(scope="module")
 def trained_model(test_datapath):
     trained_model = load_trained_model(test_datapath / "trained_4_iterations.h5ad")
 
@@ -85,6 +71,31 @@ def hierarchical_model(test_datapath, context):
         "lambda_Sigma_x_inv": 1e-3,
         "torch_context": context,
         "initial_context": context,
+        "initialization_method": "svd",
+        "spatial_affinity_mode": "differential lookup",
+        "dataset_path": test_datapath / "all_data.h5",
+        "replicate_names": replicate_names,
+        "hierarchical_levels": 2,
+        "binning_downsample_rate": 0.5,
+        "superresolution_lr": 1e-2,
+        "verbose": 4,
+    }
+
+    obj = Popari(**hierarchical_parameters)
+
+    # TODO: add test for tl.propagate_labels
+
+    return obj
+
+
+@pytest.fixture(scope="module")
+def float32_hierarchical_model(test_datapath, float32_context):
+    replicate_names = ["0", "1"]
+    hierarchical_parameters = {
+        "K": 10,
+        "lambda_Sigma_x_inv": 1e-3,
+        "torch_context": float32_context,
+        "initial_context": float32_context,
         "initialization_method": "svd",
         "spatial_affinity_mode": "differential lookup",
         "dataset_path": test_datapath / "all_data.h5",
@@ -261,3 +272,7 @@ def test_superresolution(superresolved_model, loaded_model, test_datapath):
     # loaded_model.superresolve(n_epochs=10, tol=1e-8)
 
     superresolved_model.nll(level=0, use_spatial=True)
+
+
+def test_float32_superresolution(float32_hierarchical_model):
+    float32_hierarchical_model.superresolve(n_epochs=10)
