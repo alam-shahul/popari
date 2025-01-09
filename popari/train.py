@@ -135,8 +135,6 @@ class MLFlowTrainer(Trainer):
             self.model.estimate_weights(synchronize=synchronize)
 
             if self.spatial_preiterations % self.parameters.checkpoint_iterations == 0:
-                self.save_results(self.parameters.savepath)
-
                 nll_spatial = self.model.nll(use_spatial=True)
                 mlflow.log_metric("nll_spatial_preiteration", nll_spatial, step=self.spatial_preiterations)
 
@@ -145,6 +143,8 @@ class MLFlowTrainer(Trainer):
 
                 if Path(f"./output_{self.torch_device}.txt").is_file():
                     mlflow.log_artifact(f"output_{self.torch_device}.txt")
+
+                self.save_results(self.parameters.savepath)
 
             self.spatial_preiterations += 1
 
@@ -164,8 +164,6 @@ class MLFlowTrainer(Trainer):
                 if not self.is_hierarchical:
                     checkpoint_path = f"{checkpoint_path}.h5ad"
 
-                self.save_results(checkpoint_path)
-
                 nll_spatial = self.model.nll(use_spatial=True)
                 mlflow.log_metric("nll_spatial", nll_spatial, step=self.iterations)
 
@@ -174,6 +172,8 @@ class MLFlowTrainer(Trainer):
 
                 if Path(f"./output_{self.torch_device}.txt").is_file():
                     mlflow.log_artifact(f"output_{self.torch_device}.txt")
+
+                self.save_results(checkpoint_path)
 
             self.iterations += 1
 

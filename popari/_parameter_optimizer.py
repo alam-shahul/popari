@@ -1,3 +1,4 @@
+import awkward as ak
 import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
@@ -176,11 +177,10 @@ class ParameterOptimizer:
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         spatial_flags = ["adjacency_list" in dataset.obsm for dataset in datasets]
 
-        num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
+        num_edges_per_fov = [ak.count(dataset.obsm["adjacency_list"], axis=None) for dataset in datasets]
+        # num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
 
-        if not any(
-            sum(map(len, dataset.obsm["adjacency_list"])) > 0 and u for dataset, u in zip(datasets, spatial_flags)
-        ):
+        if not any(num_edges > 0 and u for num_edges, u in zip(num_edges_per_fov, spatial_flags)):
             return
 
         linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
@@ -373,11 +373,10 @@ class ParameterOptimizer:
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         spatial_flags = ["adjacency_list" in dataset.obsm for dataset in datasets]
 
-        num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
+        # num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
+        num_edges_per_fov = [ak.count(dataset.obsm["adjacency_list"], axis=None) for dataset in datasets]
 
-        if not any(
-            sum(map(len, dataset.obsm["adjacency_list"])) > 0 and u for dataset, u in zip(datasets, spatial_flags)
-        ):
+        if not any(num_edges > 0 and u for num_edges, u in zip(num_edges_per_fov, spatial_flags)):
             return
 
         linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
