@@ -106,7 +106,7 @@ def run():
                     "spatial_affinity_mode": (
                         "shared lookup" if params["lambda_Sigma_bar"] == 0 else "differential lookup"
                     ),
-                    "verbose": 1,
+                    "verbose": 2,
                 },
                 env_manager="local",
                 experiment_id=experiment_id,
