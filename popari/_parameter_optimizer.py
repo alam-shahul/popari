@@ -189,7 +189,7 @@ class ParameterOptimizer:
         nus = []  # sum of neighbors' z
         weighted_total_cells = 0
 
-        for Z, dataset, use_spatial, beta in zip(Zs, datasets, spatial_flags, self.betas):
+        for Z, dataset, num_edges, use_spatial, beta in zip(Zs, datasets, num_edges_per_fov, spatial_flags, self.betas):
             adjacency_list = self.adjacency_lists[dataset.name]
             adjacency_matrix = self.adjacency_matrices[dataset.name]
 
@@ -200,7 +200,7 @@ class ParameterOptimizer:
                 nu = None
 
             nus.append(nu)
-            weighted_total_cells += beta * sum(map(len, adjacency_list))
+            weighted_total_cells += beta * num_edges
             del Z, adjacency_matrix
         # linear_term_coefficient = (linear_term_coefficient + linear_term_coefficient.T) / 2 # should be unnecessary as long as adjacency_list is symmetric
         if self.verbose > 2:
@@ -385,7 +385,7 @@ class ParameterOptimizer:
         nus = []  # sum of neighbors' z
         weighted_total_cells = 0
 
-        for Z, dataset, use_spatial, beta in zip(Zs, datasets, spatial_flags, self.betas):
+        for Z, dataset, num_edges, use_spatial, beta in zip(Zs, datasets, num_edges_per_fov, spatial_flags, self.betas):
             adjacency_list = self.adjacency_lists[dataset.name]
             adjacency_matrix = self.adjacency_matrices[dataset.name]
 
@@ -396,7 +396,7 @@ class ParameterOptimizer:
                 nu = None
 
             nus.append(nu)
-            weighted_total_cells += beta * sum(map(len, adjacency_list))
+            weighted_total_cells += beta * num_edges
             del Z, adjacency_matrix
 
         loss_prev, loss = np.inf, np.nan

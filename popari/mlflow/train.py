@@ -22,6 +22,13 @@ def main():
         help="Number of SpiceMix preiterations to use for initialization.",
     )
 
+    parser.add_argument(
+        "--save_figs",
+        type=bool,
+        default=True,
+        help="Whether or not to save intermediate figs.",
+    )
+
     args = parser.parse_args()
     filtered_args = {key: value for key, value in vars(args).items() if value is not None}
 
@@ -30,6 +37,7 @@ def main():
     num_iterations = filtered_args.pop("num_iterations")
     nmf_preiterations = filtered_args.pop("nmf_preiterations")
     spatial_preiterations = filtered_args.pop("spatial_preiterations")
+    save_figs = filtered_args.pop("save_figs")
 
     torch_device = filtered_args.pop("torch_device")
     initial_device = filtered_args.pop("initial_device")
@@ -51,12 +59,13 @@ def main():
     output_path = filtered_args.pop("output_path")
     output_path = Path(output_path)
 
-    checkpoint_iterations = 50
+    checkpoint_iterations = 100
 
     train_parameters = MLFlowTrainParameters(
         iterations=num_iterations,
         nmf_iterations=nmf_preiterations,
         spatial_preiterations=spatial_preiterations,
+        save_figs=save_figs,
         savepath=output_path,
     )
 
