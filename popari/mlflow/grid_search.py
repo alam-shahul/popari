@@ -159,7 +159,11 @@ def run():
             "downsampling_method": "partition",
             "dataset_path": dataset_paths[0],
         }
-        _, null_nll = null_evaluate(null_hyperparameters)
+
+        modified_null_hyperparameters = null_hyperparameters.copy()
+        modified_null_hyperparameters["initialization_method"] = "dummy"
+
+        _, null_nll = null_evaluate(modified_null_hyperparameters)
 
         benchmarks = {
             "nmf_benchmark": {
@@ -200,7 +204,11 @@ def run():
 
             # Categorical hyperparameters are specified via the "options" field
             if dtype == "categorical":
-                hyperparameter_options = search_space["options"]
+                search_space_options = search_space["options"]
+                if hyperparameter_name.endswith("groups"):
+                    search_space_options = [json.dumps(option) for option in search_space_options]
+
+                hyperparameter_options = search_space_options
                 hyperparameter_options_list.append(hyperparameter_options)
                 continue
 

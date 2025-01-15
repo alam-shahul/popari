@@ -257,7 +257,7 @@ def _plot_metagene_embedding(
 
     for dataset, ax in zip(datasets, axes.flat):
         if default_s is None:
-            s = round(20000 / len(dataset))
+            s = round(2000 / len(dataset))
         else:
             s = default_s
 
@@ -434,7 +434,7 @@ def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="
 
     neighbors_key = spatial_kwargs.pop("neighbors_key", "spatial_neighbors")
 
-    size = 10000 / len(dataset)
+    size = 1000 / len(dataset)
     if default_size is not None:
         size *= default_size
 
@@ -1687,7 +1687,8 @@ def _plot_embeddings_to_label(
 @broadcast
 def _score_marker_expression(dataset, de_genes: dict[str, Sequence[str]], output_key="marker_expression"):
     """Given a mapping from cell types to marker genes, compute enrichment."""
-    zscored_expression = zscore(dataset.X)
+    data = dataset.X if not issparse(dataset.X) else dataset.X.todense()
+    zscored_expression = zscore(data)
 
     marker_gene_expression = np.zeros((len(dataset), len(de_genes)))
     for index, (subtype, gene_list) in enumerate(de_genes.items()):

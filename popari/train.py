@@ -12,6 +12,7 @@ from tqdm.auto import trange
 
 from popari import analysis as tl
 from popari import plotting as pl
+from popari._dataset_utils import setup_squarish_axes
 from popari.model import Popari
 
 
@@ -222,9 +223,11 @@ class MLFlowTrainer(Trainer):
 
         tl.preprocess_embeddings(self.model, level=level)
         tl.leiden(self.model, level=level, joint=True)
-        pl.in_situ(self.model, level=level, color="leiden", edges_width=0)
 
-        plt.savefig(f"leiden{suffix}")
+        leiden_fig, axes = setup_squarish_axes(len(self.model.datasets), dpi=72, constrained_layout=False)
+        pl.in_situ(self.model, level=level, color="leiden", edges_width=0, axes=axes)
+
+        leiden_fig.savefig(f"leiden{suffix}")
         mlflow.log_artifact(f"leiden{suffix}")
 
         if save_spatial_figs:
@@ -241,8 +244,8 @@ class MLFlowTrainer(Trainer):
             #     cmap="hot",
             # )
 
-            plt.savefig(f"metagenes{suffix}")
-            mlflow.log_artifact(f"metagenes{suffix}")
+            # plt.savefig(f"metagenes{suffix}")
+            # mlflow.log_artifact(f"metagenes{suffix}")
 
         for metagene in range(self.model.K):
             pl.metagene_embedding(self.model, metagene, level=level)

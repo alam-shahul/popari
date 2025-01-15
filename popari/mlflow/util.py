@@ -30,6 +30,7 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
           spatial_affinity_mode: {{type: str, default: 'shared lookup'}}
           metagene_groups: {{type: str, default: 'null'}}
           downsampling_method: {{type: str, default: 'partition'}}
+          initialization_method: {{type: str, default: 'leiden'}}
           hierarchical_levels: {{type: int}}
           binning_downsample_rate: {{type: float, default: 0.2}}
           num_iterations: {{type: int}}
@@ -46,6 +47,7 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
                                      --spatial_affinity_mode={{spatial_affinity_mode}}
                                      --metagene_groups={{metagene_groups}}
                                      --downsampling_method={{downsampling_method}}
+                                     --initialization_method={{initialization_method}}
                                      --hierarchical_levels={{hierarchical_levels}}
                                      --binning_downsample_rate={{binning_downsample_rate}}
                                      --num_iterations={{num_iterations}}
@@ -68,6 +70,7 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
           spatial_affinity_mode: {{type: str, default: 'shared lookup'}}
           metagene_groups: {{type: str, default: 'null'}}
           downsampling_method: {{type: str, default: 'partition'}}
+          initialization_method: {{type: str, default: 'leiden'}}
           hierarchical_levels: {{type: int}}
           binning_downsample_rate: {{type: float, default: 0.2}}
           num_iterations: {{type: int}}
@@ -84,6 +87,7 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
                                      --spatial_affinity_mode={{spatial_affinity_mode}}
                                      --metagene_groups={{metagene_groups}}
                                      --downsampling_method={{downsampling_method}}
+                                     --initialization_method={{initialization_method}}
                                      --hierarchical_levels={{hierarchical_levels}}
                                      --binning_downsample_rate={{binning_downsample_rate}}
                                      --num_iterations={{num_iterations}}
