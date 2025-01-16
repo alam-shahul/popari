@@ -221,31 +221,11 @@ class MLFlowTrainer(Trainer):
         else:
             suffix = f"_level_{level}.png"
 
-        tl.preprocess_embeddings(self.model, level=level)
-        tl.leiden(self.model, level=level, joint=True)
-
-        leiden_fig, axes = setup_squarish_axes(len(self.model.datasets), dpi=72, constrained_layout=False)
-        pl.in_situ(self.model, level=level, color="leiden", edges_width=0, axes=axes)
-
-        leiden_fig.savefig(f"leiden{suffix}")
-        mlflow.log_artifact(f"leiden{suffix}")
-
         if save_spatial_figs:
             pl.spatial_affinities(self.model, level=level)
 
             plt.savefig(f"Sigma_x_inv{suffix}")
             mlflow.log_artifact(f"Sigma_x_inv{suffix}")
-
-            # pl.multireplicate_heatmap(
-            #     self.model,
-            #     level=level,
-            #     uns="M",
-            #     aspect=self.model.K / self.model.datasets[0].shape[1],
-            #     cmap="hot",
-            # )
-
-            # plt.savefig(f"metagenes{suffix}")
-            # mlflow.log_artifact(f"metagenes{suffix}")
 
         for metagene in range(self.model.K):
             pl.metagene_embedding(self.model, metagene, level=level)

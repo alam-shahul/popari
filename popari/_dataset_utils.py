@@ -257,7 +257,7 @@ def _plot_metagene_embedding(
 
     for dataset, ax in zip(datasets, axes.flat):
         if default_s is None:
-            s = round(2000 / len(dataset))
+            s = round(10000 / len(dataset))
         else:
             s = default_s
 
@@ -434,7 +434,7 @@ def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="
 
     neighbors_key = spatial_kwargs.pop("neighbors_key", "spatial_neighbors")
 
-    size = 1000 / len(dataset)
+    size = 5000 / len(dataset)
     if default_size is not None:
         size *= default_size
 
