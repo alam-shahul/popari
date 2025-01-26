@@ -14,6 +14,7 @@ from popari import analysis as tl
 from popari import plotting as pl
 from popari._dataset_utils import setup_squarish_axes
 from popari.model import Popari
+from popari.util import get_datetime
 
 
 @dataclass
@@ -222,12 +223,21 @@ class MLFlowTrainer(Trainer):
             suffix = f"_level_{level}.png"
 
         if save_spatial_figs:
+            if self.verbose:
+                print("f{get_datetime()} Plotting spatial affinities at level {level}")
+
             pl.spatial_affinities(self.model, level=level)
 
             plt.savefig(f"Sigma_x_inv{suffix}")
+            plt.close()
             mlflow.log_artifact(f"Sigma_x_inv{suffix}")
 
         for metagene in range(self.model.K):
+            if self.verbose:
+                print("f{get_datetime()} Plotting 'in situ' metagene {self.model.K} at level {level}")
+
             pl.metagene_embedding(self.model, metagene, level=level)
             plt.savefig(f"metagene_{metagene}_in_situ{suffix}")
+            plt.close()
+
             mlflow.log_artifact(f"metagene_{metagene}_in_situ{suffix}")
