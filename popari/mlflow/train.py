@@ -14,7 +14,7 @@ from popari.util import get_datetime
 
 
 def main():
-    print(f"{get_datetime} Parsing args...")
+    print(f"{get_datetime()} Parsing args...")
     parser = get_parser()
 
     parser.add_argument(
@@ -79,7 +79,7 @@ def main():
         savepath=output_path,
     )
 
-    print(f"{get_datetime} Loading model...")
+    print(f"{get_datetime()} Loading model...")
     model = Popari(**filtered_args)
 
     mlflow_trainer = MLFlowTrainer(
@@ -88,7 +88,7 @@ def main():
         verbose=filtered_args["verbose"] + 1,
     )
 
-    with mlflow_trainer(monitor_system_metrics=monitor_system_metrics):
+    with mlflow_trainer:
         if "metagene_groups" in filtered_args:
             mlflow.set_tag("disjoint_metagenes", (filtered_args["metagene_groups"] == "disjoint"))
         if "spatial_affinity_groups" in filtered_args:
@@ -120,13 +120,13 @@ def main():
         )
 
         try:
-            print(f"{get_datetime} Training model...")
+            print(f"{get_datetime()} Training model...")
             mlflow_trainer.train()
 
-            print(f"{get_datetime} Superresolving model...")
+            print(f"{get_datetime()} Superresolving model...")
             mlflow_trainer.superresolve(n_epochs=superresolution_epochs)
 
-            print(f"{get_datetime} Saving results...")
+            print(f"{get_datetime()} Final save ...")
             mlflow_trainer.save_results()
 
         except Exception as e:
