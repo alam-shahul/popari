@@ -49,9 +49,11 @@ def run():
         "nmf_preiterations",
         "num_iterations",
         "spatial_preiterations",
+        "save_figs",
         "metagene_groups",
-        "downsampling_method",
         "spatial_affinity_groups",
+        "dtype",
+        "downsampling_method",
     ]
 
     if "dataset_paths" in configuration["runtime"]:
@@ -100,13 +102,12 @@ def run():
                     ),
                     # "dataset_path": configuration['runtime']['dataset_path'],
                     "output_path": f"./device_{device}_result",
-                    "dtype": "float64",
                     "torch_device": device,
                     "initial_device": device,
                     "spatial_affinity_mode": (
                         "shared lookup" if params["lambda_Sigma_bar"] == 0 else "differential lookup"
                     ),
-                    "verbose": 1,
+                    "verbose": 2,
                 },
                 env_manager="local",
                 experiment_id=experiment_id,
@@ -143,19 +144,26 @@ def run():
         null_evaluate = generate_evaluate_function(parent_run, experiment_id)
         null_hyperparameters = {
             "K": configuration["hyperparameters"]["K"]["start"],
-            "dataset_path": dataset_paths[0],
             "lambda_Sigma_x_inv": 0,
             "lambda_Sigma_bar": 0,
-            "hierarchical_levels": 2,
-            "binning_downsample_rate": 0.1,
             "random_state": 0,
+            "hierarchical_levels": 1,
+            "binning_downsample_rate": 0.1,
             "nmf_preiterations": 0,
-            "spatial_preiterations": 0,
             "num_iterations": 0,
-            "spatial_affinity_groups": json.dumps(None),
+            "dtype": "torch32",
+            "spatial_preiterations": 0,
+            "save_figs": False,
             "metagene_groups": json.dumps(None),
+            "spatial_affinity_groups": json.dumps(None),
+            "downsampling_method": "partition",
+            "dataset_path": dataset_paths[0],
         }
-        _, null_nll = null_evaluate(null_hyperparameters)
+
+        modified_null_hyperparameters = null_hyperparameters.copy()
+        modified_null_hyperparameters["initialization_method"] = "dummy"
+
+        _, null_nll = null_evaluate(modified_null_hyperparameters)
 
         benchmarks = {
             "nmf_benchmark": {
@@ -196,7 +204,12 @@ def run():
 
             # Categorical hyperparameters are specified via the "options" field
             if dtype == "categorical":
-                hyperparameter_options = search_space["options"]
+                search_space_options = search_space["options"]
+                if hyperparameter_name.endswith("groups"):
+                    search_space_options = [json.dumps(option) for option in search_space_options]
+
+                hyperparameter_options = search_space_options
+                hyperparameter_options_list.append(hyperparameter_options)
                 continue
 
             # Handling numerical hyperparameters

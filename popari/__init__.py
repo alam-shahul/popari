@@ -77,7 +77,6 @@ def get_parser():
         type=int,
         help="Number of hierarchical binning levels to use in Popari run.",
     )
-    parser.add_argument("--downsampling_method", type=float, help="Method to use for downsampling.")
     parser.add_argument(
         "--binning_downsample_rate",
         type=float,
@@ -121,6 +120,13 @@ def get_parser():
         type=str,
         help="modality of spatial affinity parameters. Default ``shared lookup``",
     )
+
+    parser.add_argument(
+        "--downsampling_method",
+        type=str,
+        help="Method to use for downsampling in hierarchical mode. Default ``partition``",
+    )
+
     parser.add_argument("--metagene_mode", type=str, help="modality of metagene parameters. Default ``shared``")
     parser.add_argument(
         "--lambda_M",

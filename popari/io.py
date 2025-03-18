@@ -60,24 +60,24 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
         if "adjacency_list" not in dataset.obsm:
             dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(adjacency_matrix)
 
-        # if "M" in dataset.uns:
-        #     if replicate_string in dataset.uns["M"]:
-        #         replicate_M = make_hdf5_compatible(dataset.uns["M"][replicate_string])
-        #         dataset.uns["M"] = {replicate_string: replicate_M}
+        if "M" in dataset.uns:
+            if replicate_string in dataset.uns["M"]:
+                replicate_M = make_hdf5_compatible(dataset.uns["M"][replicate_string])
+                dataset.uns["M"] = {replicate_string: replicate_M}
 
-        # if "M_bar" in dataset.uns:
-        #     if replicate_string in dataset.uns["M_bar"]:
-        #         replicate_M_bar = make_hdf5_compatible(
-        #             dataset.uns["M_bar"][replicate_string],
-        #         )
-        #         dataset.uns["M_bar"] = {replicate_string: replicate_M_bar}
+        if "M_bar" in dataset.uns:
+            if replicate_string in dataset.uns["M_bar"]:
+                replicate_M_bar = make_hdf5_compatible(
+                    dataset.uns["M_bar"][replicate_string],
+                )
+                dataset.uns["M_bar"] = {replicate_string: replicate_M_bar}
 
         if "popari_hyperparameters" in dataset.uns:
-            # if "prior_x" in dataset.uns["popari_hyperparameters"]:
-            #     prior_x = make_hdf5_compatible(
-            #         dataset.uns["popari_hyperparameters"]["prior_x"],
-            #     )
-            #     dataset.uns["popari_hyperparameters"]["prior_x"] = prior_x
+            if "prior_x" in dataset.uns["popari_hyperparameters"]:
+                prior_x = make_hdf5_compatible(
+                    dataset.uns["popari_hyperparameters"]["prior_x"],
+                )
+                dataset.uns["popari_hyperparameters"]["prior_x"] = prior_x
 
             if "spatial_affinity_groups" in dataset.uns["popari_hyperparameters"]:
                 name_parts = dataset.name.split("_level_")
@@ -182,26 +182,26 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
                 replicate_string: replicate_Sigma_x_inv_bar,
             }
 
-        # if "M" in dataset_copy.uns:
-        # if replicate_string in dataset_copy.uns["M"]:
-        #     replicate_M = make_hdf5_compatible(
-        #         dataset_copy.uns["M"][replicate_string],
-        #     )
-        #     dataset_copy.uns["M"] = {replicate_string: replicate_M}
+        if "M" in dataset_copy.uns:
+            if replicate_string in dataset_copy.uns["M"]:
+                replicate_M = make_hdf5_compatible(
+                    dataset_copy.uns["M"][replicate_string],
+                )
+                dataset_copy.uns["M"] = {replicate_string: replicate_M}
 
-        # if "M_bar" in dataset_copy.uns:
-        # if replicate_string in dataset_copy.uns["M_bar"]:
-        #     replicate_M_bar = make_hdf5_compatible(
-        #         dataset_copy.uns["M_bar"][replicate_string],
-        #     )
-        #     dataset_copy.uns["M_bar"] = {replicate_string: replicate_M_bar}
+        if "M_bar" in dataset_copy.uns:
+            if replicate_string in dataset_copy.uns["M_bar"]:
+                replicate_M_bar = make_hdf5_compatible(
+                    dataset_copy.uns["M_bar"][replicate_string],
+                )
+                dataset_copy.uns["M_bar"] = {replicate_string: replicate_M_bar}
 
-        # if "popari_hyperparameters" in dataset_copy.uns:
-        # if "prior_x" in dataset_copy.uns["popari_hyperparameters"]:
-        #     prior_x = make_hdf5_compatible(
-        #         dataset_copy.uns["popari_hyperparameters"]["prior_x"],
-        #     )
-        #     dataset_copy.uns["popari_hyperparameters"]["prior_x"] = prior_x
+        if "popari_hyperparameters" in dataset_copy.uns:
+            if "prior_x" in dataset_copy.uns["popari_hyperparameters"]:
+                prior_x = make_hdf5_compatible(
+                    dataset_copy.uns["popari_hyperparameters"]["prior_x"],
+                )
+                dataset_copy.uns["popari_hyperparameters"]["prior_x"] = prior_x
 
         if "dataset_name" not in dataset_copy.uns:
             dataset_copy.uns["dataset_name"] = dataset.name

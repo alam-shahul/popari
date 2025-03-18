@@ -69,7 +69,8 @@ jupyter = [
 ]
 mlflow = [
   "mlflow>=2.5.0",
-  "toml>=0.10.2"
+  "toml>=0.10.2",
+  "pynvml",
 ]
 benchmark = [
   "multiprocess>=0.70.15"

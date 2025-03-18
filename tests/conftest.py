@@ -21,6 +21,15 @@ def context():
 
 
 @pytest.fixture(scope="module")
+def float32_context():
+    context = {
+        "device": "cuda:0" if torch.cuda.is_available() else "cpu",
+        "dtype": torch.float32,
+    }
+    return context
+
+
+@pytest.fixture(scope="module")
 def shared_model(test_datapath, context):
     obj = Popari(
         K=10,

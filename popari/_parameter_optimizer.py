@@ -1,3 +1,4 @@
+import awkward as ak
 import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
@@ -176,11 +177,10 @@ class ParameterOptimizer:
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         spatial_flags = ["adjacency_list" in dataset.obsm for dataset in datasets]
 
-        num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
+        num_edges_per_fov = [ak.count(dataset.obsm["adjacency_list"], axis=None) for dataset in datasets]
+        # num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
 
-        if not any(
-            sum(map(len, dataset.obsm["adjacency_list"])) > 0 and u for dataset, u in zip(datasets, spatial_flags)
-        ):
+        if not any(num_edges > 0 and u for num_edges, u in zip(num_edges_per_fov, spatial_flags)):
             return
 
         linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
@@ -189,7 +189,7 @@ class ParameterOptimizer:
         nus = []  # sum of neighbors' z
         weighted_total_cells = 0
 
-        for Z, dataset, use_spatial, beta in zip(Zs, datasets, spatial_flags, self.betas):
+        for Z, dataset, num_edges, use_spatial, beta in zip(Zs, datasets, num_edges_per_fov, spatial_flags, self.betas):
             adjacency_list = self.adjacency_lists[dataset.name]
             adjacency_matrix = self.adjacency_matrices[dataset.name]
 
@@ -200,7 +200,7 @@ class ParameterOptimizer:
                 nu = None
 
             nus.append(nu)
-            weighted_total_cells += beta * sum(map(len, adjacency_list))
+            weighted_total_cells += beta * num_edges
             del Z, adjacency_matrix
         # linear_term_coefficient = (linear_term_coefficient + linear_term_coefficient.T) / 2 # should be unnecessary as long as adjacency_list is symmetric
         if self.verbose > 2:
@@ -373,11 +373,10 @@ class ParameterOptimizer:
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         spatial_flags = ["adjacency_list" in dataset.obsm for dataset in datasets]
 
-        num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
+        # num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
+        num_edges_per_fov = [ak.count(dataset.obsm["adjacency_list"], axis=None) for dataset in datasets]
 
-        if not any(
-            sum(map(len, dataset.obsm["adjacency_list"])) > 0 and u for dataset, u in zip(datasets, spatial_flags)
-        ):
+        if not any(num_edges > 0 and u for num_edges, u in zip(num_edges_per_fov, spatial_flags)):
             return
 
         linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
@@ -386,7 +385,7 @@ class ParameterOptimizer:
         nus = []  # sum of neighbors' z
         weighted_total_cells = 0
 
-        for Z, dataset, use_spatial, beta in zip(Zs, datasets, spatial_flags, self.betas):
+        for Z, dataset, num_edges, use_spatial, beta in zip(Zs, datasets, num_edges_per_fov, spatial_flags, self.betas):
             adjacency_list = self.adjacency_lists[dataset.name]
             adjacency_matrix = self.adjacency_matrices[dataset.name]
 
@@ -397,7 +396,7 @@ class ParameterOptimizer:
                 nu = None
 
             nus.append(nu)
-            weighted_total_cells += beta * sum(map(len, adjacency_list))
+            weighted_total_cells += beta * num_edges
             del Z, adjacency_matrix
 
         loss_prev, loss = np.inf, np.nan

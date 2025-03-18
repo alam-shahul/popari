@@ -244,8 +244,10 @@ def _plot_metagene_embedding(
     default_s = scatterplot_kwargs.pop("s", None)
     linewidth = scatterplot_kwargs.pop("linewidth", 0)
     palette = scatterplot_kwargs.pop("palette", "viridis")
+    dpi = scatterplot_kwargs.pop("dpi", 100)
+
     if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets), sharex=False, sharey=False)
+        fig, axes = setup_squarish_axes(len(datasets), sharex=False, sharey=False, dpi=dpi)
 
     else:
         fig = axes.flat[0].get_figure()
@@ -255,7 +257,7 @@ def _plot_metagene_embedding(
 
     for dataset, ax in zip(datasets, axes.flat):
         if default_s is None:
-            s = round(20000 / len(dataset))
+            s = round(10000 / len(dataset))
         else:
             s = default_s
 
@@ -413,10 +415,11 @@ def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="
 
     sharex = False if "sharex" not in spatial_kwargs else spatial_kwargs.pop("sharex")
     sharey = False if "sharey" not in spatial_kwargs else spatial_kwargs.pop("sharey")
+    dpi = spatial_kwargs.pop("dpi", 100)
 
     # fig = None
     if axes is None:
-        fig, axes = setup_squarish_axes(1, sharex=sharex, sharey=sharey)
+        fig, axes = setup_squarish_axes(1, sharex=sharex, sharey=sharey, dpi=dpi)
 
     edges_width = spatial_kwargs.pop("edges_width", 0.2)
     default_size = spatial_kwargs.pop("size", None)
@@ -431,7 +434,7 @@ def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="
 
     neighbors_key = spatial_kwargs.pop("neighbors_key", "spatial_neighbors")
 
-    size = 10000 / len(dataset)
+    size = 5000 / len(dataset)
     if default_size is not None:
         size *= default_size
 
@@ -525,12 +528,13 @@ def _multireplicate_heatmap(
 
     """
 
-    sharex = True if "sharex" not in heatmap_kwargs else heatmap_kwargs.pop("sharex", True)
-    sharey = True if "sharey" not in heatmap_kwargs else heatmap_kwargs.pop("sharey", True)
+    sharex = heatmap_kwargs.pop("sharex", True)
+    sharey = heatmap_kwargs.pop("sharey", True)
+    dpi = heatmap_kwargs.pop("dpi", 100)
 
     fig = None
     if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey)
+        fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey, dpi=dpi)
 
     aspect = heatmap_kwargs.pop("aspect", 1)
     cmap = heatmap_kwargs.pop("cmap", "hot")
@@ -1683,7 +1687,8 @@ def _plot_embeddings_to_label(
 @broadcast
 def _score_marker_expression(dataset, de_genes: dict[str, Sequence[str]], output_key="marker_expression"):
     """Given a mapping from cell types to marker genes, compute enrichment."""
-    zscored_expression = zscore(dataset.X)
+    data = dataset.X if not issparse(dataset.X) else dataset.X.todense()
+    zscored_expression = zscore(data)
 
     marker_gene_expression = np.zeros((len(dataset), len(de_genes)))
     for index, (subtype, gene_list) in enumerate(de_genes.items()):

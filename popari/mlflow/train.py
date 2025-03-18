@@ -9,10 +9,34 @@ from matplotlib import pyplot as plt
 
 from popari import get_parser, pl, tl
 from popari.model import Popari
+from popari.train import MLFlowTrainer, MLFlowTrainParameters
+from popari.util import get_datetime
 
 
 def main():
+    print(f"{get_datetime()} Parsing args...")
     parser = get_parser()
+
+    parser.add_argument(
+        "--spatial_preiterations",
+        type=int,
+        default=0,
+        help="Number of SpiceMix preiterations to use for initialization.",
+    )
+
+    parser.add_argument(
+        "--save_figs",
+        type=bool,
+        default=True,
+        help="Whether or not to save intermediate figs.",
+    )
+
+    parser.add_argument(
+        "--monitor_system_metrics",
+        type=bool,
+        default=True,
+        help="Whether or not to monitor system metrics using MLflow.",
+    )
 
     args = parser.parse_args()
     filtered_args = {key: value for key, value in vars(args).items() if value is not None}
@@ -22,10 +46,13 @@ def main():
     num_iterations = filtered_args.pop("num_iterations")
     nmf_preiterations = filtered_args.pop("nmf_preiterations")
     spatial_preiterations = filtered_args.pop("spatial_preiterations")
+    save_figs = filtered_args.pop("save_figs")
+    monitor_system_metrics = filtered_args.pop("monitor_system_metrics")
 
     torch_device = filtered_args.pop("torch_device")
     initial_device = filtered_args.pop("initial_device")
     dtype = filtered_args.pop("dtype")
+    filtered_args["verbose"] -= 1
 
     superresolution_epochs = filtered_args.pop("superresolution_epochs", 0)
 
@@ -42,21 +69,23 @@ def main():
     output_path = filtered_args.pop("output_path")
     output_path = Path(output_path)
 
-    checkpoint_iterations = 50
+    checkpoint_iterations = 100
 
     train_parameters = MLFlowTrainParameters(
         iterations=num_iterations,
         nmf_iterations=nmf_preiterations,
         spatial_preiterations=spatial_preiterations,
+        save_figs=save_figs,
         savepath=output_path,
     )
 
+    print(f"{get_datetime()} Loading model...")
     model = Popari(**filtered_args)
 
     mlflow_trainer = MLFlowTrainer(
         parameters=train_parameters,
         model=model,
-        verbose=filtered_args["verbose"],
+        verbose=filtered_args["verbose"] + 1,
     )
 
     with mlflow_trainer:
@@ -89,10 +118,17 @@ def main():
                 "num_iterations": num_iterations,
             },
         )
+
         try:
+            print(f"{get_datetime()} Training model...")
             mlflow_trainer.train()
+
+            print(f"{get_datetime()} Superresolving model...")
             mlflow_trainer.superresolve(n_epochs=superresolution_epochs)
-            mlflow_trainer
+
+            print(f"{get_datetime()} Final save ...")
+            mlflow_trainer.save_results()
+
         except Exception as e:
             with open(Path(f"./output_{torch_device}.txt"), "a") as f:
                 tb = traceback.format_exc()
