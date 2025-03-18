@@ -92,6 +92,7 @@ class MLFlowTrainer(Trainer):
         super().__init__(parameters, model, verbose)
         self.spatial_preiterations = 0
         self.torch_device = self.model.context["device"]
+        self.log_system_metrics: bool = True
 
         self.is_hierarchical = self.model.hierarchical_levels > 1
 
@@ -127,9 +128,9 @@ class MLFlowTrainer(Trainer):
         nll_spatial = self.model.nll(use_spatial=True)
         mlflow.log_metric("nll_spatial", nll_spatial, step=-1)
 
-        if self.parameters.save_figs:
-            for hierarchical_level in range(self.model.hierarchical_levels):
-                self.save_popari_figs(level=hierarchical_level, save_spatial_figs=False)
+        # if self.parameters.save_figs:
+        #     for hierarchical_level in range(self.model.hierarchical_levels):
+        #         self.save_popari_figs(level=hierarchical_level, save_spatial_figs=False)
 
         self.save_results(self.parameters.savepath)
 
@@ -147,9 +148,9 @@ class MLFlowTrainer(Trainer):
                 nll_spatial = self.model.nll(use_spatial=True)
                 mlflow.log_metric("nll_spatial_preiteration", nll_spatial, step=self.spatial_preiterations)
 
-                if self.parameters.save_figs:
-                    for hierarchical_level in range(self.model.hierarchical_levels):
-                        self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
+                # if self.parameters.save_figs:
+                #     for hierarchical_level in range(self.model.hierarchical_levels):
+                #         self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
 
                 if Path(f"./output_{self.torch_device}.txt").is_file():
                     mlflow.log_artifact(f"output_{self.torch_device}.txt")
@@ -170,6 +171,9 @@ class MLFlowTrainer(Trainer):
             self.model.estimate_weights(synchronize=synchronize)
 
             if self.iterations % self.parameters.checkpoint_iterations == 0:
+                if self.verbose:
+                    print(f"{get_datetime()} Logging `nll_spatial`")
+
                 checkpoint_path = f"{self.torch_device}_checkpoint_{self.iterations}_iterations"
                 if not self.is_hierarchical:
                     checkpoint_path = f"{checkpoint_path}.h5ad"
@@ -177,9 +181,9 @@ class MLFlowTrainer(Trainer):
                 nll_spatial = self.model.nll(use_spatial=True)
                 mlflow.log_metric("nll_spatial", nll_spatial, step=self.iterations)
 
-                if self.parameters.save_figs:
-                    for hierarchical_level in range(self.model.hierarchical_levels):
-                        self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
+                # if self.parameters.save_figs:
+                #     for hierarchical_level in range(self.model.hierarchical_levels):
+                #         self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
 
                 if Path(f"./output_{self.torch_device}.txt").is_file():
                     mlflow.log_artifact(f"output_{self.torch_device}.txt")
@@ -190,19 +194,19 @@ class MLFlowTrainer(Trainer):
 
         self.save_results(self.parameters.savepath, ignore_raw_data=False)
 
-        if self.nmf_iterations + self.iterations > 0 and self.parameters.save_figs:
-            for hierarchical_level in range(self.model.hierarchical_levels):
-                self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
+        # if self.nmf_iterations + self.iterations > 0 and self.parameters.save_figs:
+        #     for hierarchical_level in range(self.model.hierarchical_levels):
+        #         self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
 
     def superresolve(self, **kwargs):
         super().superresolve(**kwargs)
 
-        if self.nmf_iterations + self.iterations > 0 and self.parameters.save_figs:
-            for hierarchical_level in range(self.model.hierarchical_levels):
-                self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
+        # if self.nmf_iterations + self.iterations > 0 and self.parameters.save_figs:
+        #     for hierarchical_level in range(self.model.hierarchical_levels):
+        #         self.save_popari_figs(level=hierarchical_level, save_spatial_figs=True)
 
-    def __enter__(self, log_system_metrics: bool = True):
-        return mlflow.start_run(log_system_metrics=log_system_metrics)
+    def __enter__(self):
+        return mlflow.start_run(log_system_metrics=self.log_system_metrics)
 
     def __exit__(self, error_type, value, traceback):
         mlflow.end_run()
@@ -224,7 +228,7 @@ class MLFlowTrainer(Trainer):
 
         if save_spatial_figs:
             if self.verbose:
-                print("f{get_datetime()} Plotting spatial affinities at level {level}")
+                print(f"{get_datetime()} Plotting spatial affinities at level {level}")
 
             pl.spatial_affinities(self.model, level=level)
 
@@ -234,7 +238,7 @@ class MLFlowTrainer(Trainer):
 
         for metagene in range(self.model.K):
             if self.verbose:
-                print("f{get_datetime()} Plotting 'in situ' metagene {self.model.K} at level {level}")
+                print(f"{get_datetime()} Plotting 'in situ' metagene {self.model.K} at level {level}")
 
             pl.metagene_embedding(self.model, metagene, level=level)
             plt.savefig(f"metagene_{metagene}_in_situ{suffix}")
