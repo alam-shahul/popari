@@ -531,11 +531,11 @@ class HierarchicalView:
                     self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
                 )
 
-            dataset.uns["losses"]["nll_embeddings"].append(self.embedding_optimizer.nll_embeddings())
-            dataset.uns["losses"]["nll_spatial_affinities"].append(self.parameter_optimizer.nll_spatial_affinities())
-            dataset.uns["losses"]["nll_metagenes"].append(self.parameter_optimizer.nll_metagenes())
-            dataset.uns["losses"]["nll_sigma_yx"].append(self.parameter_optimizer.nll_sigma_yx())
-            dataset.uns["losses"]["nll"].append(self.nll())
+            # dataset.uns["losses"]["nll_embeddings"].append(self.embedding_optimizer.nll_embeddings())
+            # dataset.uns["losses"]["nll_spatial_affinities"].append(self.parameter_optimizer.nll_spatial_affinities())
+            # dataset.uns["losses"]["nll_metagenes"].append(self.parameter_optimizer.nll_metagenes())
+            # dataset.uns["losses"]["nll_sigma_yx"].append(self.parameter_optimizer.nll_sigma_yx())
+            # dataset.uns["losses"]["nll"].append(self.nll())
 
         if self.parameter_optimizer.metagene_mode == "differential":
             M_bar = {
