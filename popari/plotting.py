@@ -210,7 +210,7 @@ def affinity_magnitude_vs_difference(
 
     """
     datasets = trained_model.hierarchy[level].datasets
-    group_suffix = f"level_{level}" if level > 0 else ""
+    group_suffix = f"_level_{level}" if level > 0 else ""
 
     fig, axes = setup_squarish_axes(len(datasets), figsize=figsize)
 
@@ -222,7 +222,7 @@ def affinity_magnitude_vs_difference(
     for ax, (index, dataset) in zip(axes.flat, enumerate(datasets)):
         dataset.uns["delta_Sigma"] = {
             dataset.name: dataset.uns[spatial_affinity_key][dataset.name]
-            - dataset.uns[spatial_affinity_bar_key][f"_default_{group_suffix}"],
+            - dataset.uns[spatial_affinity_bar_key][f"_default{group_suffix}"],
         }
 
         Sigma_x_inv = dataset.uns[spatial_affinity_key][dataset.name]

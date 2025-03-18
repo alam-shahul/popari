@@ -372,7 +372,7 @@ class HierarchicalView:
             MTM = M.T @ M / (sigma_yx**2)
             BTB = convert_numpy_to_pytorch_sparse_coo((B.T @ B).tocoo(), context=self.context)
             YM = Y @ M / (sigma_yx**2)
-            BTX_B = torch.from_numpy(B.T @ X_B).to(self.context["device"])
+            BTX_B = torch.from_numpy(B.T @ X_B).to(self.context["device"]).to(self.context["dtype"])
 
             linear_term_gradient = YM + BTX_B
             if prior_x_mode == "exponential shared fixed":
