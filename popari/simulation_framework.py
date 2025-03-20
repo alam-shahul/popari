@@ -338,7 +338,7 @@ class SyntheticDataset(AnnData):
         )
 
         self.batch_effect = batch_effect
-        #self.obsm["batch_effect"] = np.zeros((1, self.params.num_real_metagenes))
+        self.uns["batch_effect"] = {self.name: np.zeros((1, self.params.num_real_metagenes)),}
 
     def synthesize_metagenes(
         self,
@@ -474,7 +474,7 @@ class SyntheticDataset(AnnData):
             batch_std = np.ones(num_metagenes) * 0.5
             lower_bound = np.zeros(num_metagenes)
             batch_effect = sample_truncated_gaussian(batch_mean, batch_std, lower_bound, num_metagenes, self.rng)
-            #self.obsm["batch_effect"] = batch_effect
+            self.uns["batch_effect"] = {self.name: batch_effect,}
             X = X + batch_effect
             
 
