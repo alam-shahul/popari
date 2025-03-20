@@ -1,0 +1,164 @@
+Dataset: X, Shape: (1000, 100), Type: float32
+  Attributes:
+    encoding-type: array
+    encoding-version: 0.2.0
+  First few elements: [[0.09533395 0.08314363 0.06799138 0.04742801 0.06280375 0.09081217
+  0.08285131 0.05204568 0.05274866 0.08889349 0.07801787 0.05287162
+  0.08359991 0.12193254 0.07545189 0.08065963 0.10857756 0.10716543
+  0.11102599 0.02363976 0.03707053 0.09086011 0.08109116 0.08309182
+  0.09826726 0.07804803 0.14805862 0.11040112 0.08111591 0.1079527
+  0.04330451 0.14450353 0.05577091 0.10829607 0.10192134 0.06820405
+  0.10615388 0.07480692 0.0535251  0.08897933 0.10861778 0.05133652
+  0.1038841  0.10097399 0.09030176 0.07892732 0.10343247 0.08851068
+  0.11142891 0.04451093 0.07343577 0.12463231 0.11066793 0.10288648
+  0.05565336 0.03956613 0.10198244 0.05247334 0.13423422 0.11599322
+  0.04584264 0.0839077  0.0788848  0.08049491 0.10125858 0.11530184
+  0.12718591 0.09849849 0.05638263 0.08949593 0.10091598 0.12227282
+  0.08054363 0.20587428 0.12575057 0.09188558 0.10972135 0.07784154
+  0.08996303 0.09592246 0.14400628 0.06313861 0.05793861 0.08559051
+  0.03747422 0.09768184 0.20123263 0.09293734 0.02530788 0.16526799
+  0.1099665  0.05901898 0.10511837 0.12441423 0.11455169 0.10466673
+  0.11350535 0.12136955 0.07380852 0.10784984]
+ [0.08503215 0.10545556 0.04276239 0.04749297 0.0625586  0.08933662
+  0.10324299 0.07522375 0.08499657 0.1034897  0.08950444 0.0780372
+  0.0870854  0.09399296 0.08351175 0.10241319 0.10143413 0.08320705
+  0.06335747 0.07704654 0.03634745 0.10240623 0.11205609 0.07866362
+  0.07374047 0.10413621 0.10979713 0.10852575 0.08118319 0.11152712
+  0.08259223 0.09948684 0.07186819 0.07531346 0.11100434 0.10661094
+  0.09260789 0.11988394 0.07998527 0.0737714  0.13808782 0.0488734
+  0.09687524 0.06678573 0.10741986 0.09522413 0.07929853 0.08436862
+  0.1105759  0.06127097 0.0733855  0.09883645 0.1321918  0.07969681
+  0.09903984 0.06269161 0.14010859 0.08074547 0.1328244  0.04215686
+  0.06386015 0.1287473  0.12407318 0.08695161 0.11517965 0.12756872
+  0.07751287 0.11780673 0.09429379 0.10133746 0.11728239 0.08276314
+  0.07275832 0.15753448 0.12703356 0.07763738 0.08630199 0.07680139
+  0.06684373 0.07973393 0.10516091 0.06767818 0.0748394  0.09620319
+  0.07901859 0.09072169 0.17712963 0.08125666 0.03590896 0.19227183
+  0.10794187 0.05976526 0.06711441 0.10660939 0.09376791 0.08074315
+  0.11809827 0.06711672 0.08158378 0.08444595]
+ [0.11842541 0.08947968 0.07061227 0.09185929 0.0859246  0.07021013
+  0.08799099 0.10371397 0.08798016 0.04759196 0.07982364 0.08607076
+  0.0828281  0.11544105 0.13250114 0.09322502 0.14375107 0.0958258
+  0.11757549 0.03208784 0.10563883 0.08097903 0.11784153 0.13998254
+  0.07607985 0.07162381 0.17021587 0.10042955 0.10305198 0.11969679
+  0.05967942 0.15951812 0.06507508 0.12712559 0.12840936 0.08022656
+  0.10723348 0.11009256 0.09560771 0.11885152 0.10411688 0.03836435
+  0.11113271 0.06382612 0.10999512 0.11886312 0.12484653 0.11176686
+  0.1056079  0.07247759 0.04618524 0.14616856 0.12873416 0.11064319
+  0.10373639 0.04473288 0.12963976 0.09170848 0.15945007 0.10051385
+  0.05356841 0.08468647 0.12304385 0.09875757 0.17527746 0.12516515
+  0.09300075 0.09747535 0.07527711 0.09006434 0.08198051 0.10733479
+  0.07981436 0.15795751 0.10710124 0.09167445 0.11913766 0.08972406
+  0.10673158 0.06922333 0.15142116 0.08970396 0.05209827 0.10397923
+  0.05420487 0.11248144 0.18272482 0.10597137 0.06114724 0.15344888
+  0.13800353 0.09248493 0.09317166 0.11157817 0.12144379 0.09890991
+  0.10626293 0.11835812 0.07449294 0.11948412]]
+Group: layers
+  Attributes:
+    encoding-type: dict
+    encoding-version: 0.1.0
+Group: obs
+  Attributes:
+    _index: _index
+    column-order: ['replicate' 'cell_type' 'batch']
+    encoding-type: dataframe
+    encoding-version: 0.2.0
+  Dataset: obs/_index, Shape: (1000,), Type: object
+    Attributes:
+      encoding-type: string-array
+      encoding-version: 0.2.0
+    First few elements: [b'0' b'1' b'2']
+  Group: obs/batch
+    Attributes:
+      encoding-type: categorical
+      encoding-version: 0.2.0
+      ordered: False
+    Dataset: obs/batch/categories, Shape: (2,), Type: object
+      Attributes:
+        encoding-type: string-array
+        encoding-version: 0.2.0
+      Data: [b'0' b'1']
+    Dataset: obs/batch/codes, Shape: (1000,), Type: int8
+      Attributes:
+        encoding-type: array
+        encoding-version: 0.2.0
+      First few elements: [0 0 0]
+  Group: obs/cell_type
+    Attributes:
+      encoding-type: categorical
+      encoding-version: 0.2.0
+      ordered: False
+    Dataset: obs/cell_type/categories, Shape: (8,), Type: object
+      Attributes:
+        encoding-type: string-array
+        encoding-version: 0.2.0
+      Data: [b'Glial-1' b'Glial-2' b'Inh-1' b'Inh-2' b'eL1' b'eL2' b'eL3' b'eL4']
+    Dataset: obs/cell_type/codes, Shape: (1000,), Type: int8
+      Attributes:
+        encoding-type: array
+        encoding-version: 0.2.0
+      First few elements: [4 2 6]
+  Group: obs/replicate
+    Attributes:
+      encoding-type: categorical
+      encoding-version: 0.2.0
+      ordered: False
+    Dataset: obs/replicate/categories, Shape: (2,), Type: object
+      Attributes:
+        encoding-type: string-array
+        encoding-version: 0.2.0
+      Data: [b'0' b'1']
+    Dataset: obs/replicate/codes, Shape: (1000,), Type: int8
+      Attributes:
+        encoding-type: array
+        encoding-version: 0.2.0
+      First few elements: [0 0 0]
+Group: obsm
+  Attributes:
+    encoding-type: dict
+    encoding-version: 0.1.0
+  Dataset: obsm/spatial, Shape: (1000, 2), Type: float64
+    Attributes:
+      encoding-type: array
+      encoding-version: 0.2.0
+    First few elements: [[0.019336 0.117635]
+ [0.755022 0.287152]
+ [0.69183  0.634146]]
+Group: obsp
+  Attributes:
+    encoding-type: dict
+    encoding-version: 0.1.0
+  Group: obsp/adjacency_matrix
+    Attributes:
+      encoding-type: csr_matrix
+      encoding-version: 0.1.0
+      shape: [1000 1000]
+    Dataset: obsp/adjacency_matrix/data, Shape: (500000,), Type: float32
+      First few elements: [0. 0. 0.]
+    Dataset: obsp/adjacency_matrix/indices, Shape: (500000,), Type: int32
+      First few elements: [0 1 2]
+    Dataset: obsp/adjacency_matrix/indptr, Shape: (1001,), Type: int32
+      First few elements: [   0  500 1000]
+Group: uns
+  Attributes:
+    encoding-type: dict
+    encoding-version: 0.1.0
+Group: var
+  Attributes:
+    _index: _index
+    column-order: []
+    encoding-type: dataframe
+    encoding-version: 0.2.0
+  Dataset: var/_index, Shape: (100,), Type: object
+    Attributes:
+      encoding-type: string-array
+      encoding-version: 0.2.0
+    First few elements: [b'0' b'1' b'2']
+Group: varm
+  Attributes:
+    encoding-type: dict
+    encoding-version: 0.1.0
+Group: varp
+  Attributes:
+    encoding-type: dict
+    encoding-version: 0.1.0
