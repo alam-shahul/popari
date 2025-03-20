@@ -64,6 +64,11 @@ def sample_gaussian(sigma: NDArray, means: NDArray, N: int = 1, random_state=0) 
 
     return np.squeeze(x)
 
+def sample_truncated_gaussian(means: NDArray, stdev: NDArray, lower_bound: NDArray, N: int = 1, random_state=0) -> NDArray:
+    a = (lower_bound - means)/stdev
+    samples = truncnorm.rvs(a, np.inf, loc=means, scale=stdev, size=(1, N))
+    return samples
+
 
 def sample_2D_points(num_points, minimum_distance: float, width: float = 1.0, height: float = 1.0, random_state=0):
     """Generate 2D samples that are at least minimum_distance apart from each
@@ -264,6 +269,7 @@ class SyntheticDataset(AnnData):
         parameters: SimulationParameters,
         random_state: Union[int, np.random.Generator] = None,
         verbose: int = 0,
+        batch_effect: bool = False,
     ):
         """Generate random coordinates (as well as expression values) for a
         single ST FOV."""
@@ -330,6 +336,9 @@ class SyntheticDataset(AnnData):
             canvas_width=600,
             density=1,
         )
+
+        self.batch_effect = batch_effect
+        self.uns["batch_effect"] = {self.name: np.zeros((1, self.params.num_real_metagenes)),}
 
     def synthesize_metagenes(
         self,
@@ -459,6 +468,15 @@ class SyntheticDataset(AnnData):
         sigma_x = sigma_x * self.params.sig_x_scale
 
         X = sample_normalized_embeddings(Z, sigma_x, rng=self.rng)
+
+        if self.batch_effect:
+            batch_mean = np.ones(num_metagenes)
+            batch_std = np.ones(num_metagenes) * 0.5
+            lower_bound = np.zeros(num_metagenes)
+            batch_effect = sample_truncated_gaussian(batch_mean, batch_std, lower_bound, num_metagenes, self.rng)
+            self.uns["batch_effect"] = {self.name: batch_effect,}
+            X = X + batch_effect
+            
 
         return X, cell_type_assignments
 
@@ -669,6 +687,7 @@ class MultiReplicateSyntheticDataset:
         dataset_constructor: SyntheticDataset,
         random_state=0,
         verbose=0,
+        batch_effect = False,
     ):
         self.verbose = verbose
         self.datasets = {}
@@ -683,6 +702,7 @@ class MultiReplicateSyntheticDataset:
                 parameters=replicate_parameters[replicate_name],
                 random_state=self.rng,
                 verbose=self.verbose,
+                batch_effect=batch_effect,
             )
             self.datasets[replicate_name] = synthetic_dataset
 

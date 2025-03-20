@@ -8,7 +8,8 @@ from popari.model import Popari
 
 @pytest.fixture(scope="module")
 def test_datapath():
-    return Path("tests/test_data/synthetic_dataset")
+    #return Path("tests/test_data/synthetic_dataset")
+    return Path("tests/test_data/raehash_dataset")
 
 
 @pytest.fixture(scope="module")

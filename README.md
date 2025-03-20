@@ -13,6 +13,25 @@ Popari is a versatile framework for joint analysis and investigation of complex 
 For development, create a fresh Python environment; this should not contain the PyPI-published
 version of the package.
 
+### Style checking
+
+```bash
+pip install pre-commit
+pip install nox
+```
+
+Once the `pre-commit` command line tool is installed, every time you commit
+some changes, it will perform code-style checks and automatically
+apply some fixes for you (if there is any issue). When auto-fixes
+are applied, you need to recommit those changes. Note that this process can
+take more than one round.
+
+After you are done committing changes and are ready to push the commits to the
+remote branch, run `nox` to perform a final quality check. Note that `nox` is
+linting only and does not fix the issues for you. You need to address
+the issues manually based on the instructions provided.
+
+
 ### PyPI publishing
 
 ```
