@@ -64,9 +64,11 @@ def sample_gaussian(sigma: NDArray, means: NDArray, N: int = 1, random_state=0) 
 
     return np.squeeze(x)
 
-def sample_truncated_gaussian(means: NDArray, stdev: NDArray, lower_bound: NDArray, N: int = 1, random_state=0) -> NDArray:
-    a = (lower_bound - means)/stdev
-    samples = truncnorm.rvs(a, np.inf, loc=means, scale=stdev, size=(1, N))
+def sample_truncated_gaussian_for_batch(means: NDArray, stdev: NDArray, lower_bound: NDArray, metagene_indices: NDArray) -> NDArray:
+    samples = np.zeros(len(means))
+    for i in metagene_indices:
+        a = (lower_bound[i] - means[i])/stdev[i]
+        samples[i] = stdev[i] * truncnorm.rvs(a, np.inf, loc=means[i], scale=stdev[i], size=(1,1)) + means[i]
     return samples
 
 
@@ -269,7 +271,7 @@ class SyntheticDataset(AnnData):
         parameters: SimulationParameters,
         random_state: Union[int, np.random.Generator] = None,
         verbose: int = 0,
-        batch_effect: bool = False,
+        batch_effect_indices: NDArray = None,
     ):
         """Generate random coordinates (as well as expression values) for a
         single ST FOV."""
@@ -337,7 +339,10 @@ class SyntheticDataset(AnnData):
             density=1,
         )
 
-        self.batch_effect = batch_effect
+        self.batch_effect = False
+        if batch_effect_indices is not None:
+            self.batch_effect = True
+        self.batch_metagene_indices = batch_effect_indices
         self.uns["batch_effect"] = {self.name: np.zeros((1, self.params.num_real_metagenes)),}
 
     def synthesize_metagenes(
@@ -470,10 +475,10 @@ class SyntheticDataset(AnnData):
         X = sample_normalized_embeddings(Z, sigma_x, rng=self.rng)
 
         if self.batch_effect:
-            batch_mean = np.ones(num_metagenes)
-            batch_std = np.ones(num_metagenes) * 0.5
+            batch_mean = np.zeros(num_metagenes)
+            batch_stdev = sigma_x/2
             lower_bound = np.zeros(num_metagenes)
-            batch_effect = sample_truncated_gaussian(batch_mean, batch_std, lower_bound, num_metagenes, self.rng)
+            batch_effect = sample_truncated_gaussian_for_batch(batch_mean, batch_stdev, lower_bound, self.batch_metagene_indices)
             self.uns["batch_effect"] = {self.name: batch_effect,}
             X = X + batch_effect
             
@@ -687,7 +692,7 @@ class MultiReplicateSyntheticDataset:
         dataset_constructor: SyntheticDataset,
         random_state=0,
         verbose=0,
-        batch_effect = False,
+        percent_batch_effect = 0.0,
     ):
         self.verbose = verbose
         self.datasets = {}
@@ -695,6 +700,9 @@ class MultiReplicateSyntheticDataset:
 
         # random.seed(random_state)
         self.rng = np.random.default_rng(random_state)
+        first_key = next(iter(self.replicate_parameters))
+        num_metagenes = self.replicate_parameters[first_key].num_real_metagenes
+        batch_metagene_indices = self.rng.choice(np.arange(num_metagenes), size=int(percent_batch_effect * num_metagenes), replace=False) 
 
         for replicate_name in self.replicate_parameters:
             synthetic_dataset = dataset_constructor(
@@ -702,7 +710,7 @@ class MultiReplicateSyntheticDataset:
                 parameters=replicate_parameters[replicate_name],
                 random_state=self.rng,
                 verbose=self.verbose,
-                batch_effect=batch_effect,
+                batch_effect_indices=batch_metagene_indices,
             )
             self.datasets[replicate_name] = synthetic_dataset
 
