@@ -19,6 +19,24 @@ from popari.util import (
     sample_graph_iid,
 )
 
+def get_update_s_closure(S, YM, MTM, prior_x, prior_x_mode, Z):
+    def update_s():
+        S[:] = (YM * Z).sum(axis=1, keepdim=True)
+        if prior_x_mode == "exponential shared fixed":
+            # TODO: why divide by two?
+            S.sub_(prior_x[0][0] / 2)
+        elif not prior_x_mode:
+            pass
+        else:
+            raise NotImplementedError
+
+        denominator = ((Z @ MTM) * Z).sum(axis=1, keepdim=True)
+        S.div_(denominator)
+        S.clip_(min=1e-5)
+
+        return
+
+    return update_s
 
 class EmbeddingOptimizer:
     """Optimizer and state for Popari embeddings."""
@@ -297,19 +315,7 @@ class EmbeddingOptimizer:
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
 
-        def update_s():
-            S[:] = (YM * Z).sum(axis=1, keepdim=True)
-            if prior_x_mode == "exponential shared fixed":
-                # TODO: why divide by two?
-                S.sub_(prior_x[0][0] / 2)
-            elif not prior_x_mode:
-                pass
-            else:
-                raise NotImplementedError
-
-            denominator = ((Z @ MTM) * Z).sum(axis=1, keepdim=True)
-            S.div_(denominator)
-            S.clip_(min=1e-5)
+        update_s = get_update_s_closure(S, YM, MTM, prior_x, prior_x_mode, Z)
 
         def calc_func_grad(Z_batch, S_batch, quad, linear):
             t = (Z_batch @ quad).mul_(S_batch**2)
