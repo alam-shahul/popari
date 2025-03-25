@@ -19,6 +19,7 @@ from popari.util import (
     sample_graph_iid,
 )
 
+
 def get_update_s_closure(S, YM, MTM, prior_x, prior_x_mode, Z):
     def update_s():
         S[:] = (YM * Z).sum(axis=1, keepdim=True)
@@ -37,6 +38,7 @@ def get_update_s_closure(S, YM, MTM, prior_x, prior_x_mode, Z):
         return
 
     return update_s
+
 
 class EmbeddingOptimizer:
     """Optimizer and state for Popari embeddings."""
