@@ -179,7 +179,7 @@ class EmbeddingOptimizer:
             loss_prev,
         )
 
-        gradient_update = gradient_update_wonbr_closure(X, MTM, YM, prior_x_mode, prior_x, Ynorm)
+        gradient_update = gradient_update_wonbr_closure(X, MTM, YM, prior_x_mode, prior_x, Ynorm, step_size)
 
         progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, miniters=1000)
         for epoch in progress_bar:

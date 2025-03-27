@@ -6,7 +6,6 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
 
-from popari._embedding_optimizer_closures import *
 from popari._popari_dataset import PopariDataset
 from popari.util import (
     IndependentSet,
@@ -23,7 +22,7 @@ from popari.util import (
 ######################### Estimate Weight WONBR Closure Functions #########################
 
 
-def multiplicative_update_wonbr_closure(X_prev, X, MTM, clipped_X, YM, Ynorm, prior_x_mode, prior_x, loss_prev):
+def multiplicative_update_wonbr_closure(X_prev, MTM, clipped_X, YM, Ynorm, prior_x_mode, prior_x, loss_prev):
     def multiplicative_update(X_prev):
         """TODO:UNTESTED."""
         X = torch.clip(X_prev, min=1e-10)
@@ -48,7 +47,7 @@ def multiplicative_update_wonbr_closure(X_prev, X, MTM, clipped_X, YM, Ynorm, pr
     return multiplicative_update(X_prev)
 
 
-def gradient_update_wonbr_closure(X, MTM, YM, prior_x_mode, prior_x, Ynorm):
+def gradient_update_wonbr_closure(X, MTM, YM, prior_x_mode, prior_x, Ynorm, step_size):
     def gradient_update(X):
         """TODO:UNTESTED."""
         quadratic_term_gradient = X @ MTM
