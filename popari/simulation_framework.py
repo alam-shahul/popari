@@ -353,7 +353,7 @@ class SyntheticDataset(AnnData):
         )
 
         self.batch_effect = False
-        if batch_effect_indices is not None:
+        if batch_effect_indices is not None and len(batch_effect_indices) > 0:
             self.batch_effect = True
         self.batch_metagene_indices = batch_effect_indices
         self.uns["batch_effect"] = {self.name: np.zeros((1, self.params.num_real_metagenes))}
@@ -505,7 +505,7 @@ class SyntheticDataset(AnnData):
         self,
         metagene_magnitudes=None,
         predefined_metagenes=None,
-        batch_effect_scale=100,
+        batch_effect_scale=2,
     ):
         """Simulate metagenes and embeddings following metagene-based SpiceMix
         model."""
