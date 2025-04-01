@@ -116,6 +116,10 @@ class Popari:
         embedding_mini_iterations: int = 1000,
         embedding_acceleration_trick: bool = True,
         embedding_step_size_multiplier: float = 1.0,
+        batch_step_size_multiplier: float = 1.0,
+        batch_mini_iterations: int = 1000,
+        batch_tol: float = 1e-5,
+        batch_effect_correction: bool = False,
         downsampling_method: str = "grid",
         binning_downsample_rate: float = 0.2,
         chunks: int = 2,
@@ -209,6 +213,14 @@ class Popari:
             "embedding_acceleration_trick": embedding_acceleration_trick,
         }
 
+        # Should modify these hyperparameters
+        self.batch_effect_optimizer_hyperparameters = {
+            "batch_step_size_multiplier": batch_step_size_multiplier,
+            "batch_mini_iterations": batch_mini_iterations,
+            "batch_tol": batch_tol,
+        }
+        self.batch_effect_correction = batch_effect_correction
+
         self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
 
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
@@ -270,6 +282,8 @@ class Popari:
             "superresolution_lr": self.superresolution_lr,
             "parameter_optimizer_hyperparameters": self.parameter_optimizer_hyperparameters,
             "embedding_optimizer_hyperparameters": self.embedding_optimizer_hyperparameters,
+            "batch_effect_optimizer_hyperparameters": self.batch_effect_optimizer_hyperparameters,
+            "batch_effect_correction": self.batch_effect_correction,
         }
 
         bin_assignment_kwargs = {}
@@ -307,6 +321,7 @@ class Popari:
         self.betas = self.active_view.betas
         self.parameter_optimizer = self.active_view.parameter_optimizer
         self.embedding_optimizer = self.active_view.embedding_optimizer
+        self.batch_effect_optimizer = self.active_view.batch_effect_optimizer
         self.metagene_groups = self.active_view.metagene_groups
         self.metagene_tags = self.active_view.metagene_tags
         self.spatial_affinity_groups = self.active_view.spatial_affinity_groups
@@ -325,6 +340,15 @@ class Popari:
         if self.verbose:
             print(f"{get_datetime()} Updating latent states")
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
+
+        if synchronize:
+            self.synchronize_datasets()
+
+    def estimate_batch_effect(self, synchronize: bool = True):
+        """Update batch effect (latent states) for each replicate."""
+        if self.verbose:
+            print(f"{get_datetime()} Updating batch effect")
+        self.batch_effect_optimizer.update_batch_effects()
 
         if synchronize:
             self.synchronize_datasets()

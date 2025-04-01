@@ -36,6 +36,7 @@ class EmbeddingOptimizer:
         embedding_mini_iterations=1000,
         embedding_acceleration_trick=True,
         verbose=0,
+        batch_effect_correction=False,
     ):
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
@@ -58,8 +59,9 @@ class EmbeddingOptimizer:
             print(f"{get_datetime()} Initializing EmbeddingState")
         self.embedding_state = EmbeddingState(K, self.datasets, context=self.context)
 
-    def link(self, parameter_optimizer):
+    def link(self, parameter_optimizer, batch_optimizer):
         self.parameter_optimizer = parameter_optimizer
+        self.batch_optimizer = batch_optimizer
 
     def update_embeddings(self, use_neighbors=True):
         """Update Popari embeddings according to optimization scheme."""
@@ -72,12 +74,14 @@ class EmbeddingOptimizer:
             Y = self.Ys[dataset_index].to(self.context["device"])
             X = self.embedding_state[dataset.name].to(self.context["device"])
             M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+            B = self.batch_optimizer.batch_effect_state[dataset.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
             if not is_spatial_replicate or not use_neighbors:
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wonbr(
                     Y,
                     M,
+                    B,
                     X,
                     sigma_yx,
                     prior_x_mode,
@@ -88,6 +92,7 @@ class EmbeddingOptimizer:
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr(
                     Y,
                     M,
+                    B,
                     X,
                     sigma_yx,
                     prior_x_mode,
@@ -106,12 +111,14 @@ class EmbeddingOptimizer:
                 Y = self.Ys[dataset_index].to(self.context["device"])
                 X = self.embedding_state[dataset.name].to(self.context["device"])
                 M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+                B = self.batch_optimizer.batch_effect_state[dataset.name].to(self.context["device"])
                 prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
                 prior_x = self.parameter_optimizer.prior_xs[dataset_index]
                 if not is_spatial_replicate or not use_neighbors:
                     loss = self.nll_weight_wonbr(
                         Y,
                         M,
+                        B,
                         X,
                         sigma_yx,
                         prior_x_mode,
@@ -122,6 +129,7 @@ class EmbeddingOptimizer:
                     loss = self.nll_weight_wnbr(
                         Y,
                         M,
+                        B,
                         X,
                         sigma_yx,
                         prior_x_mode,
@@ -138,6 +146,7 @@ class EmbeddingOptimizer:
         self,
         Y,
         M,
+        B,
         X,
         sigma_yx,
         prior_x_mode,
@@ -167,17 +176,7 @@ class EmbeddingOptimizer:
         step_size = 1 / torch.linalg.eigvalsh(MTM).max().item()
         loss_prev, loss = np.inf, np.nan
 
-        multiplicative_update = multiplicative_update_wonbr_closure(
-            X_prev,
-            X,
-            MTM,
-            clipped_X,
-            YM,
-            Ynorm,
-            prior_x_mode,
-            prior_x,
-            loss_prev,
-        )
+        # multiplicative_update = multiplicative_update_wonbr_closure(X_prev, X, MTM, clipped_X, YM, Ynorm, prior_x_mode, prior_x, loss_prev,)
 
         gradient_update = gradient_update_wonbr_closure(X, MTM, YM, prior_x_mode, prior_x, Ynorm, step_size)
 
@@ -224,7 +223,7 @@ class EmbeddingOptimizer:
         return loss, X
 
     @torch.no_grad()
-    def nll_weight_wonbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset):
+    def nll_weight_wonbr(self, Y, M, B, X, sigma_yx, prior_x_mode, prior_x, dataset):
         # Precomputing quantities
         MTM = M.T @ M / (sigma_yx**2)
         YM = Y @ M / (sigma_yx**2)
@@ -237,7 +236,19 @@ class EmbeddingOptimizer:
         return loss
 
     @torch.no_grad()
-    def estimate_weight_wnbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, tol=1e-5, update_alg="nesterov"):
+    def estimate_weight_wnbr(
+        self,
+        Y,
+        M,
+        B,
+        X,
+        sigma_yx,
+        prior_x_mode,
+        prior_x,
+        dataset,
+        tol=1e-5,
+        update_alg="nesterov",
+    ):
         """Estimate updated weights taking neighbor-neighbor interactions into
         account.
 
@@ -274,7 +285,7 @@ class EmbeddingOptimizer:
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
 
-        update_s = get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z)
+        update_s = get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z, B)
 
         # calc_func_grad = calc_func_grad_wnbr_closure(Z_batch, S_batch, quad, linear)
 
@@ -321,6 +332,7 @@ class EmbeddingOptimizer:
             prior_x,
             Sigma_x_inv,
             adjacency_matrix,
+            B,
         )
         # TM: consider combine compute_loss and update_z to remove a call to torch.sparse.mm
         # TM: the above idea is not practical if we update only a subset of nodes each time
@@ -353,7 +365,7 @@ class EmbeddingOptimizer:
         return loss, X_final
 
     @torch.no_grad()
-    def nll_weight_wnbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, tol=1e-5, update_alg="nesterov"):
+    def nll_weight_wnbr(self, Y, M, B, X, sigma_yx, prior_x_mode, prior_x, dataset, tol=1e-5, update_alg="nesterov"):
         # Precomputing quantities
         MTM = M.T @ M / (sigma_yx**2)
         YM = Y.to(M.device) @ M / (sigma_yx**2)
@@ -377,6 +389,7 @@ class EmbeddingOptimizer:
             prior_x,
             Sigma_x_inv,
             adjacency_matrix,
+            B,
         )
 
         loss = compute_loss()

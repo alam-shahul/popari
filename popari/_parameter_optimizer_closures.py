@@ -106,6 +106,7 @@ def compute_loss_and_gradient(
     M_bar,
     lambda_M,
     M_constraint,
+    batch_effects,
 ):
     quadratic_factor_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
     loss = (quadratic_factor_grad * M).sum()
@@ -115,6 +116,11 @@ def compute_loss_and_gradient(
     linear_term_grad = linear_factor + differential_regularization_linear_factor
     loss -= 2 * (linear_term_grad * M).sum()
     grad = quadratic_factor_grad - linear_term_grad
+
+    if not all(torch.all(tensor == 0) for tensor in batch_effects):
+        print("incorrectly in here")
+        loss += -0.5 * torch.sum(torch.log(torch.linalg.eigvalsh(M.T @ M) + 1e-10))
+        grad += -M @ torch.inverse(M.T @ M + 1e-10 * torch.eye(M.shape[1], device=M.device))
 
     loss += constant
 
@@ -156,6 +162,7 @@ def estimate_M_nag_closure(
     M_constraint,
     tol,
     verbose_bar,
+    batch_effects,
 ):
     def estimate_M_nag(M):
         """Estimate M using Nesterov accelerated gradient descent.
@@ -176,6 +183,7 @@ def estimate_M_nag_closure(
             M_bar,
             lambda_M,
             M_constraint,
+            batch_effects,
         )
         if verbose > 1:
             print(f"M NAG Initial Loss: {loss}")
@@ -201,6 +209,7 @@ def estimate_M_nag_closure(
                 M_bar,
                 lambda_M,
                 M_constraint,
+                batch_effects,
             )
             M = optimizer.step(grad)
             if simplex_projection_mode == "exact":
@@ -243,6 +252,7 @@ def estimate_M_nag_closure(
             M_bar,
             lambda_M,
             M_constraint,
+            batch_effects,
         )
         if verbose > 1:
             print(f"M NAG Final Loss: {loss}")

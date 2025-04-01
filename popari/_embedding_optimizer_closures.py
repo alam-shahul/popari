@@ -71,9 +71,10 @@ def gradient_update_wonbr_closure(X, MTM, YM, prior_x_mode, prior_x, Ynorm, step
 ######################### Estimate Weight WNBR Closure Functions #########################
 
 
-def get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z):
+def get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z, B):
     def update_s():
-        S[:] = (YM * Z).sum(axis=1, keepdim=True)
+        # S[:] = (YM * Z).sum(axis=1, keepdim=True)
+        S[:] = (YM * Z - ((Z @ MTM) * B)).sum(axis=1, keepdim=True)
         if prior_x_mode == "exponential shared fixed":
             # TODO: why divide by two?
             S.sub_(prior_x[0][0] / 2)
@@ -250,10 +251,10 @@ def update_z_gd_nesterov_wnbr_closure(
     return update_z_gd_nesterov(Z)
 
 
-def compute_loss_wnbr_closure(Z, S, MTM, YM, Ynorm, prior_x_mode, prior_x, Sigma_x_inv, adjacency_matrix):
+def compute_loss_wnbr_closure(Z, S, MTM, YM, Ynorm, prior_x_mode, prior_x, Sigma_x_inv, adjacency_matrix, B):
     def compute_loss():
-        X = Z * S
-        loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
+        XB = Z * S + B
+        loss = ((XB @ MTM) * XB).sum() / 2 - (XB * YM).sum() + Ynorm / 2
         if prior_x_mode == "exponential shared fixed":
             loss += prior_x[0][0] * S.sum()
         elif not prior_x_mode:

@@ -50,7 +50,9 @@ class ParameterOptimizer:
         context=None,
         use_inplace_ops=False,
         verbose=0,
+        batch_effect_correction=False,
     ):
+        self.batch_effect_correction = batch_effect_correction
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
 
@@ -124,9 +126,10 @@ class ParameterOptimizer:
 
         self.sigma_yxs = np.zeros(len(self.datasets))
 
-    def link(self, embedding_optimizer):
-        """Link to embedding_optimizer."""
+    def link(self, embedding_optimizer, batch_optimizer):
+        """Link to embedding_optimizer and batch_optimizer."""
         self.embedding_optimizer = embedding_optimizer
+        self.batch_effect_optimizer = batch_optimizer
 
     def scale_metagenes(self):
         norm_axis = 1
@@ -693,12 +696,18 @@ class ParameterOptimizer:
             print(f"M constant: {constant: .1e}")
             # print(f"M constant magnitude: {constant_magnitude:.1e}")
 
+        batch_effects = [self.batch_effect_optimizer.batch_effect_state[dataset.name] for dataset in datasets]
+        print(batch_effects)
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
-        for dataset, X, Y, scaled_beta in zip(datasets, Xs, Ys, scaled_betas):
+        for dataset, X, Y, scaled_beta, B in zip(datasets, Xs, Ys, scaled_betas, batch_effects):
             # X_c^TX_c
-            quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
+            # quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
+            X_B = X + B
+            quadratic_factor.addmm_(X_B.T, X_B, alpha=scaled_beta)
+
             # MX_c^TY_c
-            linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
+            # linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
+            linear_factor.addmm_(Y.T, X_B, alpha=scaled_beta)
 
         # if self.lambda_M > 0 and M_bar is not None:
         #     quadratic_factor.diagonal().add_(self.lambda_M)
@@ -748,6 +757,7 @@ class ParameterOptimizer:
             self.M_constraint,
             tol,
             verbose_bar,
+            batch_effects,
         )
 
         if backend_algorithm == "mu":
@@ -795,6 +805,7 @@ class ParameterOptimizer:
                 M_bar,
                 self.lambda_M,
                 self.M_constraint,
+                batch_effects,
             )
             dM = dloss = np.inf
             for epoch in progress_bar:
@@ -818,6 +829,7 @@ class ParameterOptimizer:
                     M_bar,
                     self.lambda_M,
                     self.M_constraint,
+                    batch_effects,
                 )
                 if loss_new < loss or step_size_scale == 1:
                     dM = (M_new - M).abs().max().item()
@@ -863,7 +875,9 @@ class ParameterOptimizer:
         squared_terms = [
             torch.addmm(
                 Y.to_dense(),
-                self.embedding_optimizer.embedding_state[dataset.name],
+                # self.embedding_optimizer.embedding_state[dataset.name],
+                self.embedding_optimizer.embedding_state[dataset.name]
+                + self.batch_effect_optimizer.batch_effect_state[dataset.name],
                 self.metagene_state[dataset.name].T,
                 alpha=-1,
             )
@@ -873,7 +887,16 @@ class ParameterOptimizer:
             [torch.linalg.norm(squared_term, ord="fro").item() ** 2 for squared_term in squared_terms],
         )
         num_replicates = len(self.datasets)
-        sizes = np.array([Y.numel() for Y in self.Ys])
+        num_cells, _ = self.datasets[0].shape
+
+        if all(torch.all(tensor == 0) for tensor in self.batch_effect_optimizer.batch_effect_state.values()):
+            sizes = np.array([Y.numel() for Y in self.Ys])
+        else:
+            sizes = np.add(
+                np.array([Y.numel() for Y in self.Ys]),
+                np.array([self.K * num_cells for _ in range(num_replicates)]),
+            )
+
         if self.sigma_yx_inv_mode == "separate":
             self.sigma_yxs[:] = np.sqrt(squared_loss / sizes)
         elif self.sigma_yx_inv_mode == "average":
@@ -887,7 +910,9 @@ class ParameterOptimizer:
             squared_terms = [
                 torch.addmm(
                     Y.to_dense(),
-                    self.embedding_optimizer.embedding_state[dataset.name],
+                    # self.embedding_optimizer.embedding_state[dataset.name],
+                    self.embedding_optimizer.embedding_state[dataset.name]
+                    + self.batch_effect_optimizer.batch_effect_state[dataset.name],
                     self.metagene_state[dataset.name].T,
                     alpha=-1,
                 )
