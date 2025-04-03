@@ -1,6 +1,7 @@
 # CLI
 
 Popari can also be used as a command line tool. After {ref}`installation <installation>` via pip, you can run Popari as below:
+
 ```
 popari --K={number of metagenes} \
        --num_iterations={number of iterations} \
@@ -9,6 +10,7 @@ popari --K={number of metagenes} \
 ```
 
 The above example includes just the required arguments. Below is the help message that includes the CLI including the names of all optional arguments (see {doc}`the Popari class documentation </api/popari.model.Popari>` for more details on these arguments):
+
 ```
 usage: popari [-h] --K K --num_iterations NUM_ITERATIONS --nmf_preiterations NMF_PREITERATIONS --output_path OUTPUT_PATH [--dataset_path DATASET_PATH] [--lambda_Sigma_x_inv LAMBDA_SIGMA_X_INV]
               [--pretrained PRETRAINED] [--initialization_method INITIALIZATION_METHOD] [--metagene_groups METAGENE_GROUPS] [--spatial_affinity_groups SPATIAL_AFFINITY_GROUPS] [--betas BETAS]

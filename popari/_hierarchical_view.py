@@ -8,6 +8,7 @@ import torch
 from scipy.sparse import csr_array, issparse
 from tqdm.auto import trange
 
+from popari._batch_optimizer import BatchEffectOptimizer
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
 from popari._embedding_optimizer import EmbeddingOptimizer
 from popari._parameter_optimizer import ParameterOptimizer
@@ -42,12 +43,14 @@ class HierarchicalView:
         spatial_affinity_groups: dict,
         parameter_optimizer_hyperparameters: dict,
         embedding_optimizer_hyperparameters: dict,
+        batch_effect_optimizer_hyperparameters: dict,
+        batch_effect_correction: bool,
         binned_Ys: list = None,
         superresolution_lr: float = 1e-3,
         level: int = 0,
         hierarchical_levels: int | None = 1,
     ):
-
+        self.batch_effect_correction = batch_effect_correction
         self.datasets = datasets
         self.replicate_names = [dataset.name for dataset in datasets]
         self.K = K
@@ -157,6 +160,7 @@ class HierarchicalView:
             context=self.context,
             use_inplace_ops=self.use_inplace_ops,
             verbose=self.verbose,
+            batch_effect_correction=self.batch_effect_correction,
             **parameter_optimizer_hyperparameters,
         )
         self.superresolution_lr = superresolution_lr
@@ -171,10 +175,27 @@ class HierarchicalView:
             context=self.context,
             use_inplace_ops=self.use_inplace_ops,
             verbose=self.verbose,
+            batch_effect_correction=self.batch_effect_correction,
             **embedding_optimizer_hyperparameters,
         )
-        self.parameter_optimizer.link(self.embedding_optimizer)
-        self.embedding_optimizer.link(self.parameter_optimizer)
+
+        if self.verbose:
+            print(f"{get_datetime()} Initializing BatchEffectOptimizer")
+        self.batch_effect_optimizer = BatchEffectOptimizer(
+            self.K,
+            self.Ys,
+            self.datasets,
+            initial_context=self.initial_context,
+            context=self.context,
+            use_inplace_ops=self.use_inplace_ops,
+            verbose=self.verbose,
+            batch_effect_correction=self.batch_effect_correction,
+            **batch_effect_optimizer_hyperparameters,
+        )
+        self.batch_effect_correction = batch_effect_correction
+        self.parameter_optimizer.link(self.embedding_optimizer, self.batch_effect_optimizer)
+        self.embedding_optimizer.link(self.parameter_optimizer, self.batch_effect_optimizer)
+        self.batch_effect_optimizer.link(self.embedding_optimizer, self.parameter_optimizer)
 
         for dataset_index, dataset in enumerate(self.datasets):
             adjacency_matrix = convert_scipy_csr_to_pytorch_coo(
@@ -203,6 +224,16 @@ class HierarchicalView:
                     dataset.uns["Sigma_x_inv"][dataset.name],
                 ).to(**self.initial_context)
                 spatial_affinity_copy[dataset_index] = self.parameter_optimizer.spatial_affinity_state[dataset.name]
+
+                if "batch_effect" in dataset.uns and dataset.name in dataset.uns["batch_effect"]:
+                    self.batch_effect_optimizer.batch_effect_state[dataset.name][:] = torch.from_numpy(
+                        dataset.uns["batch_effect"][dataset.name],
+                    ).to(**self.initial_context)
+                else:
+                    self.batch_effect_optimizer.batch_effect_state[dataset.name][:] = torch.zeros(
+                        self.K,
+                        **self.initial_context,
+                    )
 
             self.parameter_optimizer.update_sigma_yx()
             self.parameter_optimizer.spatial_affinity_state.initialize_optimizers(spatial_affinity_copy)
@@ -247,6 +278,17 @@ class HierarchicalView:
             for dataset_index, dataset in enumerate(self.datasets):
                 self.parameter_optimizer.metagene_state[dataset.name][:] = self.M
                 self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
+                if self.batch_effect_correction:
+                    # Y ≈ (X+B) @ M.T -> B ≈ (Y - X @ M.T) @ M @ (M.T @ M)^(-1)
+                    MTM_inv_MT = (
+                        torch.inverse(self.M.T @ self.M + 1e-10 * torch.eye(self.K, device=self.M.device)) @ self.M.T
+                    )
+                    mean_diff = torch.mean(
+                        (self.Ys[dataset_index].to_dense() - self.Xs[dataset_index] @ self.M.T),
+                        dim=0,
+                    )
+                    self.batch_effect_optimizer.batch_effect_state[dataset.name][:] = MTM_inv_MT @ mean_diff
+                    # self.batch_effect_optimizer.batch_effect_state[dataset.name][:] = torch.zeros(K)
 
             self.parameter_optimizer.scale_metagenes()
 
