@@ -10,7 +10,7 @@ from popari._popari_dataset import PopariDataset
 from popari.util import (
     IndependentSet,
     NesterovGD,
-    convert_numpy_to_pytorch_sparse_coo,
+    convert_scipy_csr_to_pytorch_coo,
     get_datetime,
     project2simplex,
     project2simplex_,
@@ -45,10 +45,8 @@ class EmbeddingOptimizer:
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.adjacency_lists = {dataset.name: dataset.obsm["adjacency_list"] for dataset in self.datasets}
-        self.adjacency_matrices = {
-            dataset.name: convert_numpy_to_pytorch_sparse_coo(dataset.obsp["adjacency_matrix"], self.context)
-            for dataset in self.datasets
-        }
+        self._adjacency_matrices = {}
+
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
         self.embedding_mini_iterations = embedding_mini_iterations
         self.embedding_acceleration_trick = embedding_acceleration_trick
@@ -56,6 +54,14 @@ class EmbeddingOptimizer:
         if self.verbose:
             print(f"{get_datetime()} Initializing EmbeddingState")
         self.embedding_state = EmbeddingState(K, self.datasets, context=self.context)
+
+    @property
+    def adjacency_matrices(self):
+        return self._adjacency_matrices
+
+    @adjacency_matrices.setter
+    def adjacency_matrices(self, val):
+        self._adjacency_matrices = val
 
     def link(self, parameter_optimizer):
         self.parameter_optimizer = parameter_optimizer

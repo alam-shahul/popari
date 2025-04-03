@@ -5,7 +5,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 import torch
-from scipy.sparse import csr_array
+from scipy.sparse import csr_array, issparse
 from tqdm.auto import trange
 
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
@@ -14,7 +14,7 @@ from popari._parameter_optimizer import ParameterOptimizer
 from popari._popari_dataset import PopariDataset
 from popari.initialization import initialize_dummy, initialize_kmeans, initialize_leiden, initialize_svd
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
-from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
+from popari.util import convert_scipy_csr_to_pytorch_coo, get_datetime
 
 
 class HierarchicalView:
@@ -125,7 +125,11 @@ class HierarchicalView:
             self.Ys = []
             for dataset in self.datasets:
                 num_cells, _ = dataset.shape
-                Y = convert_numpy_to_pytorch_sparse_coo(dataset.X, self.context)
+                if issparse(dataset.X):
+                    Y = torch.from_numpy(dataset.X.todense()).to(**self.context)
+                else:
+                    Y = torch.from_numpy(dataset.X).to(**self.context)
+
                 Y *= (self.K * 1) / (Y.sum() / num_cells)
                 self.Ys.append(Y)
         else:
@@ -141,6 +145,8 @@ class HierarchicalView:
 
         self.prior_x_modes = prior_x_modes
 
+        if self.verbose:
+            print(f"{get_datetime()} Initializing ParameterOptimizer")
         self.parameter_optimizer = ParameterOptimizer(
             self.K,
             self.Ys,
@@ -170,6 +176,14 @@ class HierarchicalView:
         self.parameter_optimizer.link(self.embedding_optimizer)
         self.embedding_optimizer.link(self.parameter_optimizer)
 
+        for dataset_index, dataset in enumerate(self.datasets):
+            adjacency_matrix = convert_scipy_csr_to_pytorch_coo(
+                dataset.obsp["adjacency_matrix"],
+                self.initial_context,
+            )
+            self.embedding_optimizer.adjacency_matrices[dataset.name] = adjacency_matrix
+            self.parameter_optimizer.adjacency_matrices[dataset.name] = adjacency_matrix
+
         if self.pretrained:
             first_dataset = self.datasets[0]
             # if self.metagene_mode == "differential":
@@ -183,14 +197,6 @@ class HierarchicalView:
                 ).to(**self.initial_context)
                 self.embedding_optimizer.embedding_state[dataset.name][:] = torch.from_numpy(dataset.obsm["X"]).to(
                     **self.initial_context,
-                )
-                self.embedding_optimizer.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(
-                    dataset.obsp["adjacency_matrix"],
-                    self.initial_context,
-                )
-                self.parameter_optimizer.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(
-                    dataset.obsp["adjacency_matrix"],
-                    self.initial_context,
                 )
 
                 self.parameter_optimizer.spatial_affinity_state[dataset.name] = torch.from_numpy(
@@ -256,7 +262,6 @@ class HierarchicalView:
 
             # # Update metagenes to ensure that they lie on simplex after normalizign embeddings
             # self.parameter_optimizer.update_metagenes()
-
             initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
 
             # Initializing spatial affinities
@@ -370,7 +375,7 @@ class HierarchicalView:
 
             # Precomputing quantities
             MTM = M.T @ M / (sigma_yx**2)
-            BTB = convert_numpy_to_pytorch_sparse_coo((B.T @ B).tocoo(), context=self.context)
+            BTB = convert_scipy_csr_to_pytorch_coo((B.T @ B), context=self.context)
             YM = Y @ M / (sigma_yx**2)
             BTX_B = torch.from_numpy(B.T @ X_B).to(self.context["device"]).to(self.context["dtype"])
 
@@ -742,8 +747,8 @@ class Hierarchy:
                 )
 
                 binned_datasets.append(binned_dataset)
-                bin_assignments = convert_numpy_to_pytorch_sparse_coo(
-                    csr_array(binned_dataset.obsm[f"bin_assignments_{binned_dataset_name}"]).tocoo(),
+                bin_assignments = convert_scipy_csr_to_pytorch_coo(
+                    binned_dataset.obsm[f"bin_assignments_{binned_dataset_name}"],
                     context=context,
                 )
 
@@ -776,7 +781,7 @@ class Hierarchy:
                     B = dataset.obsm[f"bin_assignments_{dataset.name}"]
                     dataset.obsm[f"bin_assignments_{dataset.name}"] = csr_array(B)
                     binned_Y = (
-                        convert_numpy_to_pytorch_sparse_coo(
+                        convert_scipy_csr_to_pytorch_coo(
                             dataset.obsm[f"bin_assignments_{dataset.name}"],
                             context=context,
                         )

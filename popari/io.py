@@ -24,8 +24,8 @@ def load_anndata(filepath: Union[str, Path]):
 def unmerge_anndata(merged_dataset: ad.AnnData):
     """Unmerge composite AnnData object into constituent datasets."""
 
-    sparsity = (merged_dataset.X == 0).sum() / merged_dataset.X.size
-    if sparsity < 1 / 3:
+    sparsity = 1.0 - (merged_dataset.X != 0).sum() / np.prod(merged_dataset.X.shape)
+    if sparsity > 1 / 3 and not issparse(merged_dataset.X):
         merged_dataset.X = csr_array(merged_dataset.X)
 
     datasets = unconcatenate(merged_dataset)
@@ -133,6 +133,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
         #     dataset.obsm["X"] = replicate_X
 
     replicate_names = [dataset.name for dataset in datasets]
+
     return datasets, replicate_names
 
 
@@ -147,8 +148,8 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
         if ignore_raw_data:
             dataset.X = csr_array(dataset.X.shape)
         else:
-            sparsity = (dataset.X == 0).sum() / dataset.X.size
-            if sparsity < 1 / 3:
+            sparsity = 1.0 - (dataset.X != 0).sum() / np.prod(dataset.X.shape)
+            if sparsity > 1 / 3 and not issparse(dataset.X):
                 dataset.X = csr_array(dataset.X)
 
         dataset_copy = PopariDataset(dataset, dataset.name)

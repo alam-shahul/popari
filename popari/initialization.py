@@ -162,7 +162,11 @@ def initialize_svd(
     """
 
     # TODO: add check that number of genes is the same for all datasets
-    Y_cat = sp.vstack([dataset.X for dataset in datasets])
+
+    if any(sp.issparse(dataset.X) for dataset in datasets):
+        Y_cat = sp.vstack([dataset.X for dataset in datasets])
+    else:
+        Y_cat = np.vstack([dataset.X for dataset in datasets])
 
     svd = TruncatedSVD(K)
     X_cat = svd.fit_transform(Y_cat)
