@@ -9,7 +9,7 @@ from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import (
     IndependentSet,
     NesterovGD,
-    convert_numpy_to_pytorch_sparse_coo,
+    convert_scipy_csr_to_pytorch_coo,
     get_datetime,
     project2simplex,
     project2simplex_,
@@ -81,10 +81,7 @@ class ParameterOptimizer:
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
         self.adjacency_lists = {dataset.name: dataset.obsm["adjacency_list"] for dataset in self.datasets}
-        self.adjacency_matrices = {
-            dataset.name: convert_numpy_to_pytorch_sparse_coo(dataset.obsp["adjacency_matrix"], self.context)
-            for dataset in self.datasets
-        }
+        self._adjacency_matrices = {}
 
         if self.verbose:
             print(f"{get_datetime()} Initializing MetageneState")
@@ -126,8 +123,17 @@ class ParameterOptimizer:
 
         self.sigma_yxs = np.zeros(len(self.datasets))
 
-    def link(self, embedding_optimizer, batch_optimizer):
+    @property
+    def adjacency_matrices(self):
+        return self._adjacency_matrices
+
+    @adjacency_matrices.setter
+    def adjacency_matrices(self, val):
+        self._adjacency_matrices = val
+
+    def link(self, embedding_optimizer, batch_optimizer=None):
         """Link to embedding_optimizer and batch_optimizer."""
+
         self.embedding_optimizer = embedding_optimizer
         self.batch_effect_optimizer = batch_optimizer
 
@@ -872,10 +878,10 @@ class ParameterOptimizer:
         #     print(result)
         #     2/0
         #     squared_loss[index] = result
+
         squared_terms = [
             torch.addmm(
-                Y.to_dense(),
-                # self.embedding_optimizer.embedding_state[dataset.name],
+                Y,
                 self.embedding_optimizer.embedding_state[dataset.name]
                 + self.batch_effect_optimizer.batch_effect_state[dataset.name],
                 self.metagene_state[dataset.name].T,

@@ -16,7 +16,7 @@ from tqdm import trange
 from popari._hierarchical_view import HierarchicalView, Hierarchy
 from popari._popari_dataset import PopariDataset
 from popari.io import load_anndata, merge_anndata, save_anndata, unmerge_anndata
-from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
+from popari.util import convert_scipy_csr_to_pytorch_coo, get_datetime
 
 
 class Popari:
@@ -292,14 +292,15 @@ class Popari:
         elif self.downsampling_method == "partition":
             bin_assignment_kwargs["adjacency_list_key"] = "adjacency_list"
 
-        self.base_view = HierarchicalView(self.datasets, level=0, **hierarchical_view_kwargs)
-
         if self.pretrained:
             self.hierarchy = Hierarchy.reconstruct(
                 self.reloaded_hierarchy,
                 **hierarchical_view_kwargs,
             )
+            self.base_view = self.hierarchy[self.hierarchical_levels - 1]
         else:
+            self.base_view = HierarchicalView(self.datasets, level=0, **hierarchical_view_kwargs)
+
             self.hierarchy = Hierarchy(
                 downsampling_method=self.downsampling_method,
                 base_view=self.base_view,
@@ -311,8 +312,6 @@ class Popari:
                 downsample_rate=self.binning_downsample_rate,
                 **bin_assignment_kwargs,
             )
-
-        self.base_view = self.hierarchy[self.hierarchical_levels - 1]
 
         self.active_view = self.base_view
 
@@ -526,7 +525,10 @@ class Popari:
             dataset.X = raw_dataset.X.copy()
             num_cells, _ = dataset.shape
 
-            Y = convert_numpy_to_pytorch_sparse_coo(dataset.X, self.context)
+            if not issparse(dataset.X):
+                dataset.X = csr_array(dataset.X)
+
+            Y = convert_scipy_csr_to_pytorch_coo(dataset.X, self.context)
             Y *= (self.K * 1) / (Y.sum() / num_cells)
             high_resolution_view.Ys[index] = Y
 
@@ -542,7 +544,7 @@ class Popari:
                 binned_expression = bin_assignments @ dataset.X
                 binned_dataset.X = binned_expression
 
-                bin_assignments_tensor = convert_numpy_to_pytorch_sparse_coo(
+                bin_assignments_tensor = convert_scipy_csr_to_pytorch_coo(
                     bin_assignments,
                     context=self.initial_context,
                 )
