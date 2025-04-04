@@ -336,20 +336,27 @@ class EmbeddingOptimizer:
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
 
-        compute_loss = compute_loss_wnbr_closure(
+        embedding_updater = EmbeddingLossWithNeighborsNesterov(
             Z,
             S,
             MTM,
             YM,
             Ynorm,
+            adjacency_matrix,
             prior_x_mode,
             prior_x,
             Sigma_x_inv,
-            adjacency_matrix,
-            B,
+            E_adjacency_list,
+            self.context["device"],
+            base_step_size,
+            self.verbose,
+            self.embedding_acceleration_trick,
+            self.use_inplace_ops,
+            self.embedding_mini_iterations,
+            tol,
         )
 
-        loss = compute_loss()
+        loss = embedding_updater.compute_loss()
 
         return loss
 
