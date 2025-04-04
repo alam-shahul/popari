@@ -296,55 +296,6 @@ class EmbeddingOptimizer:
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
 
-        # update_s = get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z, B)
-
-        # calc_func_grad = calc_func_grad_wnbr_closure(Z_batch, S_batch, quad, linear)
-
-        # update_z_gd = update_z_gd_wnbr_closure(
-        #     Z,
-        #     base_step_size,
-        #     S,
-        #     N,
-        #     E_adjacency_list,
-        #     self.context["device"],
-        #     MTM,
-        #     YM,
-        #     adjacency_matrix,
-        #     Sigma_x_inv,
-        #     self.use_inplace_ops,
-        #     tol,
-        # )
-
-        # update_z_gd_nesterov = update_z_gd_nesterov_wnbr_closure(
-        #     Z,
-        #     N,
-        #     S,
-        #     MTM,
-        #     YM,
-        #     adjacency_matrix,
-        #     Sigma_x_inv,
-        #     E_adjacency_list,
-        #     self.context["device"],
-        #     base_step_size,
-        #     self.verbose,
-        #     self.embedding_acceleration_trick,
-        #     update_s,
-        #     self.use_inplace_ops,
-        #     tol,
-        # )
-
-        # compute_loss = compute_loss_wnbr_closure(
-        #     Z,
-        #     S,
-        #     MTM,
-        #     YM,
-        #     Ynorm,
-        #     prior_x_mode,
-        #     prior_x,
-        #     Sigma_x_inv,
-        #     adjacency_matrix,
-        #     B,
-        # )
         # TM: consider combine compute_loss and update_z to remove a call to torch.sparse.mm
         # TM: the above idea is not practical if we update only a subset of nodes each time
 
@@ -368,36 +319,9 @@ class EmbeddingOptimizer:
             tol,
         )
 
-        loss, X_final = embedding_updater()
+        loss, X = embedding_updater()
 
-        return loss, X_final
-
-        # loss = np.inf
-        # pbar = trange(self.embedding_mini_iterations, disable=not self.verbose, desc="Updating weight w/ neighbors")
-
-        # for epoch in pbar:
-        #     update_s
-        #     Z_prev = Z.clone().detach()
-        #     # We may use Nesterov first and then vanilla GD in later iterations
-        #     # update_z_mu(Z)
-        #     # update_z_gd(Z)
-        #     if update_alg == "gd":
-        #         Z = update_z_gd(Z)
-        #     elif update_alg == "nesterov":
-        #         Z = update_z_gd_nesterov
-
-        #     loss_prev = loss
-        #     loss = compute_loss
-        #     dloss = loss_prev - loss
-        #     dZ = (Z_prev - Z).abs().max().item()
-        #     pbar.set_description(
-        #         f"Updating weight w/ neighbors: loss = {loss:.1e} " f"δloss = {dloss:.1e} " f"δZ = {dZ:.1e}",
-        #     )
-        #     if dZ < tol:
-        #         break
-
-        # X_final = Z * S
-        # return loss, X_final
+        return loss, X
 
     @torch.no_grad()
     def nll_weight_wnbr(self, Y, M, B, X, sigma_yx, prior_x_mode, prior_x, dataset, tol=1e-5, update_alg="nesterov"):
