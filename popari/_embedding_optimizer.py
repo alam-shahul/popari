@@ -289,59 +289,62 @@ class EmbeddingOptimizer:
         Z = X / S
         N = len(Z)
 
+        print(f"{S[:5] = }")
+        print(f"{Z[:5] = }")
+
         E_adjacency_list = self.adjacency_lists[dataset.name]
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
 
-        update_s = get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z, B)
+        # update_s = get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z, B)
 
         # calc_func_grad = calc_func_grad_wnbr_closure(Z_batch, S_batch, quad, linear)
 
-        update_z_gd = update_z_gd_wnbr_closure(
-            Z,
-            base_step_size,
-            S,
-            N,
-            E_adjacency_list,
-            self.context["device"],
-            MTM,
-            YM,
-            adjacency_matrix,
-            Sigma_x_inv,
-            self.use_inplace_ops,
-            tol,
-        )
+        # update_z_gd = update_z_gd_wnbr_closure(
+        #     Z,
+        #     base_step_size,
+        #     S,
+        #     N,
+        #     E_adjacency_list,
+        #     self.context["device"],
+        #     MTM,
+        #     YM,
+        #     adjacency_matrix,
+        #     Sigma_x_inv,
+        #     self.use_inplace_ops,
+        #     tol,
+        # )
 
-        update_z_gd_nesterov = update_z_gd_nesterov_wnbr_closure(
-            Z,
-            N,
-            S,
-            MTM,
-            YM,
-            adjacency_matrix,
-            Sigma_x_inv,
-            E_adjacency_list,
-            self.context["device"],
-            base_step_size,
-            self.verbose,
-            self.embedding_acceleration_trick,
-            update_s,
-            self.use_inplace_ops,
-            tol,
-        )
+        # update_z_gd_nesterov = update_z_gd_nesterov_wnbr_closure(
+        #     Z,
+        #     N,
+        #     S,
+        #     MTM,
+        #     YM,
+        #     adjacency_matrix,
+        #     Sigma_x_inv,
+        #     E_adjacency_list,
+        #     self.context["device"],
+        #     base_step_size,
+        #     self.verbose,
+        #     self.embedding_acceleration_trick,
+        #     update_s,
+        #     self.use_inplace_ops,
+        #     tol,
+        # )
 
-        compute_loss = compute_loss_wnbr_closure(
-            Z,
-            S,
-            MTM,
-            YM,
-            Ynorm,
-            prior_x_mode,
-            prior_x,
-            Sigma_x_inv,
-            adjacency_matrix,
-            B,
-        )
+        # compute_loss = compute_loss_wnbr_closure(
+        #     Z,
+        #     S,
+        #     MTM,
+        #     YM,
+        #     Ynorm,
+        #     prior_x_mode,
+        #     prior_x,
+        #     Sigma_x_inv,
+        #     adjacency_matrix,
+        #     B,
+        # )
         # TM: consider combine compute_loss and update_z to remove a call to torch.sparse.mm
         # TM: the above idea is not practical if we update only a subset of nodes each time
 
