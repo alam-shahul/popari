@@ -113,11 +113,17 @@ class EmbeddingLossWithNeighbors(nn.Module, ABC):
         self.N = len(Z)
 
     def update_s(self):
+        print(f"{self.S[:2] = }")
+        print(f"{self.YM[:2] = }")
+        print(f"{self.Z[:2] = }")
+        print(f"{self.MTM[:2] = }")
         # S[:] = (YM * Z).sum(axis=1, keepdim=True)
         self.S[:] = (self.YM * self.Z - (self.Z @ self.MTM)).sum(
             axis=1,
             keepdim=True,
         )  #  TODO: there used to be a B multiplying self.MTM, add that back eventually
+
+        print(f"{self.S[:2] = }")
         if self.prior_x_mode == "exponential shared fixed":
             # TODO: why divide by two?
             self.S.sub_(self.prior_x[0][0] / 2)
@@ -125,10 +131,14 @@ class EmbeddingLossWithNeighbors(nn.Module, ABC):
             pass
         else:
             raise NotImplementedError
+        print(f"{self.S[:2] = }")
 
         denominator = ((self.Z @ self.MTM) * self.Z).sum(axis=1, keepdim=True)
         self.S.div_(denominator)
+        print(f"{self.S[:2] = }")
         self.S.clip_(min=1e-5)
+        print(f"{self.S[:2] = }")
+        2 / 0
 
     def calc_func_grad(self, Z_batch, S_batch, quad, linear):
         t = (Z_batch @ quad).mul_(S_batch**2)
@@ -166,6 +176,8 @@ class EmbeddingLossWithNeighbors(nn.Module, ABC):
             print(f"{self.S[:5] = }")
             print(f"{self.Z[:5] = }")
             self.update_s()
+            print(f"{self.S[:5] = }")
+            print(f"{self.Z[:5] = }")
             Z_prev = self.Z.clone().detach()
             # We may use Nesterov first and then vanilla GD in later iterations
             # update_z_mu(Z)
@@ -174,7 +186,6 @@ class EmbeddingLossWithNeighbors(nn.Module, ABC):
 
             print(f"{self.S[:5] = }")
             print(f"{self.Z[:5] = }")
-            2 / 0
 
             loss_prev = loss
             loss = self.compute_loss()
