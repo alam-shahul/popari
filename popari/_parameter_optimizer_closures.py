@@ -8,7 +8,6 @@ from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import (
     IndependentSet,
     NesterovGD,
-    convert_numpy_to_pytorch_sparse_coo,
     get_datetime,
     project2simplex,
     project2simplex_,

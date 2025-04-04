@@ -197,13 +197,17 @@ class HierarchicalView:
         self.embedding_optimizer.link(self.parameter_optimizer, self.batch_effect_optimizer)
         self.batch_effect_optimizer.link(self.embedding_optimizer, self.parameter_optimizer)
 
+        adjacency_matrices = {}
         for dataset_index, dataset in enumerate(self.datasets):
             adjacency_matrix = convert_scipy_csr_to_pytorch_coo(
                 dataset.obsp["adjacency_matrix"],
                 self.initial_context,
             )
-            self.embedding_optimizer.adjacency_matrices[dataset.name] = adjacency_matrix
-            self.parameter_optimizer.adjacency_matrices[dataset.name] = adjacency_matrix
+            adjacency_matrices[dataset.name] = adjacency_matrix
+
+        self.embedding_optimizer.adjacency_matrices = adjacency_matrices
+        self.parameter_optimizer.adjacency_matrices = adjacency_matrices
+        self.batch_effect_optimizer.adjacency_matrices = adjacency_matrices
 
         if self.pretrained:
             first_dataset = self.datasets[0]

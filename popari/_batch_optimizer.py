@@ -11,7 +11,6 @@ from popari._popari_dataset import PopariDataset
 from popari.util import (
     IndependentSet,
     NesterovGD,
-    convert_numpy_to_pytorch_sparse_coo,
     get_datetime,
     project2simplex,
     project2simplex_,
@@ -47,17 +46,22 @@ class BatchEffectOptimizer:
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.adjacency_lists = {dataset.name: dataset.obsm["adjacency_list"] for dataset in self.datasets}
-        self.adjacency_matrices = {
-            dataset.name: convert_numpy_to_pytorch_sparse_coo(dataset.obsp["adjacency_matrix"], self.context)
-            for dataset in self.datasets
-        }
         self.batch_step_size_multiplier = batch_step_size_multiplier
         self.batch_mini_iterations = batch_mini_iterations
         self.batch_tol = batch_tol
+        self._adjacency_matrices = {}
 
         if self.verbose:
             print(f"{get_datetime()} Initializing BatchEffectState")
         self.batch_effect_state = BatchEffectState(K, self.datasets, context=self.context)
+
+    @property
+    def adjacency_matrices(self):
+        return self._adjacency_matrices
+
+    @adjacency_matrices.setter
+    def adjacency_matrices(self, val):
+        self._adjacency_matrices = val
 
     def link(self, embedding_optimizer, parameter_optimizer):
         self.parameter_optimizer = parameter_optimizer
