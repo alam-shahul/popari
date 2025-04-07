@@ -459,18 +459,17 @@ def test_compute_loss_nll_M_closure():
     M_bar = None
     lambda_M = 0.1
 
-    loss = compute_loss_nll_M_closure(
-        M,
-        quadratic_factor,
-        differential_regularization_quadratic_factor,
-        linear_term,
-        differential_regularization_linear_term,
-        constant,
-        metagene_mode,
-        M_bar,
-        lambda_M,
-    )
-
+    # loss = compute_loss_nll_M_closure(
+    #     M,
+    #     quadratic_factor,
+    #     differential_regularization_quadratic_factor,
+    #     linear_term,
+    #     differential_regularization_linear_term,
+    #     constant,
+    #     metagene_mode,
+    #     M_bar,
+    #     lambda_M,
+    # )
     # quad_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
     # expected_loss = (quad_grad * M).sum()
     # lin_grad = linear_term + differential_regularization_linear_term
@@ -478,6 +477,17 @@ def test_compute_loss_nll_M_closure():
     # expected_loss += constant
     # expected_loss /= 2
     # expected_loss = expected_loss.item()
+
+    compute_loss_nll_M = ComputeLossNllM(metagene_mode, M_bar, lambda_M)
+    loss = compute_loss_nll_M.forward(
+        M,
+        quadratic_factor,
+        differential_regularization_quadratic_factor,
+        linear_term,
+        differential_regularization_linear_term,
+        constant,
+    )
+
     expected_loss = -0.165
     assert abs(loss - expected_loss) < 1e-4
 
@@ -496,21 +506,20 @@ def test_compute_loss_and_gradient():
     M_constraint = "simplex"
     batch_effects = [torch.tensor([0.0, 0.0], dtype=torch.float32), torch.tensor([0.0, 0.0], dtype=torch.float32)]
 
-    loss, grad = compute_loss_and_gradient(
-        M,
-        quadratic_factor,
-        differential_regularization_quadratic_factor,
-        verbose,
-        linear_factor,
-        differential_regularization_linear_factor,
-        constant,
-        metagene_mode,
-        M_bar,
-        lambda_M,
-        M_constraint,
-        batch_effects,
-    )
-
+    # loss, grad = compute_loss_and_gradient(
+    #     M,
+    #     quadratic_factor,
+    #     differential_regularization_quadratic_factor,
+    #     verbose,
+    #     linear_factor,
+    #     differential_regularization_linear_factor,
+    #     constant,
+    #     metagene_mode,
+    #     M_bar,
+    #     lambda_M,
+    #     M_constraint,
+    #     batch_effects,
+    # )
     # quad_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
     # expected_loss = (quad_grad * M).sum()
     # lin_grad = linear_factor + differential_regularization_linear_factor
@@ -521,6 +530,19 @@ def test_compute_loss_and_gradient():
 
     # expected_grad = quad_grad - lin_grad
     # expected_grad -= expected_grad.sum(0, keepdim=True)
+
+    compute_loss_and_gradient_M = ComputeLossAndGradientM(metagene_mode, M_bar, lambda_M, M_constraint)
+    loss, grad = compute_loss_and_gradient_M.forward(
+        M,
+        quadratic_factor,
+        differential_regularization_quadratic_factor,
+        verbose,
+        linear_factor,
+        differential_regularization_linear_factor,
+        constant,
+        batch_effects,
+    )
+
     expected_loss = -0.165
     expected_grad = torch.tensor([[-0.29, 0.39], [0.38, -0.18]], dtype=torch.float32)
 
@@ -542,21 +564,20 @@ def test_compute_loss_and_gradient_with_batch_effect():
     M_constraint = "simplex"
     batch_effects = [torch.tensor([0.3, 0.7], dtype=torch.float32), torch.tensor([0.2, 0.8], dtype=torch.float32)]
 
-    loss, grad = compute_loss_and_gradient(
-        M,
-        quadratic_factor,
-        differential_regularization_quadratic_factor,
-        verbose,
-        linear_factor,
-        differential_regularization_linear_factor,
-        constant,
-        metagene_mode,
-        M_bar,
-        lambda_M,
-        M_constraint,
-        batch_effects,
-    )
-
+    # loss, grad = compute_loss_and_gradient(
+    #     M,
+    #     quadratic_factor,
+    #     differential_regularization_quadratic_factor,
+    #     verbose,
+    #     linear_factor,
+    #     differential_regularization_linear_factor,
+    #     constant,
+    #     metagene_mode,
+    #     M_bar,
+    #     lambda_M,
+    #     M_constraint,
+    #     batch_effects,
+    # )
     # quad_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
     # expected_loss = (quad_grad * M).sum()
     # lin_grad = linear_factor + differential_regularization_linear_factor
@@ -573,6 +594,18 @@ def test_compute_loss_and_gradient_with_batch_effect():
     # det_grad = -M @ torch.inverse(M.T @ M + 1e-10 * torch.eye(M.shape[1], device=M.device))
     # expected_grad += det_grad
     # expected_grad -= expected_grad.sum(0, keepdim=True)
+
+    compute_loss_and_gradient_M = ComputeLossAndGradientM(metagene_mode, M_bar, lambda_M, M_constraint)
+    loss, grad = compute_loss_and_gradient_M.forward(
+        M,
+        quadratic_factor,
+        differential_regularization_quadratic_factor,
+        verbose,
+        linear_factor,
+        differential_regularization_linear_factor,
+        constant,
+        batch_effects,
+    )
 
     expected_loss = 0.436986
     expected_grad = torch.tensor([[2.0433, -0.61], [-0.9533, 1.82]], dtype=torch.float32)
@@ -599,7 +632,28 @@ def test_estimate_M_nag_closure():
     verbose_bar = MockProgressBar()
     batch_effects = [torch.tensor([0.0, 0.0], dtype=torch.float32), torch.tensor([0.0, 0.0], dtype=torch.float32)]
 
-    M_new = estimate_M_nag_closure(
+    # M_new = estimate_M_nag_closure(
+    #     M,
+    #     verbose,
+    #     quadratic_factor,
+    #     differential_regularization_quadratic_factor,
+    #     linear_factor,
+    #     differential_regularization_linear_factor,
+    #     constant,
+    #     metagene_mode,
+    #     M_bar,
+    #     lambda_M,
+    #     progress_bar,
+    #     simplex_projection_mode,
+    #     use_inplace_ops,
+    #     M_constraint,
+    #     tol,
+    #     verbose_bar,
+    #     batch_effects,
+    # )
+
+    estimate_M = EstimateMNAG(metagene_mode, M_bar, lambda_M, M_constraint, use_inplace_ops)
+    M_new = estimate_M.forward(
         M,
         verbose,
         quadratic_factor,
@@ -607,17 +661,13 @@ def test_estimate_M_nag_closure():
         linear_factor,
         differential_regularization_linear_factor,
         constant,
-        metagene_mode,
-        M_bar,
-        lambda_M,
         progress_bar,
         simplex_projection_mode,
-        use_inplace_ops,
-        M_constraint,
         tol,
         verbose_bar,
         batch_effects,
     )
+
     assert M_new.shape == M.shape
     assert torch.all(M_new >= 0)
     assert torch.allclose(M_new.sum(dim=0), torch.tensor([1.0, 1.0]), rtol=1e-4)
@@ -633,8 +683,7 @@ def test_compute_loss_batch():
     Y = torch.tensor([[0.8, 0.6], [0.4, 0.9]], dtype=torch.float32)
     sigma_yx = 1.0
 
-    loss = compute_loss_batch(B, M, X, Y, sigma_yx)
-
+    # loss = compute_loss_batch(B, M, X, Y, sigma_yx)
     # MB = M @ B
     # YM = Y @ M
     # MTM = M.T @ M
@@ -642,6 +691,10 @@ def test_compute_loss_batch():
     # term2 = (YM @ B) - (X @ MTM @ B)
     # expected_loss = (term1 + 2 * term2.sum(dim=0)) / (2 * sigma_yx**2)
     # expected_loss = expected_loss.item()
+
+    comp_loss_batch = ComputeLossBatch()
+    loss = comp_loss_batch.forward(B, M, X, Y, sigma_yx)
+
     expected_loss = 0.5624
 
     assert abs(loss - expected_loss) < 1e-4
@@ -655,7 +708,10 @@ def test_calc_func_grad_batch():
     Y = torch.tensor([[0.8, 0.6], [0.4, 0.9]], dtype=torch.float32)
     sigma_yx = 1.0
 
-    loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
+    # loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
+
+    calc_func_grad = CalcFuncGradBatch()
+    loss, grad = calc_func_grad.forward(B, M, X, Y, sigma_yx)
 
     expected_grad = torch.tensor([0.4040, 0.6760], dtype=torch.float32)
     expected_loss = 0.5624
@@ -668,7 +724,10 @@ def test_compute_hessian_batch():
     M = torch.tensor([[1.0, 0.2], [0.2, 1.0]], dtype=torch.float32)
     sigma_yx = 1.0
 
-    hessian = compute_hessian_batch(M, sigma_yx)
+    # hessian = compute_hessian_batch(M, sigma_yx)
+
+    hessian_batch = ComputeHessianBatch()
+    hessian = hessian_batch.forward(M, sigma_yx)
 
     # expected_hessian = M.T @ M / (sigma_yx**2)
     expected_hessian = torch.tensor([[1.04, 0.4], [0.4, 1.04]], dtype=torch.float32)

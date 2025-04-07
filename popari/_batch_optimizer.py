@@ -55,6 +55,10 @@ class BatchEffectOptimizer:
             print(f"{get_datetime()} Initializing BatchEffectState")
         self.batch_effect_state = BatchEffectState(K, self.datasets, context=self.context)
 
+        self.compute_loss_batch = ComputeLossBatch()
+        self.compute_grad_batch = CalcFuncGradBatch()
+        self.compute_hessian_batch = ComputeHessianBatch()
+
     @property
     def adjacency_matrices(self):
         return self._adjacency_matrices
@@ -105,7 +109,8 @@ class BatchEffectOptimizer:
     def nll_batch_effect(self, Y, M, X, B, sigma_yx):
         """Compute negative log likelihood for a single dataset's batch
         effect."""
-        loss = compute_loss_batch(B, M, X, Y, sigma_yx)
+        # loss = compute_loss_batch(B, M, X, Y, sigma_yx)
+        loss = self.compute_loss_batch.forward(B, M, X, Y, sigma_yx)
         return loss
 
     @torch.no_grad()
@@ -113,7 +118,8 @@ class BatchEffectOptimizer:
         """Estimate batch effect for a single dataset using Nesterov's
         Accelerated Gradient."""
 
-        hessian = compute_hessian_batch(M, sigma_yx)
+        # hessian = compute_hessian_batch(M, sigma_yx)
+        hessian = self.compute_hessian_batch.forward(M, sigma_yx)
         max_eigenvalue = torch.linalg.eigvalsh(hessian).max().item()
         base_step_size = self.batch_step_size_multiplier / max_eigenvalue
 
@@ -133,7 +139,8 @@ class BatchEffectOptimizer:
             optimizer = NesterovGD(B.clone(), base_step_size)
 
             for epoch in pbar:
-                loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
+                # loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
+                loss, grad = self.compute_grad_batch.forward(B, M, X, Y, sigma_yx)
 
                 B_prev = B.clone()
 
@@ -156,7 +163,8 @@ class BatchEffectOptimizer:
 
         elif update_alg == "gd":
             for epoch in pbar:
-                loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
+                # loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
+                loss, grad = self.compute_grad_batch.forward(B, M, X, Y, sigma_yx)
 
                 B_prev = B.clone()
 
@@ -178,8 +186,8 @@ class BatchEffectOptimizer:
                     break
 
         # Compute final loss
-        final_loss = compute_loss_batch(B, M, X, Y, sigma_yx)
-
+        # final_loss = compute_loss_batch(B, M, X, Y, sigma_yx)
+        final_loss = self.compute_loss_batch.forward(B, M, X, Y, sigma_yx)
         return final_loss, B
 
 

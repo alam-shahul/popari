@@ -626,18 +626,28 @@ class ParameterOptimizer:
             for group_M_bar in M_bar:
                 differential_regularization_linear_term += group_weighting * self.lambda_M * group_M_bar
 
-        compute_loss = compute_loss_nll_M_closure(
+        # compute_loss = compute_loss_nll_M_closure(
+        #     M,
+        #     quadratic_factor,
+        #     differential_regularization_quadratic_factor,
+        #     linear_term,
+        #     differential_regularization_linear_term,
+        #     constant,
+        #     self.metagene_mode,
+        #     M_bar,
+        #     self.lambda_M,
+        # )
+        # loss = compute_loss
+
+        compute_loss_nll = ComputeLossNllM(self.metagene_mode, M_bar, self.lambda_M)
+        loss = compute_loss_nll.forward(
             M,
             quadratic_factor,
             differential_regularization_quadratic_factor,
             linear_term,
             differential_regularization_linear_term,
             constant,
-            self.metagene_mode,
-            M_bar,
-            self.lambda_M,
         )
-        loss = compute_loss
 
         return loss
 
@@ -745,26 +755,27 @@ class ParameterOptimizer:
         progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, desc="Updating M", miniters=1000)
 
         # compute_loss_and_gradient = compute_loss_and_gradient_M_closure(M, quadratic_factor, differential_regularization_quadratic_factor, self.verbose, differential_regularization_linear_factor, constant, self.metagene_mode, M_bar, self.lambda_M, self.M_constraint)
+        # estimate_M_nag = estimate_M_nag_closure(
+        #     M,
+        #     self.verbose,
+        #     quadratic_factor,
+        #     differential_regularization_quadratic_factor,
+        #     linear_factor,
+        #     differential_regularization_linear_factor,
+        #     constant,
+        #     self.metagene_mode,
+        #     M_bar,
+        #     self.lambda_M,
+        #     progress_bar,
+        #     simplex_projection_mode,
+        #     self.use_inplace_ops,
+        #     self.M_constraint,
+        #     tol,
+        #     verbose_bar,
+        #     batch_effects,
+        # )
 
-        estimate_M_nag = estimate_M_nag_closure(
-            M,
-            self.verbose,
-            quadratic_factor,
-            differential_regularization_quadratic_factor,
-            linear_factor,
-            differential_regularization_linear_factor,
-            constant,
-            self.metagene_mode,
-            M_bar,
-            self.lambda_M,
-            progress_bar,
-            simplex_projection_mode,
-            self.use_inplace_ops,
-            self.M_constraint,
-            tol,
-            verbose_bar,
-            batch_effects,
-        )
+        estimate_M_nag = EstimateMNAG(self.metagene_mode, M_bar, self.lambda_M, self.M_constraint, self.use_inplace_ops)
 
         if backend_algorithm == "mu":
             for epoch in progress_bar:
@@ -799,7 +810,14 @@ class ParameterOptimizer:
         elif backend_algorithm == "gd":
             step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
             step_size_scale = 1
-            loss, grad = compute_loss_and_gradient(
+
+            compute_loss_and_gradient_M = ComputeLossAndGradientM(
+                self.metagene_mode,
+                M_bar,
+                self.lambda_M,
+                self.M_constraint,
+            )
+            loss, grad = compute_loss_and_gradient_M.forward(
                 M,
                 quadratic_factor,
                 differential_regularization_quadratic_factor,
@@ -807,12 +825,22 @@ class ParameterOptimizer:
                 linear_factor,
                 differential_regularization_linear_factor,
                 constant,
-                self.metagene_mode,
-                M_bar,
-                self.lambda_M,
-                self.M_constraint,
                 batch_effects,
             )
+            # loss, grad = compute_loss_and_gradient(
+            #     M,
+            #     quadratic_factor,
+            #     differential_regularization_quadratic_factor,
+            #     self.verbose,
+            #     linear_factor,
+            #     differential_regularization_linear_factor,
+            #     constant,
+            #     self.metagene_mode,
+            #     M_bar,
+            #     self.lambda_M,
+            #     self.M_constraint,
+            #     batch_effects,
+            # )
             dM = dloss = np.inf
             for epoch in progress_bar:
                 M_new = M.sub(grad, alpha=step_size * step_size_scale)
@@ -823,18 +851,28 @@ class ParameterOptimizer:
                         M = project_M(M_new, self.M_constraint)
                 elif simplex_projection_mode == "approximate":
                     pass
-                loss_new, grad_new = compute_loss_and_gradient(
-                    M_new,
+                # loss_new, grad_new = compute_loss_and_gradient(
+                #     M_new,
+                #     quadratic_factor,
+                #     differential_regularization_quadratic_factor,
+                #     self.verbose,
+                #     linear_factor,
+                #     differential_regularization_linear_factor,
+                #     constant,
+                #     self.metagene_mode,
+                #     M_bar,
+                #     self.lambda_M,
+                #     self.M_constraint,
+                #     batch_effects,
+                # )
+                loss_new, grad_new = compute_loss_and_gradient_M.forward(
+                    M,
                     quadratic_factor,
                     differential_regularization_quadratic_factor,
                     self.verbose,
                     linear_factor,
                     differential_regularization_linear_factor,
                     constant,
-                    self.metagene_mode,
-                    M_bar,
-                    self.lambda_M,
-                    self.M_constraint,
                     batch_effects,
                 )
                 if loss_new < loss or step_size_scale == 1:
@@ -860,7 +898,20 @@ class ParameterOptimizer:
                     break
 
         elif backend_algorithm == "gd Nesterov":
-            M = estimate_M_nag
+            M = estimate_M_nag.forward(
+                M,
+                self.verbose,
+                quadratic_factor,
+                differential_regularization_quadratic_factor,
+                linear_factor,
+                differential_regularization_linear_factor,
+                constant,
+                progress_bar,
+                simplex_projection_mode,
+                tol,
+                verbose_bar,
+                batch_effects,
+            )
         else:
             raise NotImplementedError
 
