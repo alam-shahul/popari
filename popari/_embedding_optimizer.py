@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
 
-from popari._embedding_optimizer_closures import *
+from popari._embedding_optimizer_util import EmbeddingLossNoNeighborsGD, EmbeddingLossWithNeighborsNesterov
 from popari._popari_dataset import PopariDataset
 from popari.util import (
     IndependentSet,
