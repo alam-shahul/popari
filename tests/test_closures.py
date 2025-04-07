@@ -60,13 +60,17 @@ def test_multiplicative_update_wonbr_closure():
     # expected_denominator = torch.tensor([[0.6, 0.6], [0.44, 0.76]], dtype=torch.float32) + prior_x[0][None]
     # expected_X = X_prev * (YM / expected_denominator)
     # expected_X = torch.clip(expected_X, min=1e-10)
+    # expected_X = torch.tensor([[0.5714, 0.4286], [0.2222, 0.7326]], dtype=torch.float32)
 
     updater = EmbeddingLossNoNeighborsGD(MTM, YM, Ynorm, prior_x_mode, prior_x, step_size)
     X_new, loss = updater(X_prev)
 
-    expected_X = torch.tensor([[0.5714, 0.4286], [0.2222, 0.7326]], dtype=torch.float32)
+    expected_X = torch.tensor([[0.6000, 0.4000], [0.1600, 0.7400]], dtype=torch.float32)
+    expected_loss = 0.3819999694824219
+
     assert torch.allclose(X_new, expected_X, rtol=1e-4)
     assert loss < loss_prev
+    assert abs(loss - expected_loss) < 1e-4
 
 
 def test_gradient_update_wonbr_closure():
