@@ -17,7 +17,7 @@ def popari_with_neighbors(test_datapath, context, shared_model):
     train_parameters = TrainParameters(
         nmf_iterations=0,
         iterations=iterations,
-        savepath=(test_datapath / f"trained_{iterations}_iterations.h5ad"),
+        savepath=(test_datapath / f"trained_batch_{iterations}_iterations.h5ad"),
     )
 
     trainer = Trainer(
@@ -34,11 +34,10 @@ def popari_with_neighbors(test_datapath, context, shared_model):
             group_name: np.arange(4).reshape((2, 2)) for group_name in obj.metagene_groups
         }
 
-    if not (test_datapath / "trained_4_iterations.h5ad").exists():
-        obj.save_results(test_datapath / "trained_4_iterations.h5ad")
+    # if not (test_datapath / "trained_batch_4_iterations.h5ad").exists():
+    #    obj.save_results(test_datapath / "trained_batch_4_iterations.h5ad")
 
     trainer.save_results()
-
     return obj
 
 

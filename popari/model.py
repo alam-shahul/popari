@@ -11,7 +11,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import torch
-from scipy.sparse import issparse
+from scipy.sparse import csr_array, issparse
 from tqdm import trange
 
 from popari._hierarchical_view import HierarchicalView, Hierarchy

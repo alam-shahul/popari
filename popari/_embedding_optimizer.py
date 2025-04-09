@@ -330,6 +330,8 @@ class EmbeddingOptimizer:
         Ynorm = torch.square(Y).sum() / (sigma_yx**2)
         S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
 
+        base_step_size = 0.1
+
         Z = X / S
 
         E_adjacency_list = self.adjacency_lists[dataset.name]
