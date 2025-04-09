@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from popari._batch_optimizer_closures import *
-from popari._embedding_optimizer_closures import *
+from popari._embedding_optimizer_util import *
 from popari._parameter_optimizer_closures import *
 
 
@@ -62,8 +62,15 @@ def test_multiplicative_update_wonbr_closure():
     # expected_X = torch.clip(expected_X, min=1e-10)
     # expected_X = torch.tensor([[0.5714, 0.4286], [0.2222, 0.7326]], dtype=torch.float32)
 
-    updater = EmbeddingLossNoNeighborsGD(MTM, YM, Ynorm, prior_x_mode, prior_x, step_size)
-    X_new, loss = updater(X_prev)
+    no_neighbors_gd_loss = EmbeddingLossNoNeighborsGD(
+        MTM,
+        YM,
+        Ynorm,
+        prior_x_mode,
+        prior_x,
+        step_size,
+    )  # TODO: replace with multiplicative updates
+    X_new, loss = no_neighbors_gd_loss(X_prev)
 
     expected_X = torch.tensor([[0.6000, 0.4000], [0.1600, 0.7400]], dtype=torch.float32)
     expected_loss = 0.3819999694824219
@@ -89,8 +96,8 @@ def test_gradient_update_wonbr_closure():
     # expected_X = X - 0.1 * expected_gradient
     # expected_X = torch.clip(expected_X, min=1e-10)
 
-    gd_calculator = EmbeddingLossNoNeighborsGD(MTM, YM, Ynorm, prior_x_mode, prior_x, step_size)
-    X_new, loss = gd_calculator.forward(X)
+    no_neighbors_gd_loss = EmbeddingLossNoNeighborsGD(MTM, YM, Ynorm, prior_x_mode, prior_x, step_size)
+    X_new, loss = no_neighbors_gd_loss(X)
 
     expected_X = torch.tensor([[0.5100, 0.4900], [0.2860, 0.7040]], dtype=torch.float32)
     assert torch.allclose(X_new, expected_X, rtol=1e-4)
@@ -727,7 +734,7 @@ def test_compute_hessian_batch():
     # hessian = compute_hessian_batch(M, sigma_yx)
 
     hessian_batch = ComputeHessianBatch()
-    hessian = hessian_batch.forward(M, sigma_yx)
+    hessian = hessian_batch(M, sigma_yx)
 
     # expected_hessian = M.T @ M / (sigma_yx**2)
     expected_hessian = torch.tensor([[1.04, 0.4], [0.4, 1.04]], dtype=torch.float32)
