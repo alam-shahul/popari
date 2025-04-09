@@ -6,9 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from popari._batch_optimizer_closures import *
 from popari._embedding_optimizer_util import *
-from popari._parameter_optimizer_closures import *
 
 
 class MockProgressBar:
@@ -34,8 +32,6 @@ class MockIndependentSet:
 
 
 ######################### Test Embedding Optimizer #########################
-
-
 def test_multiplicative_update_wonbr_closure():
     X_prev = torch.tensor([[0.5, 0.5], [0.3, 0.7]], dtype=torch.float32)
     MTM = torch.tensor([[1.0, 0.2], [0.2, 1.0]], dtype=torch.float32)
@@ -162,11 +158,7 @@ def test_calc_func_grad():
     # row_sums = expected_g.sum(1, keepdim=True)
     # expected_g = expected_g - row_sums
 
-    class TestEmbeddingLossWithNeighbors(EmbeddingLossWithNeighbors):
-        def update_z(self, Z):
-            return Z
-
-    embedding_loss = TestEmbeddingLossWithNeighbors(
+    embedding_loss = EmbeddingLossWithNeighborsNesterov(
         Z=Z_batch,
         S=S_batch,
         MTM=None,
@@ -212,25 +204,7 @@ def test_update_z_gd_wnbr_closure():
 
     test.IndependentSet = MockIndependentSet
 
-    # Z_new = update_z_gd_wnbr_closure(
-    #     Z,
-    #     base_step_size,
-    #     S,
-    #     N,
-    #     E_adjacency_list,
-    #     device,
-    #     MTM,
-    #     YM,
-    #     adjacency_matrix,
-    #     Sigma_x_inv,
-    #     use_inplace_ops,
-    #     tol,
-    # )
-    class TestEmbeddingLossWithNeighbors(EmbeddingLossWithNeighbors):
-        def update_z(self, Z):
-            return Z
-
-    embedding_loss = TestEmbeddingLossWithNeighbors(
+    embedding_loss = EmbeddingLossWithNeighborsNesterov(
         Z=Z.clone(),
         S=S.clone(),
         MTM=MTM.clone(),
@@ -285,30 +259,6 @@ def test_update_z_gd_nesterov_wnbr_closure():
     use_inplace_ops = False
     tol = 1e-4
 
-    # Mock IndependentSet and trange to control iteration
-    import test
-
-    test.IndependentSet = MockIndependentSet
-    test.trange = lambda *args, **kwargs: MockProgressBar(range(1))
-
-    # Z_new = update_z_gd_nesterov_wnbr_closure(
-    #     Z,
-    #     N,
-    #     S,
-    #     MTM,
-    #     YM,
-    #     adjacency_matrix,
-    #     Sigma_x_inv,
-    #     E_adjacency_list,
-    #     device,
-    #     base_step_size,
-    #     verbose,
-    #     embedding_acceleration_trick,
-    #     update_s,
-    #     use_inplace_ops,
-    #     tol,
-    # )
-
     embedding_loss = EmbeddingLossWithNeighborsNesterov(
         Z=Z.clone(),
         S=S.clone(),
@@ -328,6 +278,7 @@ def test_update_z_gd_nesterov_wnbr_closure():
         embedding_mini_iterations=1,
         tol=tol,
     )
+
     Z_new = embedding_loss.update_z(Z.clone())
 
     assert Z_new.shape == Z.shape
@@ -364,11 +315,7 @@ def test_compute_loss_wnbr_closure():
     # expected_loss += prior_x[0][0] * S.sum()
     # expected_loss += ((adjacency_matrix @ Z) @ Sigma_x_inv).mul(Z).sum() / 2
 
-    class TestEmbeddingLossWithNeighbors(EmbeddingLossWithNeighbors):
-        def update_z(self, Z):
-            return Z
-
-    embedding_loss = TestEmbeddingLossWithNeighbors(
+    embedding_loss = EmbeddingLossWithNeighborsNesterov(
         Z=Z.clone(),
         S=S.clone(),
         MTM=MTM.clone(),
@@ -423,11 +370,7 @@ def test_compute_loss_wnbr_closure():
     # expected_loss += ((adjacency_matrix @ Z) @ Sigma_x_inv).mul(Z).sum() / 2
     # expected_loss = expected_loss.item()
 
-    class TestEmbeddingLossWithNeighbors(EmbeddingLossWithNeighbors):
-        def update_z(self, Z):
-            return Z
-
-    embedding_loss = TestEmbeddingLossWithNeighbors(
+    embedding_loss = EmbeddingLossWithNeighborsNesterov(
         Z=Z.clone(),
         S=S.clone(),
         MTM=MTM.clone(),
@@ -450,231 +393,3 @@ def test_compute_loss_wnbr_closure():
 
     expected_loss = 0.93467
     assert abs(loss - expected_loss) < 1e-4
-
-
-######################### Test Parameter Optimizer #########################
-
-
-def test_compute_loss_nll_M_closure():
-    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
-    quadratic_factor = torch.tensor([[1.0, 0.2], [0.2, 1.0]], dtype=torch.float32)
-    differential_regularization_quadratic_factor = torch.tensor([[0.1, 0.0], [0.0, 0.1]], dtype=torch.float32)
-    linear_term = torch.tensor([[0.8, 0.6], [0.4, 0.9]], dtype=torch.float32)
-    differential_regularization_linear_term = torch.tensor([[0.05, 0.05], [0.05, 0.05]], dtype=torch.float32)
-    constant = 1.0
-    metagene_mode = None
-    M_bar = None
-    lambda_M = 0.1
-
-    # loss = compute_loss_nll_M_closure(
-    #     M,
-    #     quadratic_factor,
-    #     differential_regularization_quadratic_factor,
-    #     linear_term,
-    #     differential_regularization_linear_term,
-    #     constant,
-    #     metagene_mode,
-    #     M_bar,
-    #     lambda_M,
-    # )
-    # quad_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
-    # expected_loss = (quad_grad * M).sum()
-    # lin_grad = linear_term + differential_regularization_linear_term
-    # expected_loss -= 2 * (lin_grad * M).sum()
-    # expected_loss += constant
-    # expected_loss /= 2
-    # expected_loss = expected_loss.item()
-
-    compute_loss_nll_M = ComputeLossNllM(metagene_mode, M_bar, lambda_M)
-    loss = compute_loss_nll_M.forward(
-        M,
-        quadratic_factor,
-        differential_regularization_quadratic_factor,
-        linear_term,
-        differential_regularization_linear_term,
-        constant,
-    )
-
-    expected_loss = -0.165
-    assert abs(loss - expected_loss) < 1e-4
-
-
-def test_compute_loss_and_gradient():
-    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
-    quadratic_factor = torch.tensor([[1.0, 0.2], [0.2, 1.0]], dtype=torch.float32)
-    differential_regularization_quadratic_factor = torch.tensor([[0.1, 0.0], [0.0, 0.1]], dtype=torch.float32)
-    verbose = 0
-    linear_factor = torch.tensor([[0.8, 0.6], [0.4, 0.9]], dtype=torch.float32)
-    differential_regularization_linear_factor = torch.tensor([[0.05, 0.05], [0.05, 0.05]], dtype=torch.float32)
-    constant = 1.0
-    metagene_mode = None
-    M_bar = None
-    lambda_M = 0.1
-    M_constraint = "simplex"
-    batch_effects = [torch.tensor([0.0, 0.0], dtype=torch.float32), torch.tensor([0.0, 0.0], dtype=torch.float32)]
-
-    # loss, grad = compute_loss_and_gradient(
-    #     M,
-    #     quadratic_factor,
-    #     differential_regularization_quadratic_factor,
-    #     verbose,
-    #     linear_factor,
-    #     differential_regularization_linear_factor,
-    #     constant,
-    #     metagene_mode,
-    #     M_bar,
-    #     lambda_M,
-    #     M_constraint,
-    #     batch_effects,
-    # )
-    # quad_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
-    # expected_loss = (quad_grad * M).sum()
-    # lin_grad = linear_factor + differential_regularization_linear_factor
-    # expected_loss -= 2 * (lin_grad * M).sum()
-    # expected_loss += constant
-    # expected_loss /= 2
-    # expected_loss = expected_loss.item()
-
-    # expected_grad = quad_grad - lin_grad
-    # expected_grad -= expected_grad.sum(0, keepdim=True)
-
-    compute_loss_and_gradient_M = ComputeLossAndGradientM(metagene_mode, M_bar, lambda_M, M_constraint)
-    loss, grad = compute_loss_and_gradient_M.forward(
-        M,
-        quadratic_factor,
-        differential_regularization_quadratic_factor,
-        verbose,
-        linear_factor,
-        differential_regularization_linear_factor,
-        constant,
-        batch_effects,
-    )
-
-    expected_loss = -0.165
-    expected_grad = torch.tensor([[-0.29, 0.39], [0.38, -0.18]], dtype=torch.float32)
-
-    assert abs(loss - expected_loss) < 1e-4
-    assert torch.allclose(grad, expected_grad, rtol=1e-4)
-
-
-def test_compute_loss_and_gradient_with_batch_effect():
-    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
-    quadratic_factor = torch.tensor([[1.0, 0.2], [0.2, 1.0]], dtype=torch.float32)
-    differential_regularization_quadratic_factor = torch.tensor([[0.1, 0.0], [0.0, 0.1]], dtype=torch.float32)
-    verbose = 0
-    linear_factor = torch.tensor([[0.8, 0.6], [0.4, 0.9]], dtype=torch.float32)
-    differential_regularization_linear_factor = torch.tensor([[0.05, 0.05], [0.05, 0.05]], dtype=torch.float32)
-    constant = 1.0
-    metagene_mode = None
-    M_bar = None
-    lambda_M = 0.1
-    M_constraint = "simplex"
-    batch_effects = [torch.tensor([0.3, 0.7], dtype=torch.float32), torch.tensor([0.2, 0.8], dtype=torch.float32)]
-
-    # loss, grad = compute_loss_and_gradient(
-    #     M,
-    #     quadratic_factor,
-    #     differential_regularization_quadratic_factor,
-    #     verbose,
-    #     linear_factor,
-    #     differential_regularization_linear_factor,
-    #     constant,
-    #     metagene_mode,
-    #     M_bar,
-    #     lambda_M,
-    #     M_constraint,
-    #     batch_effects,
-    # )
-    # quad_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
-    # expected_loss = (quad_grad * M).sum()
-    # lin_grad = linear_factor + differential_regularization_linear_factor
-    # expected_loss -= 2 * (lin_grad * M).sum()
-    # expected_loss += constant
-
-    # Add determinant term (log det term)
-    # log_det_term = -0.5 * torch.sum(torch.log(torch.linalg.eigvalsh(M.T @ M) + 1e-10))
-    # expected_loss += log_det_term
-    # expected_loss /= 2
-    # expected_loss = expected_loss.item()
-
-    # expected_grad = quad_grad - lin_grad
-    # det_grad = -M @ torch.inverse(M.T @ M + 1e-10 * torch.eye(M.shape[1], device=M.device))
-    # expected_grad += det_grad
-    # expected_grad -= expected_grad.sum(0, keepdim=True)
-
-    compute_loss_and_gradient_M = ComputeLossAndGradientM(metagene_mode, M_bar, lambda_M, M_constraint)
-    loss, grad = compute_loss_and_gradient_M.forward(
-        M,
-        quadratic_factor,
-        differential_regularization_quadratic_factor,
-        verbose,
-        linear_factor,
-        differential_regularization_linear_factor,
-        constant,
-        batch_effects,
-    )
-
-    expected_loss = 0.436986
-    expected_grad = torch.tensor([[2.0433, -0.61], [-0.9533, 1.82]], dtype=torch.float32)
-    assert abs(loss - expected_loss) < 1e-4
-    assert torch.allclose(grad, expected_grad, rtol=1e-4)
-
-
-def test_estimate_M_nag_closure():
-    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
-    verbose = 0
-    quadratic_factor = torch.tensor([[1.0, 0.2], [0.2, 1.0]], dtype=torch.float32)
-    differential_regularization_quadratic_factor = torch.tensor([[0.1, 0.0], [0.0, 0.1]], dtype=torch.float32)
-    linear_factor = torch.tensor([[0.8, 0.6], [0.4, 0.9]], dtype=torch.float32)
-    differential_regularization_linear_factor = torch.tensor([[0.05, 0.05], [0.05, 0.05]], dtype=torch.float32)
-    constant = 1.0
-    metagene_mode = None
-    M_bar = None
-    lambda_M = 0.1
-    progress_bar = MockProgressBar(range(5))
-    simplex_projection_mode = "exact"
-    use_inplace_ops = False
-    M_constraint = "simplex"
-    tol = 1e-4
-    verbose_bar = MockProgressBar()
-    batch_effects = [torch.tensor([0.0, 0.0], dtype=torch.float32), torch.tensor([0.0, 0.0], dtype=torch.float32)]
-
-    # M_new = estimate_M_nag_closure(
-    #     M,
-    #     verbose,
-    #     quadratic_factor,
-    #     differential_regularization_quadratic_factor,
-    #     linear_factor,
-    #     differential_regularization_linear_factor,
-    #     constant,
-    #     metagene_mode,
-    #     M_bar,
-    #     lambda_M,
-    #     progress_bar,
-    #     simplex_projection_mode,
-    #     use_inplace_ops,
-    #     M_constraint,
-    #     tol,
-    #     verbose_bar,
-    #     batch_effects,
-    # )
-
-    estimate_M = EstimateMNAG(metagene_mode, M_bar, lambda_M, M_constraint, use_inplace_ops)
-    M_new = estimate_M.forward(
-        M,
-        verbose,
-        quadratic_factor,
-        differential_regularization_quadratic_factor,
-        linear_factor,
-        differential_regularization_linear_factor,
-        constant,
-        progress_bar,
-        simplex_projection_mode,
-        tol,
-        verbose_bar,
-        batch_effects,
-    )
-
-    assert M_new.shape == M.shape
-    assert torch.all(M_new >= 0)
-    assert torch.allclose(M_new.sum(dim=0), torch.tensor([1.0, 1.0]), rtol=1e-4)
