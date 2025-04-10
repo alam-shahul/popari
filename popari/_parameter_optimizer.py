@@ -751,31 +751,24 @@ class ParameterOptimizer:
             )
         loss_prev, loss = np.inf, np.nan
 
-        verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format="{desc}{postfix}")
-        progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, desc="Updating M", miniters=1000)
+        # estimate_M_nag = EstimateMNAG(self.metagene_mode, M_bar, self.lambda_M, self.M_constraint, self.use_inplace_ops)
 
-        # compute_loss_and_gradient = compute_loss_and_gradient_M_closure(M, quadratic_factor, differential_regularization_quadratic_factor, self.verbose, differential_regularization_linear_factor, constant, self.metagene_mode, M_bar, self.lambda_M, self.M_constraint)
-        # estimate_M_nag = estimate_M_nag_closure(
-        #     M,
-        #     self.verbose,
-        #     quadratic_factor,
-        #     differential_regularization_quadratic_factor,
-        #     linear_factor,
-        #     differential_regularization_linear_factor,
-        #     constant,
-        #     self.metagene_mode,
-        #     M_bar,
-        #     self.lambda_M,
-        #     progress_bar,
-        #     simplex_projection_mode,
-        #     self.use_inplace_ops,
-        #     self.M_constraint,
-        #     tol,
-        #     verbose_bar,
-        #     batch_effects,
-        # )
-
-        estimate_M_nag = EstimateMNAG(self.metagene_mode, M_bar, self.lambda_M, self.M_constraint, self.use_inplace_ops)
+        estimate_M = EstimateMNAG(
+            M_bar=M_bar,
+            lambda_M=self.lambda_M,
+            M_constraint=self.M_constraint,
+            use_inplace_ops=self.use_inplace_ops,
+            verbose=self.verbose,
+            metagene_mode=self.metagene_mode,
+            n_epochs=n_epochs,
+            tol=tol,
+            simplex_projection_mode=simplex_projection_mode,
+            quadratic_factor=quadratic_factor,
+            differential_regularization_quadratic_factor=differential_regularization_quadratic_factor,
+            linear_factor=linear_factor,
+            differential_regularization_linear_factor=differential_regularization_linear_factor,
+            constant=constant,
+        )
 
         if backend_algorithm == "mu":
             for epoch in progress_bar:
@@ -817,7 +810,7 @@ class ParameterOptimizer:
                 self.lambda_M,
                 self.M_constraint,
             )
-            loss, grad = compute_loss_and_gradient_M.forward(
+            loss, grad = compute_loss_and_gradient_M(
                 M,
                 quadratic_factor,
                 differential_regularization_quadratic_factor,
@@ -827,20 +820,6 @@ class ParameterOptimizer:
                 constant,
                 batch_effects,
             )
-            # loss, grad = compute_loss_and_gradient(
-            #     M,
-            #     quadratic_factor,
-            #     differential_regularization_quadratic_factor,
-            #     self.verbose,
-            #     linear_factor,
-            #     differential_regularization_linear_factor,
-            #     constant,
-            #     self.metagene_mode,
-            #     M_bar,
-            #     self.lambda_M,
-            #     self.M_constraint,
-            #     batch_effects,
-            # )
             dM = dloss = np.inf
             for epoch in progress_bar:
                 M_new = M.sub(grad, alpha=step_size * step_size_scale)
@@ -851,20 +830,6 @@ class ParameterOptimizer:
                         M = project_M(M_new, self.M_constraint)
                 elif simplex_projection_mode == "approximate":
                     pass
-                # loss_new, grad_new = compute_loss_and_gradient(
-                #     M_new,
-                #     quadratic_factor,
-                #     differential_regularization_quadratic_factor,
-                #     self.verbose,
-                #     linear_factor,
-                #     differential_regularization_linear_factor,
-                #     constant,
-                #     self.metagene_mode,
-                #     M_bar,
-                #     self.lambda_M,
-                #     self.M_constraint,
-                #     batch_effects,
-                # )
                 loss_new, grad_new = compute_loss_and_gradient_M.forward(
                     M,
                     quadratic_factor,
@@ -898,20 +863,7 @@ class ParameterOptimizer:
                     break
 
         elif backend_algorithm == "gd Nesterov":
-            M = estimate_M_nag.forward(
-                M,
-                self.verbose,
-                quadratic_factor,
-                differential_regularization_quadratic_factor,
-                linear_factor,
-                differential_regularization_linear_factor,
-                constant,
-                progress_bar,
-                simplex_projection_mode,
-                tol,
-                verbose_bar,
-                batch_effects,
-            )
+            M = estimate_M(M, batch_effects)
         else:
             raise NotImplementedError
 
