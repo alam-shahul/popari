@@ -68,7 +68,7 @@ jupyter = [
   "jupyter-resource-usage",
 ]
 mlflow = [
-  "mlflow>=2.5.0",
+  "mlflow>=2.21.0",
   "toml>=0.10.2",
   "pynvml",
 ]
