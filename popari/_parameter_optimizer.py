@@ -774,13 +774,13 @@ class ParameterOptimizer:
         #     batch_effects,
         # )
 
-        estimate_M_nag = EstimateMNAG(
-            M_bar,
-            metagene_mode=self.metagene_mode,
+        estimate_M = EstimateMNAG(
+            M_bar=M_bar,
             lambda_M=self.lambda_M,
             M_constraint=self.M_constraint,
             use_inplace_ops=self.use_inplace_ops,
             verbose=self.verbose,
+            metagene_mode=self.metagene_mode,
             n_epochs=n_epochs,
             tol=tol,
             simplex_projection_mode=simplex_projection_mode,
@@ -912,10 +912,7 @@ class ParameterOptimizer:
                     break
 
         elif backend_algorithm == "gd Nesterov":
-            M = estimate_M_nag(
-                M,
-                batch_effects,
-            )
+            M = estimate_M(M, batch_effects)
         else:
             raise NotImplementedError
 
