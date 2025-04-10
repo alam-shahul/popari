@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
 
-from popari._parameter_optimizer_closures import *
+from popari._parameter_optimizer_util import EstimateMNAG
 from popari._popari_dataset import PopariDataset
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import (
@@ -774,7 +774,22 @@ class ParameterOptimizer:
         #     batch_effects,
         # )
 
-        estimate_M_nag = EstimateMNAG(self.metagene_mode, M_bar, self.lambda_M, self.M_constraint, self.use_inplace_ops)
+        estimate_M_nag = EstimateMNAG(
+            M_bar,
+            metagene_mode=self.metagene_mode,
+            lambda_M=self.lambda_M,
+            M_constraint=self.M_constraint,
+            use_inplace_ops=self.use_inplace_ops,
+            verbose=self.verbose,
+            n_epochs=n_epochs,
+            tol=tol,
+            simplex_projection_mode=simplex_projection_mode,
+            quadratic_factor=quadratic_factor,
+            differential_regularization_quadratic_factor=differential_regularization_quadratic_factor,
+            linear_factor=linear_factor,
+            differential_regularization_linear_factor=differential_regularization_linear_factor,
+            constant=constant,
+        )
 
         if backend_algorithm == "mu":
             for epoch in progress_bar:
@@ -897,18 +912,8 @@ class ParameterOptimizer:
                     break
 
         elif backend_algorithm == "gd Nesterov":
-            M = estimate_M_nag.forward(
+            M = estimate_M_nag(
                 M,
-                self.verbose,
-                quadratic_factor,
-                differential_regularization_quadratic_factor,
-                linear_factor,
-                differential_regularization_linear_factor,
-                constant,
-                progress_bar,
-                simplex_projection_mode,
-                tol,
-                verbose_bar,
                 batch_effects,
             )
         else:
