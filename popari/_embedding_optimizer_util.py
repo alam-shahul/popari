@@ -268,21 +268,21 @@ class EmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighbors):
         return Z
 
 
-def get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z, B):
-    def update_s():
-        # S[:] = (YM * Z).sum(axis=1, keepdim=True)
-        S[:] = (YM * Z - ((Z @ MTM) * B)).sum(axis=1, keepdim=True)
-        if prior_x_mode == "exponential shared fixed":
-            # TODO: why divide by two?
-            S.sub_(prior_x[0][0] / 2)
-        elif not prior_x_mode:
-            pass
-        else:
-            raise NotImplementedError
-
-        denominator = ((Z @ MTM) * Z).sum(axis=1, keepdim=True)
-        S.div_(denominator)
-        S.clip_(min=1e-5)
-        return
-
-    return update_s()
+# def get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z, B):
+#     def update_s():
+#         # S[:] = (YM * Z).sum(axis=1, keepdim=True)
+#         S[:] = (YM * Z - ((Z @ MTM) * B)).sum(axis=1, keepdim=True)
+#         if prior_x_mode == "exponential shared fixed":
+#             # TODO: why divide by two?
+#             S.sub_(prior_x[0][0] / 2)
+#         elif not prior_x_mode:
+#             pass
+#         else:
+#             raise NotImplementedError
+#
+#         denominator = ((Z @ MTM) * Z).sum(axis=1, keepdim=True)
+#         S.div_(denominator)
+#         S.clip_(min=1e-5)
+#         return
+#
+#     return update_s()
