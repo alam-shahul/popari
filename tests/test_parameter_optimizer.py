@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from popari._parameter_optimizer_closures import *
+from popari._parameter_optimizer_util import EstimateMNAG
 
 
 def test_compute_loss_nll_M_closure():
