@@ -288,9 +288,6 @@ class EmbeddingOptimizer:
 
         Z = X / S
 
-        print(f"{S[:5] = }")
-        print(f"{Z[:5] = }")
-
         E_adjacency_list = self.adjacency_lists[dataset.name]
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
