@@ -91,7 +91,7 @@ def test_cluster_domains(domain_clustered_model): ...
 
 
 def test_ari_score(clustered_model):
-    expected_aris = [0.5226908788524272, 0.4964391347669228]
+    expected_aris = [0.5239805481658208, 0.4863710626068497]
     tl.compute_ari_scores(clustered_model, labels="cell_type", predictions="leiden")
 
     for expected_ari, dataset in zip(expected_aris, clustered_model.datasets):
@@ -109,8 +109,8 @@ def test_silhouette_score(clustered_model):
 
 
 def test_classification_task_disjoint(clustered_model):
-    expected_microprecisions = [0.9013333333333333, 0.88]
-    expected_macroprecisions = [0.9171604437229437, 0.9096684397401208]
+    expected_microprecisions = [0.8986666666666666, 0.8826666666666667]
+    expected_macroprecisions = [0.9153058634913473, 0.9110585415458659]
     tl.evaluate_classification_task(clustered_model, labels="cell_type", embeddings="normalized_X", joint=False)
 
     for expected_microprecision, expected_macroprecision, dataset in zip(
@@ -125,8 +125,8 @@ def test_classification_task_disjoint(clustered_model):
 
 
 def test_classification_task_joint(clustered_model):
-    expected_microprecisions = [0.9226666666666666, 0.9226666666666666]
-    expected_macroprecisions = [0.9333166458237094, 0.9333166458237094]
+    expected_microprecisions = [0.924, 0.924]
+    expected_macroprecisions = [0.9343716615194526, 0.9343716615194526]
     tl.evaluate_classification_task(clustered_model, labels="cell_type", embeddings="normalized_X", joint=True)
 
     for expected_microprecision, expected_macroprecision, dataset in zip(

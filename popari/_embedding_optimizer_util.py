@@ -131,7 +131,7 @@ class EmbeddingLossWithNeighbors(nn.Module, ABC):
         self.S.div_(denominator)
         self.S.clip_(min=1e-5)
 
-    def calc_func_grad(self, Z_batch, S_batch, quad, linear):
+    def get_batch_loss_and_grad(self, Z_batch, S_batch, quad, linear):
         t = (Z_batch @ quad).mul_(S_batch**2)
         f = (t * Z_batch).sum() / 2
         g = t
@@ -192,7 +192,7 @@ class EmbeddingLossWithNeighbors(nn.Module, ABC):
 class EmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighbors):
     def update_z(self, Z):
         pbar = trange(self.N, leave=False, disable=True, desc="Updating Z w/ nbrs via Nesterov GD")
-        func, grad = self.calc_func_grad(
+        func, grad = self.get_batch_loss_and_grad(
             Z,
             self.S,
             self.MTM,
@@ -211,8 +211,13 @@ class EmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighbors):
                 S_batch = self.S[idx].contiguous()
                 linear_batch = linear_batch_spatial + self.YM[idx] * S_batch
                 if i_iter == 0:
-                    func, grad = self.calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-                    func, grad = self.calc_func_grad(
+                    func, grad = self.get_batch_loss_and_grad(
+                        Z_batch,
+                        S_batch,
+                        quad_batch,
+                        linear_batch,
+                    )  # TODO: if we remove this line does it still run?
+                    func, grad = self.get_batch_loss_and_grad(
                         Z,
                         self.S,
                         self.MTM,
@@ -222,7 +227,7 @@ class EmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighbors):
                 NesterovGD.step_size = (
                     self.base_step_size / S_batch.square()
                 )  # TM: I think this converges as s converges
-                func, grad = self.calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
+                func, grad = self.get_batch_loss_and_grad(Z_batch, S_batch, quad_batch, linear_batch)
 
                 Z_batch_prev = Z_batch.clone()
                 Z_batch = optimizer.step(grad)
@@ -243,16 +248,17 @@ class EmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighbors):
             ppbar.close()
 
             Z[idx] = Z_batch
-            func, grad = self.calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-            func, grad = self.calc_func_grad(
+            func, grad = self.get_batch_loss_and_grad(Z_batch, S_batch, quad_batch, linear_batch)
+            func, grad = self.get_batch_loss_and_grad(
                 Z,
                 self.S,
                 self.MTM,
                 self.YM * self.S - self.adjacency_matrix @ Z @ self.Sigma_x_inv / 2,
             )
             pbar.update(len(idx))
+
         pbar.close()
-        func, grad = self.calc_func_grad(
+        func, grad = self.get_batch_loss_and_grad(
             Z,
             self.S,
             self.MTM,
