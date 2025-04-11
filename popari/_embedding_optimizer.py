@@ -38,6 +38,7 @@ class EmbeddingOptimizer:
         verbose=0,
         batch_effect_correction=False,
     ):
+        self.batch_effect_correction = batch_effect_correction
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
         self.datasets = datasets
@@ -80,14 +81,12 @@ class EmbeddingOptimizer:
             Y = self.Ys[dataset_index].to(self.context["device"])
             X = self.embedding_state[dataset.name].to(self.context["device"])
             M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
-            B = self.batch_optimizer.batch_effect_state[dataset.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
             if not is_spatial_replicate or not use_neighbors:
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wonbr(
                     Y,
                     M,
-                    B,
                     X,
                     sigma_yx,
                     prior_x_mode,
@@ -95,6 +94,7 @@ class EmbeddingOptimizer:
                     dataset,
                 )
             if self.batch_effect_correction:
+                B = self.batch_optimizer.batch_effect_state[dataset.name].to(self.context["device"])
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr(
                     Y,
                     M,
@@ -109,7 +109,6 @@ class EmbeddingOptimizer:
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr(
                     Y,
                     M,
-                    B,
                     X,
                     sigma_yx,
                     prior_x_mode,

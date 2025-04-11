@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
 
-from popari._parameter_optimizer_util import EstimateMNAG, SigmayxLoss
+from popari._parameter_optimizer_util import BatchEffectMNAG, BatchSigmayxLoss, EstimateMNAG, SigmayxLoss
 from popari._popari_dataset import PopariDataset
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import (
