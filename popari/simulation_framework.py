@@ -356,7 +356,7 @@ class SyntheticDataset(AnnData):
         if batch_effect_indices is not None and len(batch_effect_indices) > 0:
             self.batch_effect = True
         self.batch_metagene_indices = batch_effect_indices
-        self.uns["batch_effect"] = {self.name: np.zeros((1, self.params.num_real_metagenes))}
+        self.uns["ground_truth_batch_effect"] = {self.name: np.zeros((1, self.params.num_real_metagenes))}
 
     def synthesize_metagenes(
         self,
