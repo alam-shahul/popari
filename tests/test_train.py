@@ -22,9 +22,9 @@ def cleanup_mlflow(request):
         for path in root.glob("metagene_*_in_situ.png"):
             path.unlink()
 
-        (root / "leiden.png").unlink()
-        (root / "Sigma_x_inv.png").unlink()
-        (root / "metagenes.png").unlink()
+        # (root / "leiden.png").unlink()
+        # (root / "Sigma_x_inv.png").unlink()
+        # (root / "metagenes.png").unlink()
 
     request.addfinalizer(remove_mlflow_outputs)
 

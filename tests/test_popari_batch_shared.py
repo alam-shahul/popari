@@ -6,7 +6,7 @@ import torch
 
 from popari import tl
 from popari.model import Popari
-from popari.train import Trainer, TrainParameters
+from popari.train import BatchBlendTrainer, TrainParameters
 
 
 @pytest.fixture(scope="module")
@@ -20,11 +20,10 @@ def popari_with_neighbors(dataset_path, context, shared_model):
         savepath=(dataset_path / f"trained_{iterations}_iterations_batch.h5ad"),
     )
 
-    trainer = Trainer(
+    trainer = BatchBlendTrainer(
         parameters=train_parameters,
         model=obj,
         verbose=True,
-        batch_effect_correction=True,
     )
 
     trainer.train()

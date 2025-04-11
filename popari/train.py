@@ -49,8 +49,6 @@ class Trainer:
         self.verbose = verbose
         self.nmf_iterations = 0
         self.iterations = 0
-        self.batch_effect_correction = batch_effect_correction
-        self.model.batch_effect_correction = batch_effect_correction
 
     def train(self):
         nmf_progress_bar = trange(self.parameters.nmf_iterations, leave=True, disable=not self.verbose)
@@ -59,12 +57,7 @@ class Trainer:
                 description = f"-------------- NMF Iteration {self.nmf_iterations} --------------"
                 nmf_progress_bar.set_description(description)
 
-            synchronize = not (self.nmf_iterations % self.parameters.synchronization_frequency)
-            self.model.estimate_parameters(update_spatial_affinities=False, synchronize=synchronize)
-            self.model.estimate_weights(use_neighbors=False, synchronize=synchronize)
-            if self.batch_effect_correction:
-                self.model.estimate_batch_effect(synchronize=synchronize)
-
+            self.update(self.nmf_iterations, spatial=False)
             self.nmf_iterations += 1
 
         progress_bar = trange(self.parameters.iterations, leave=True, disable=not self.verbose)
@@ -73,14 +66,14 @@ class Trainer:
                 description = f"------------------ Iteration {self.iterations} ------------------"
                 progress_bar.set_description(description)
 
-            synchronize = not (self.iterations % self.parameters.synchronization_frequency)
-
-            self.model.estimate_parameters(synchronize=synchronize)
-            self.model.estimate_weights(synchronize=synchronize)
-            if self.batch_effect_correction:
-                self.model.estimate_batch_effect(synchronize=synchronize)
-
+            self.update(self.iterations, spatial=True)
             self.iterations += 1
+
+    def update(self, iterations, spatial=True):
+        synchronize = not (iterations % self.parameters.synchronization_frequency)
+
+        self.model.estimate_parameters(update_spatial_affinities=spatial, synchronize=synchronize)
+        self.model.estimate_weights(use_neighbors=spatial, synchronize=synchronize)
 
     def save_results(self, savepath=None, **kwargs):
         if savepath is None:
@@ -97,6 +90,15 @@ class Trainer:
     # TODO: decide whether to separate out saving of model training hyperparameters and
     # Popari parameters saving completely. This will obvious imply huge changes with how
     # MLflow should work. Perhaps even justifies switching entirely to WandB (a good excuse)
+
+
+class BatchBlendTrainer(Trainer):
+    def update(self, iterations, spatial=True):
+        synchronize = not (iterations % self.parameters.synchronization_frequency)
+
+        self.model.estimate_parameters(update_spatial_affinities=spatial, synchronize=synchronize)
+        self.model.estimate_weights(use_neighbors=spatial, synchronize=synchronize)
+        self.model.estimate_batch_effect(synchronize=synchronize)
 
 
 class MLFlowTrainer(Trainer):
@@ -129,8 +131,8 @@ class MLFlowTrainer(Trainer):
             )
             self.model.estimate_weights(use_neighbors=False, synchronize=synchronize)
 
-            if self.batch_effect_correction:
-                self.model.estimate_batch_effect(synchronize=synchronize)
+            # if self.batch_effect_correction:
+            #     self.model.estimate_batch_effect(synchronize=synchronize)
 
             self.nmf_iterations += 1
 
@@ -158,8 +160,8 @@ class MLFlowTrainer(Trainer):
             synchronize = not (self.spatial_preiterations % self.parameters.synchronization_frequency)
             self.model.estimate_parameters(differentiate_spatial_affinities=False, synchronize=synchronize)
             self.model.estimate_weights(synchronize=synchronize)
-            if self.batch_effect_correction:
-                self.model.estimate_batch_effect(synchronize=synchronize)
+            # if self.batch_effect_correction:
+            #     self.model.estimate_batch_effect(synchronize=synchronize)
 
             if self.spatial_preiterations % self.parameters.checkpoint_iterations == 0:
                 nll_spatial = self.model.nll(use_spatial=True)
@@ -186,8 +188,8 @@ class MLFlowTrainer(Trainer):
 
             self.model.estimate_parameters(synchronize=synchronize)
             self.model.estimate_weights(synchronize=synchronize)
-            if self.batch_effect_correction:
-                self.model.estimate_batch_effect(synchronize=synchronize)
+            # if self.batch_effect_correction:
+            #     self.model.estimate_batch_effect(synchronize=synchronize)
 
             if self.iterations % self.parameters.checkpoint_iterations == 0:
                 if self.verbose:
