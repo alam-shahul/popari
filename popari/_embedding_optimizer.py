@@ -94,6 +94,17 @@ class EmbeddingOptimizer:
                     prior_x,
                     dataset,
                 )
+            if self.batch_effect_correction:
+                loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr(
+                    Y,
+                    M,
+                    B,
+                    X,
+                    sigma_yx,
+                    prior_x_mode,
+                    prior_x,
+                    dataset,
+                )
             else:
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr(
                     Y,
@@ -152,7 +163,6 @@ class EmbeddingOptimizer:
         self,
         Y,
         M,
-        B,
         X,
         sigma_yx,
         prior_x_mode,
@@ -248,7 +258,6 @@ class EmbeddingOptimizer:
         self,
         Y,
         M,
-        B,
         X,
         sigma_yx,
         prior_x_mode,
@@ -296,6 +305,79 @@ class EmbeddingOptimizer:
         # TM: the above idea is not practical if we update only a subset of nodes each time
 
         embedding_updater = EmbeddingLossWithNeighborsNesterov(
+            Z,
+            S,
+            MTM,
+            YM,
+            Ynorm,
+            adjacency_matrix,
+            prior_x_mode,
+            prior_x,
+            Sigma_x_inv,
+            E_adjacency_list,
+            self.context["device"],
+            base_step_size,
+            self.verbose,
+            self.embedding_acceleration_trick,
+            self.use_inplace_ops,
+            self.embedding_mini_iterations,
+            tol,
+        )
+
+        loss, X = embedding_updater()
+
+        return loss, X
+
+    @torch.no_grad()
+    def estimate_weight_wnbr_batch(
+        self,
+        Y,
+        M,
+        B,
+        X,
+        sigma_yx,
+        prior_x_mode,
+        prior_x,
+        dataset,
+        tol=1e-5,
+        update_alg="nesterov",
+    ):
+        """Estimate updated weights taking neighbor-neighbor interactions into
+        account.
+
+        The optimization for all variables
+        min 1/2σ^2 || Y - diag(S) Z MT ||_2^2 + lam || S ||_1 + sum_{ij in E} ziT Σx-1 zj
+
+        for s_i
+        min 1/2σ^2 || y - M z s ||_2^2 + lam s
+        s* = max(0, ( yT M z / σ^2 - lam ) / ( zT MT M z / σ^2) )
+
+        for Z
+        min 1/2σ^2 || Y - diag(S) Z MT ||_2^2 + sum_{ij in E} ziT Σx-1 zj
+        grad_i = MT M z s^2 / σ^2 - MT y s / σ^2 + sum_{j in Ei} Σx-1 zj
+
+        TODO: Try projected Newton's method.
+        TM: Inverse is precomputed once, and projection is cheap. Not sure if it works theoretically
+
+        """
+        # Precomputing quantities
+        MTM = M.T @ M / (sigma_yx**2)
+        YM = Y.to(M.device) @ M / (sigma_yx**2)
+        Ynorm = torch.square(Y).sum() / (sigma_yx**2)
+        base_step_size = self.embedding_step_size_multiplier / torch.linalg.eigvalsh(MTM).max().item()
+        S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
+
+        if self.verbose > 3:
+            print(f"S max: {S.max()}")
+            print(f"S min: {S.min()}")
+
+        Z = X / S
+
+        E_adjacency_list = self.adjacency_lists[dataset.name]
+        adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
+        Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
+
+        embedding_updater = BatchEffectEmbeddingLossWithNeighborsNesterov(
             Z,
             S,
             MTM,
