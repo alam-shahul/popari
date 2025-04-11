@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from popari._parameter_optimizer_util import EstimateMNAG
+from popari._parameter_optimizer_util import ComputeLossNllM, EstimateMNAG, Sigma_yx_Loss
 
 
 def test_compute_loss_nll_M_closure():
@@ -123,3 +123,19 @@ def test_estimate_M_nag_closure(metagene_loss_nag):
     assert M_new.shape == M.shape
     assert torch.all(M_new >= 0)
     assert torch.allclose(M_new.sum(dim=0), torch.tensor([1.0, 1.0]), rtol=1e-4)
+
+
+def test_estimate_sigma_yx():
+    Ys = [torch.tensor([[1.0, 2.0], [3.0, 4.0]])]
+    embedding_states = [torch.tensor([[0.5, 1.5], [2.5, 3.5]])]
+    metagene_states = [torch.tensor([[0.5, 1.0], [1.0, 0.5]])]
+    betas = [1.0]
+    expected_sigma_yx = 1.030776
+
+    sigma_yx_separate = Sigma_yx_Loss(sigma_yx_inv_mode="separate")
+    estimate_sigma_yx_separate = sigma_yx_separate(Ys, embedding_states, metagene_states, betas)
+    assert abs(estimate_sigma_yx_separate.item() - expected_sigma_yx) < 1e-4
+
+    sigma_yx_average = Sigma_yx_Loss(sigma_yx_inv_mode="average")
+    estimate_sigma_yx_average = sigma_yx_average(Ys, embedding_states, metagene_states, betas)
+    assert abs(estimate_sigma_yx_average.item() - expected_sigma_yx) < 1e-4

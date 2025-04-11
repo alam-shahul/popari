@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
 
-from popari._parameter_optimizer_util import EstimateMNAG
+from popari._parameter_optimizer_util import EstimateMNAG, Sigma_yx_Loss
 from popari._popari_dataset import PopariDataset
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import (
@@ -920,46 +920,18 @@ class ParameterOptimizer:
 
     def update_sigma_yx(self):
         """Update sigma_yx for each replicate."""
-        squared_terms = [
-            torch.addmm(
-                Y,
-                self.embedding_optimizer.embedding_state[dataset.name]
-                + self.batch_effect_optimizer.batch_effect_state[dataset.name],
-                self.metagene_state[dataset.name].T,
-                alpha=-1,
-            )
-            for Y, dataset in zip(self.Ys, self.datasets)
-        ]
-        squared_loss = np.array(
-            [torch.linalg.norm(squared_term, ord="fro").item() ** 2 for squared_term in squared_terms],
-        )
-        num_replicates = len(self.datasets)
-        num_cells, _ = self.datasets[0].shape
+        embedding_states = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
+        metagene_states = [self.metagene_state[dataset.name].T for dataset in self.datasets]
 
-        if all(torch.all(tensor == 0) for tensor in self.batch_effect_optimizer.batch_effect_state.values()):
-            sizes = np.array([Y.numel() for Y in self.Ys])
-        else:
-            sizes = np.add(
-                np.array([Y.numel() for Y in self.Ys]),
-                np.array([self.K * num_cells for _ in range(num_replicates)]),
-            )
-
-        if self.sigma_yx_inv_mode == "separate":
-            self.sigma_yxs[:] = np.sqrt(squared_loss / sizes)
-        elif self.sigma_yx_inv_mode == "average":
-            sigma_yx = np.sqrt(np.dot(self.betas, squared_loss) / np.dot(self.betas, sizes))
-            self.sigma_yxs[:] = np.full(num_replicates, float(sigma_yx))
-        else:
-            raise NotImplementedError
+        estimate_sigma_yx = Sigma_yx_Loss(self.sigma_yx_inv_mode)
+        self.sigma_yxs[:] = estimate_sigma_yx(self.Ys, embedding_states, metagene_states, self.betas)
 
     def nll_sigma_yx(self):
         with torch.no_grad():
             squared_terms = [
                 torch.addmm(
                     Y.to_dense(),
-                    # self.embedding_optimizer.embedding_state[dataset.name],
-                    self.embedding_optimizer.embedding_state[dataset.name]
-                    + self.batch_effect_optimizer.batch_effect_state[dataset.name],
+                    self.embedding_optimizer.embedding_state[dataset.name],
                     self.metagene_state[dataset.name].T,
                     alpha=-1,
                 )
