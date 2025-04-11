@@ -20,7 +20,7 @@ class BatchEffectLoss(nn.Module):
         """
         MTM = M.T @ M
         YM = Y.to(M.device) @ M
-        MT_diff_sum = (YM - X @ MTM).sum(dim=0)
+        MT_diff_sum = YM - X @ MTM
 
         grad = (MTM @ B - MT_diff_sum) / (sigma_yx**2)
         loss = self.compute_loss(B, M, X, Y, sigma_yx)
@@ -42,14 +42,14 @@ class BatchEffectLoss(nn.Module):
 
         """
         MB = M @ B
-        YM = Y.to(M.device) @ M
         MTM = M.T @ M
 
+        print("\n1", MB.shape, MTM.shape)
         term1 = MB.T @ MB
-        term2 = (YM @ B) - (X @ MTM @ B)
-
+        term2 = (Y @ MB) - (X @ MTM @ B)
+        print("\n2", term1.shape, term2.shape, term2.sum(dim=0).shape)
         loss = (term1 + 2 * term2.sum(dim=0)) / (2 * sigma_yx**2)
-
+        print("output", loss)
         return loss.item()
 
     def compute_hessian(self, M, sigma_yx):
