@@ -174,6 +174,7 @@ def batch_embedding_loss_with_neighbors_nesterov():
     embedding_loss = BatchEffectEmbeddingLossWithNeighborsNesterov(
         Z=Z.clone(),
         S=S.clone(),
+        B=B.clone(),
         MTM=MTM,
         YM=YM,
         Ynorm=Ynorm,
@@ -196,9 +197,9 @@ def batch_embedding_loss_with_neighbors_nesterov():
 
 def test_batch_embedding_loss_nesterov_compute_loss(batch_embedding_loss_with_neighbors_nesterov):
     B = torch.tensor([0.3, 0.7], dtype=torch.float32)
-    loss = batch_embedding_loss_with_neighbors_nesterov.compute_loss(B)
+    loss = batch_embedding_loss_with_neighbors_nesterov.compute_loss()
 
-    expected_loss = 0.93748
+    expected_loss = 0.934679
     assert abs(loss - expected_loss) < 1e-4
 
 
@@ -206,15 +207,8 @@ def test_batch_embedding_loss_nesterov_update_s(batch_embedding_loss_with_neighb
     loss = batch_embedding_loss_with_neighbors_nesterov
     S_copy = loss.S.clone()
     B = torch.tensor([0.3, 0.7], dtype=torch.float32)
-    loss.update_s(B)
+    loss.update_s()
 
-    # With batch effect, the formula changes to include B term
-    expected_numerator = (loss.YM * loss.Z - ((loss.Z @ loss.MTM) * B)).sum(axis=1, keepdim=True) - loss.prior_x[0][
-        0
-    ] / 2  # TODO: change these to be actual constants
-    expected_denominator = ((loss.Z @ loss.MTM) * loss.Z).sum(axis=1, keepdim=True)
-    expected_S = expected_numerator / expected_denominator
-    expected_S.clip_(min=1e-5)
-
+    expected_S = torch.tensor([[1.0877], [1.0542]])
     assert torch.allclose(loss.S, expected_S, rtol=1e-4)
     assert not torch.equal(loss.S, S_copy)

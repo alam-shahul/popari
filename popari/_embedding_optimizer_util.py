@@ -293,6 +293,7 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
         self,
         Z,
         S,
+        B,
         MTM,
         YM,
         Ynorm,
@@ -308,7 +309,6 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
         use_inplace_ops,
         embedding_mini_iterations,
         tol,
-        B,
     ):
         super().__init__(
             Z,

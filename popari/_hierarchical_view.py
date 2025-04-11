@@ -233,11 +233,6 @@ class HierarchicalView:
                     self.batch_effect_optimizer.batch_effect_state[dataset.name][:] = torch.from_numpy(
                         dataset.uns["batch_effect"][dataset.name],
                     ).to(**self.initial_context)
-                else:
-                    self.batch_effect_optimizer.batch_effect_state[dataset.name][:] = torch.zeros(
-                        self.K,
-                        **self.initial_context,
-                    )
 
             self.parameter_optimizer.update_sigma_yx()
             self.parameter_optimizer.spatial_affinity_state.initialize_optimizers(spatial_affinity_copy)

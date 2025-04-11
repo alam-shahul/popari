@@ -383,6 +383,7 @@ class EmbeddingOptimizer:
         embedding_updater = BatchEffectEmbeddingLossWithNeighborsNesterov(
             Z,
             S,
+            B,
             MTM,
             YM,
             Ynorm,
@@ -398,7 +399,6 @@ class EmbeddingOptimizer:
             self.use_inplace_ops,
             self.embedding_mini_iterations,
             tol,
-            B,
         )
 
         loss, X = embedding_updater()

@@ -146,6 +146,7 @@ class BatchEffectOptimizer:
                 B_prev = B.clone()
                 B = optimizer.step(grad)
 
+                B.clip_(min=1e-5)
                 # Check convergence
                 dB = (B_prev - B).abs().max().item()
                 dloss = loss_prev - loss
@@ -170,6 +171,7 @@ class BatchEffectOptimizer:
 
                 B = B - base_step_size * grad  # TODO: use Adam optimizer here
 
+                B.clip_(min=1e-5)
                 # Check convergence
                 dB = (B_prev - B).abs().max().item()
                 dloss = loss_prev - loss
