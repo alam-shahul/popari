@@ -289,10 +289,52 @@ class EmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighbors):
 
 
 class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNesterov):
+    def __init__(
+        self,
+        Z,
+        S,
+        MTM,
+        YM,
+        Ynorm,
+        adjacency_matrix,
+        prior_x_mode,
+        prior_x,
+        Sigma_x_inv,
+        E_adjacency_list,
+        device,
+        base_step_size,
+        verbose,
+        embedding_acceleration_trick,
+        use_inplace_ops,
+        embedding_mini_iterations,
+        tol,
+        B,
+    ):
+        super().__init__(
+            Z,
+            S,
+            MTM,
+            YM,
+            Ynorm,
+            adjacency_matrix,
+            prior_x_mode,
+            prior_x,
+            Sigma_x_inv,
+            E_adjacency_list,
+            device,
+            base_step_size,
+            verbose,
+            embedding_acceleration_trick,
+            use_inplace_ops,
+            embedding_mini_iterations,
+            tol,
+        )
 
-    def update_s(self, B):
+        self.B = B
+
+    def update_s(self):
         # S[:] = (YM * Z).sum(axis=1, keepdim=True)
-        self.S[:] = (self.YM * self.Z - ((self.Z @ self.MTM) * B)).sum(axis=1, keepdim=True)
+        self.S[:] = (self.YM * self.Z - ((self.Z @ self.MTM) * self.B)).sum(axis=1, keepdim=True)
 
         if self.prior_x_mode == "exponential shared fixed":
             # TODO: why divide by two?
@@ -306,8 +348,8 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
         self.S.div_(denominator)
         self.S.clip_(min=1e-5)
 
-    def compute_loss(self, B):
-        XB = self.Z * self.S + B
+    def compute_loss(self):
+        XB = self.Z * self.S + self.B
         loss = ((XB @ self.MTM) * XB).sum() / 2 - (XB * self.YM).sum() + self.Ynorm / 2
         if self.prior_x_mode == "exponential shared fixed":
             loss += self.prior_x[0][0] * self.S.sum()

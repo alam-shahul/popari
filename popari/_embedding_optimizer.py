@@ -6,7 +6,11 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
 
-from popari._embedding_optimizer_util import EmbeddingLossNoNeighborsGD, EmbeddingLossWithNeighborsNesterov
+from popari._embedding_optimizer_util import (
+    BatchEffectEmbeddingLossWithNeighborsNesterov,
+    EmbeddingLossNoNeighborsGD,
+    EmbeddingLossWithNeighborsNesterov,
+)
 from popari._popari_dataset import PopariDataset
 from popari.util import (
     IndependentSet,
@@ -93,9 +97,9 @@ class EmbeddingOptimizer:
                     prior_x,
                     dataset,
                 )
-            if self.batch_effect_correction:
+            elif self.batch_effect_correction:
                 B = self.batch_optimizer.batch_effect_state[dataset.name].to(self.context["device"])
-                loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr(
+                loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr_batch(
                     Y,
                     M,
                     B,
@@ -394,6 +398,7 @@ class EmbeddingOptimizer:
             self.use_inplace_ops,
             self.embedding_mini_iterations,
             tol,
+            B,
         )
 
         loss, X = embedding_updater()
