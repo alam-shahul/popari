@@ -215,7 +215,7 @@ class Popari:
         }
 
         # Should modify these hyperparameters
-        self.batch_effect_optimizer_hyperparameters = {
+        self.batch_optimizer_hyperparameters = {
             "batch_step_size_multiplier": batch_step_size_multiplier,
             "batch_mini_iterations": batch_mini_iterations,
             "batch_tol": batch_tol,
@@ -286,7 +286,7 @@ class Popari:
             "superresolution_lr": self.superresolution_lr,
             "parameter_optimizer_hyperparameters": self.parameter_optimizer_hyperparameters,
             "embedding_optimizer_hyperparameters": self.embedding_optimizer_hyperparameters,
-            "batch_effect_optimizer_hyperparameters": self.batch_effect_optimizer_hyperparameters,
+            "batch_optimizer_hyperparameters": self.batch_optimizer_hyperparameters,
             "batch_effect_correction": self.batch_effect_correction,
         }
 
@@ -324,7 +324,7 @@ class Popari:
         self.betas = self.active_view.betas
         self.parameter_optimizer = self.active_view.parameter_optimizer
         self.embedding_optimizer = self.active_view.embedding_optimizer
-        self.batch_effect_optimizer = self.active_view.batch_effect_optimizer
+        self.batch_optimizer = self.active_view.batch_optimizer
         self.metagene_groups = self.active_view.metagene_groups
         self.metagene_tags = self.active_view.metagene_tags
         self.spatial_affinity_groups = self.active_view.spatial_affinity_groups
@@ -351,7 +351,7 @@ class Popari:
         """Update batch effect (latent states) for each replicate."""
         if self.verbose:
             print(f"{get_datetime()} Updating batch effect")
-        self.batch_effect_optimizer.update_batch_effects()
+        self.batch_optimizer.update_batch_effects()
 
         if synchronize:
             self.synchronize_datasets()

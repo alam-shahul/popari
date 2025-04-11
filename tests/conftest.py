@@ -58,6 +58,43 @@ def shared_model(mock_datasets, context):
     return obj
 
 
+@pytest.fixture(scope="module")
+def shared_model_batch_effect_correction(mock_datasets, context):
+    obj = Popari(
+        K=10,
+        lambda_Sigma_x_inv=1e-3,
+        metagene_mode="shared",
+        torch_context=context,
+        initial_context=context,
+        initialization_method="svd",
+        datasets=mock_datasets,
+        replicate_names=["mock_1", "mock_2"],
+        batch_effect_correction=True,
+        verbose=1,
+    )
+
+    return obj
+
+
+@pytest.fixture(scope="module")
+def shared_model_batch_effect_correction_with_prior(mock_datasets, context):
+    obj = Popari(
+        K=10,
+        lambda_Sigma_x_inv=1e-3,
+        metagene_mode="shared",
+        torch_context=context,
+        initial_context=context,
+        initialization_method="svd",
+        datasets=mock_datasets,
+        replicate_names=["mock_1", "mock_2"],
+        prior_x_modes=["exponential shared fixed", "exponential shared fixed"],
+        batch_effect_correction=True,
+        verbose=1,
+    )
+
+    return obj
+
+
 def get_mock_dataset(
     gene_expression,
     cell_types,

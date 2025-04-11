@@ -43,7 +43,7 @@ class HierarchicalView:
         spatial_affinity_groups: dict,
         parameter_optimizer_hyperparameters: dict,
         embedding_optimizer_hyperparameters: dict,
-        batch_effect_optimizer_hyperparameters: dict,
+        batch_optimizer_hyperparameters: dict,
         batch_effect_correction: bool,
         binned_Ys: list = None,
         superresolution_lr: float = 1e-3,
@@ -150,6 +150,7 @@ class HierarchicalView:
 
         if self.verbose:
             print(f"{get_datetime()} Initializing ParameterOptimizer")
+
         self.parameter_optimizer = ParameterOptimizer(
             self.K,
             self.Ys,
@@ -181,21 +182,23 @@ class HierarchicalView:
 
         if self.verbose:
             print(f"{get_datetime()} Initializing BatchEffectOptimizer")
-        self.batch_effect_optimizer = BatchEffectOptimizer(
-            self.K,
-            self.Ys,
-            self.datasets,
-            initial_context=self.initial_context,
-            context=self.context,
-            use_inplace_ops=self.use_inplace_ops,
-            verbose=self.verbose,
-            batch_effect_correction=self.batch_effect_correction,
-            **batch_effect_optimizer_hyperparameters,
-        )
-        self.batch_effect_correction = batch_effect_correction
-        self.parameter_optimizer.link(self.embedding_optimizer, self.batch_effect_optimizer)
-        self.embedding_optimizer.link(self.parameter_optimizer, self.batch_effect_optimizer)
-        self.batch_effect_optimizer.link(self.embedding_optimizer, self.parameter_optimizer)
+
+        self.batch_optimizer = None
+        if self.batch_effect_correction:
+            self.batch_optimizer = BatchEffectOptimizer(
+                self.K,
+                self.Ys,
+                self.datasets,
+                initial_context=self.initial_context,
+                context=self.context,
+                use_inplace_ops=self.use_inplace_ops,
+                verbose=self.verbose,
+                batch_effect_correction=self.batch_effect_correction,
+                **batch_optimizer_hyperparameters,
+            )
+
+        self.parameter_optimizer.link(self.embedding_optimizer, self.batch_optimizer)
+        self.embedding_optimizer.link(self.parameter_optimizer, self.batch_optimizer)
 
         adjacency_matrices = {}
         for dataset_index, dataset in enumerate(self.datasets):
@@ -207,7 +210,10 @@ class HierarchicalView:
 
         self.embedding_optimizer.adjacency_matrices = adjacency_matrices
         self.parameter_optimizer.adjacency_matrices = adjacency_matrices
-        self.batch_effect_optimizer.adjacency_matrices = adjacency_matrices
+
+        if self.batch_effect_correction:
+            self.batch_optimizer.link(self.embedding_optimizer, self.parameter_optimizer)
+            self.batch_optimizer.adjacency_matrices = adjacency_matrices
 
         if self.pretrained:
             first_dataset = self.datasets[0]
@@ -229,8 +235,8 @@ class HierarchicalView:
                 ).to(**self.initial_context)
                 spatial_affinity_copy[dataset_index] = self.parameter_optimizer.spatial_affinity_state[dataset.name]
 
-                if "batch_effect" in dataset.uns and dataset.name in dataset.uns["batch_effect"]:
-                    self.batch_effect_optimizer.batch_effect_state[dataset.name][:] = torch.from_numpy(
+                if self.batch_effect_correction:
+                    self.batch_optimizer.batch_effect_state[dataset.name][:] = torch.from_numpy(
                         dataset.uns["batch_effect"][dataset.name],
                     ).to(**self.initial_context)
 
@@ -286,8 +292,8 @@ class HierarchicalView:
                         (self.Ys[dataset_index].to_dense() - self.Xs[dataset_index] @ self.M.T),
                         dim=0,
                     )
-                    self.batch_effect_optimizer.batch_effect_state[dataset.name][:] = MTM_inv_MT @ mean_diff
-                    # self.batch_effect_optimizer.batch_effect_state[dataset.name][:] = torch.zeros(K)
+                    self.batch_optimizer.batch_effect_state[dataset.name][:] = MTM_inv_MT @ mean_diff
+                    # self.batch_optimizer.batch_effect_state[dataset.name][:] = torch.zeros(K)
 
             self.parameter_optimizer.scale_metagenes()
 
@@ -319,6 +325,10 @@ class HierarchicalView:
 
                 Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
                 dataset.uns["Sigma_x_inv"] = {dataset.name: Sigma_x_inv}
+
+                if self.batch_effect_correction:
+                    batch_effect = self.batch_optimizer.batch_effect_state[dataset.name].cpu().detach().numpy()
+                    dataset.uns["batch_effect"] = {dataset.name: batch_effect}
 
                 dataset.uns["popari_hyperparameters"] = {
                     "prior_x": self.parameter_optimizer.prior_xs[dataset_index][0].cpu().detach().numpy(),
@@ -575,6 +585,9 @@ class HierarchicalView:
             with torch.no_grad():
                 dataset.uns["Sigma_x_inv"][dataset.name][:] = (
                     self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
+                )
+                dataset.uns["batch_effect"][dataset.name][:] = (
+                    self.batch_optimizer.batch_effect_state[dataset.name].cpu().detach().numpy()
                 )
 
             # dataset.uns["losses"]["nll_embeddings"].append(self.embedding_optimizer.nll_embeddings())

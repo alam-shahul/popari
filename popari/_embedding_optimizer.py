@@ -72,7 +72,8 @@ class EmbeddingOptimizer:
 
     def link(self, parameter_optimizer, batch_optimizer=None):
         self.parameter_optimizer = parameter_optimizer
-        self.batch_optimizer = batch_optimizer
+        if batch_optimizer is not None:
+            self.batch_optimizer = batch_optimizer
 
     def update_embeddings(self, use_neighbors=True):
         """Update Popari embeddings according to optimization scheme."""

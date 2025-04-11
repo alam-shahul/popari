@@ -135,7 +135,8 @@ class ParameterOptimizer:
         """Link to embedding_optimizer and batch_optimizer."""
 
         self.embedding_optimizer = embedding_optimizer
-        self.batch_effect_optimizer = batch_optimizer
+        if batch_optimizer is not None:
+            self.batch_optimizer = batch_optimizer
 
     def scale_metagenes(self):
         norm_axis = 1
@@ -715,7 +716,7 @@ class ParameterOptimizer:
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
 
         if self.batch_effect_correction:
-            batch_effects = [self.batch_effect_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
+            batch_effects = [self.batch_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
             for dataset, X, Y, scaled_beta, B in zip(datasets, Xs, Ys, scaled_betas, batch_effects):
                 # X_c^TX_c
                 X_B = X + B
@@ -947,7 +948,7 @@ class ParameterOptimizer:
         metagene_states = [self.metagene_state[dataset.name].T for dataset in self.datasets]
 
         if self.batch_effect_correction:
-            batch_effects = [self.batch_effect_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
+            batch_effects = [self.batch_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
             estimate_batch_sigma_yx = BatchSigmayxLoss(self.sigma_yx_inv_mode)
             self.sigma_yxs[:] = estimate_batch_sigma_yx(
                 self.Ys,
