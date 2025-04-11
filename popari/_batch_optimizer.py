@@ -55,8 +55,6 @@ class BatchEffectOptimizer:
             print(f"{get_datetime()} Initializing BatchEffectState")
         self.batch_effect_state = BatchEffectState(K, self.datasets, context=self.context)
 
-        self.batch_effect_loss = BatchEffectLoss()
-
     @property
     def adjacency_matrices(self):
         return self._adjacency_matrices
@@ -107,6 +105,9 @@ class BatchEffectOptimizer:
     def nll_batch_effect(self, Y, M, X, B, sigma_yx):
         """Compute negative log likelihood for a single dataset's batch
         effect."""
+
+        batch_effect_loss = BatchEffectLoss()
+
         # loss = compute_loss_batch(B, M, X, Y, sigma_yx)
         loss = self.batch_effect_loss.compute_loss(B, M, X, Y, sigma_yx)
         return loss
@@ -116,8 +117,10 @@ class BatchEffectOptimizer:
         """Estimate batch effect for a single dataset using Nesterov's
         Accelerated Gradient."""
 
+        batch_effect_loss = BatchEffectLoss(Y, M, X, sigma_yx)
+
         # hessian = compute_hessian_batch(M, sigma_yx)
-        hessian = self.batch_effect_loss.compute_hessian(M, sigma_yx)
+        hessian = batch_effect_loss.compute_hessian()
         max_eigenvalue = torch.linalg.eigvalsh(hessian).max().item()
         base_step_size = self.batch_step_size_multiplier / max_eigenvalue
 
@@ -138,10 +141,9 @@ class BatchEffectOptimizer:
 
             for epoch in pbar:
                 # loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
-                loss, grad = self.batch_effect_loss(B, M, X, Y, sigma_yx)
+                loss, grad = batch_effect_loss(B)
 
                 B_prev = B.clone()
-
                 B = optimizer.step(grad)
 
                 # Check convergence
@@ -162,11 +164,11 @@ class BatchEffectOptimizer:
         elif update_alg == "gd":
             for epoch in pbar:
                 # loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
-                loss, grad = self.batch_effect_loss(B, M, X, Y, sigma_yx)
+                loss, grad = batch_effect_loss(B, M, X, Y, sigma_yx)
 
                 B_prev = B.clone()
 
-                B = B - base_step_size * grad
+                B = B - base_step_size * grad  # TODO: use Adam optimizer here
 
                 # Check convergence
                 dB = (B_prev - B).abs().max().item()
