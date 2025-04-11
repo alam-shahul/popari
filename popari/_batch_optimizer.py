@@ -55,10 +55,6 @@ class BatchEffectOptimizer:
             print(f"{get_datetime()} Initializing BatchEffectState")
         self.batch_effect_state = BatchEffectState(K, self.datasets, context=self.context)
 
-        self.compute_loss_batch = ComputeLossBatch()
-        self.compute_grad_batch = CalcFuncGradBatch()
-        self.compute_hessian_batch = ComputeHessianBatch()
-
         self.batch_effect_loss = BatchEffectLoss()
 
     @property

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from popari._parameter_optimizer_util import ComputeLossNllM, EstimateMNAG, Sigma_yx_Loss
+from popari._parameter_optimizer_util import ComputeLossNllM, EstimateMNAG, SigmayxLoss
 
 
 def test_compute_loss_nll_M_closure():
@@ -132,10 +132,10 @@ def test_estimate_sigma_yx():
     betas = [1.0]
     expected_sigma_yx = 1.030776
 
-    sigma_yx_separate = Sigma_yx_Loss(sigma_yx_inv_mode="separate")
+    sigma_yx_separate = SigmayxLoss(sigma_yx_inv_mode="separate")
     estimate_sigma_yx_separate = sigma_yx_separate(Ys, embedding_states, metagene_states, betas)
     assert abs(estimate_sigma_yx_separate.item() - expected_sigma_yx) < 1e-4
 
-    sigma_yx_average = Sigma_yx_Loss(sigma_yx_inv_mode="average")
+    sigma_yx_average = SigmayxLoss(sigma_yx_inv_mode="average")
     estimate_sigma_yx_average = sigma_yx_average(Ys, embedding_states, metagene_states, betas)
     assert abs(estimate_sigma_yx_average.item() - expected_sigma_yx) < 1e-4

@@ -923,7 +923,7 @@ class ParameterOptimizer:
         embedding_states = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
         metagene_states = [self.metagene_state[dataset.name].T for dataset in self.datasets]
 
-        estimate_sigma_yx = Sigma_yx_Loss(self.sigma_yx_inv_mode)
+        estimate_sigma_yx = SigmayxLoss(self.sigma_yx_inv_mode)
         self.sigma_yxs[:] = estimate_sigma_yx(self.Ys, embedding_states, metagene_states, self.betas)
 
     def nll_sigma_yx(self):

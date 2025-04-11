@@ -257,7 +257,7 @@ class SigmayxLoss(nn.Module):
         return sigma_yxs
 
 
-class BatchSigmayxLoss(Sigma_yx_Loss):
+class BatchSigmayxLoss(SigmayxLoss):
     def forward(self, Ys, embedding_states, batch_effect_states, metagene_states, betas):
         squared_terms = [
             torch.addmm(
