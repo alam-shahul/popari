@@ -712,17 +712,23 @@ class ParameterOptimizer:
             print(f"M constant: {constant: .1e}")
             # print(f"M constant magnitude: {constant_magnitude:.1e}")
 
-        batch_effects = [self.batch_effect_optimizer.batch_effect_state[dataset.name] for dataset in datasets]
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
-        for dataset, X, Y, scaled_beta, B in zip(datasets, Xs, Ys, scaled_betas, batch_effects):
-            # X_c^TX_c
-            # quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
-            X_B = X + B
-            quadratic_factor.addmm_(X_B.T, X_B, alpha=scaled_beta)
 
-            # MX_c^TY_c
-            # linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
-            linear_factor.addmm_(Y.T, X_B, alpha=scaled_beta)
+        if self.batch_effect_correction:
+            batch_effects = [self.batch_effect_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
+            for dataset, X, Y, scaled_beta, B in zip(datasets, Xs, Ys, scaled_betas, batch_effects):
+                # X_c^TX_c
+                X_B = X + B
+                quadratic_factor.addmm_(X_B.T, X_B, alpha=scaled_beta)
+
+                # MX_c^TY_c
+                linear_factor.addmm_(Y.T, X_B, alpha=scaled_beta)
+        else:
+            for dataset, X, Y, scaled_beta in zip(datasets, Xs, Ys, scaled_betas):
+                # X_c^TX_c
+                quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
+                # MX_c^TY_c
+                linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
 
         # if self.lambda_M > 0 and M_bar is not None:
         #     quadratic_factor.diagonal().add_(self.lambda_M)
@@ -791,6 +797,23 @@ class ParameterOptimizer:
             constant=constant,
         )
 
+        estimate_M_batch = BatchEffectMNAG(
+            M_bar=M_bar,
+            lambda_M=self.lambda_M,
+            M_constraint=self.M_constraint,
+            use_inplace_ops=self.use_inplace_ops,
+            verbose=self.verbose,
+            metagene_mode=self.metagene_mode,
+            n_epochs=n_epochs,
+            tol=tol,
+            simplex_projection_mode=simplex_projection_mode,
+            quadratic_factor=quadratic_factor,
+            differential_regularization_quadratic_factor=differential_regularization_quadratic_factor,
+            linear_factor=linear_factor,
+            differential_regularization_linear_factor=differential_regularization_linear_factor,
+            constant=constant,
+        )
+
         if backend_algorithm == "mu":
             for epoch in progress_bar:
                 loss = (((M @ quadratic_factor) * M).sum() - 2 * (M * linear_term).sum() + constant) / 2
@@ -831,7 +854,7 @@ class ParameterOptimizer:
                 self.lambda_M,
                 self.M_constraint,
             )
-            loss, grad = compute_loss_and_gradient_M.forward(
+            loss, grad = compute_loss_and_gradient_M(
                 M,
                 quadratic_factor,
                 differential_regularization_quadratic_factor,
@@ -839,7 +862,6 @@ class ParameterOptimizer:
                 linear_factor,
                 differential_regularization_linear_factor,
                 constant,
-                batch_effects,
             )
             # loss, grad = compute_loss_and_gradient(
             #     M,
@@ -853,7 +875,6 @@ class ParameterOptimizer:
             #     M_bar,
             #     self.lambda_M,
             #     self.M_constraint,
-            #     batch_effects,
             # )
             dM = dloss = np.inf
             for epoch in progress_bar:
@@ -877,9 +898,8 @@ class ParameterOptimizer:
                 #     M_bar,
                 #     self.lambda_M,
                 #     self.M_constraint,
-                #     batch_effects,
                 # )
-                loss_new, grad_new = compute_loss_and_gradient_M.forward(
+                loss_new, grad_new = compute_loss_and_gradient_Mg(
                     M,
                     quadratic_factor,
                     differential_regularization_quadratic_factor,
@@ -887,7 +907,6 @@ class ParameterOptimizer:
                     linear_factor,
                     differential_regularization_linear_factor,
                     constant,
-                    batch_effects,
                 )
                 if loss_new < loss or step_size_scale == 1:
                     dM = (M_new - M).abs().max().item()
@@ -912,7 +931,11 @@ class ParameterOptimizer:
                     break
 
         elif backend_algorithm == "gd Nesterov":
-            M = estimate_M(M)
+            if self.batch_effect_correction:
+                M = estimate_M_batch(M, batch_effects)
+            else:
+                M = estimate_M(M)
+
         else:
             raise NotImplementedError
 
@@ -923,8 +946,13 @@ class ParameterOptimizer:
         embedding_states = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
         metagene_states = [self.metagene_state[dataset.name].T for dataset in self.datasets]
 
-        estimate_sigma_yx = SigmayxLoss(self.sigma_yx_inv_mode)
-        self.sigma_yxs[:] = estimate_sigma_yx(self.Ys, embedding_states, metagene_states, self.betas)
+        if self.batch_effect_correction:
+            batch_effects = [self.batch_effect_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
+            estimate_batch_sigma_yx = BatchSigmayxLoss(self.sigma_yx_inv_mode)
+            self.sigma_yxs[:] = estimate_sigma_yx(self.Ys, embedding_states, metagene_states, self.betas, batch_effects)
+        else:
+            estimate_sigma_yx = SigmayxLoss(self.sigma_yx_inv_mode)
+            self.sigma_yxs[:] = estimate_sigma_yx(self.Ys, embedding_states, metagene_states, self.betas)
 
     def nll_sigma_yx(self):
         with torch.no_grad():
