@@ -19,7 +19,7 @@ class BatchEffectLoss(nn.Module):
             batch effect optimization loss and gradient
         """
         MTM = M.T @ M
-        YM = Y.to(M.device) @ M
+        YM = Y @ M
         MT_diff_sum = (YM - X @ MTM).sum(dim=0)
         grad = (MTM @ B - MT_diff_sum) / (sigma_yx**2)
         loss = self.compute_loss(B, M, X, Y, sigma_yx)
@@ -40,10 +40,10 @@ class BatchEffectLoss(nn.Module):
             batch effect optimization loss
 
         """
-        MB = M @ B
         MTM = M.T @ M
-        term1 = MB.T @ MB
-        term2 = (Y @ MB) - (X @ MTM @ B)
+        YM = Y @ M
+        term1 = B @ MTM @ B
+        term2 = (YM @ B) - (X @ MTM @ B)
         loss = (term1 + 2 * term2.sum(dim=0)) / (2 * sigma_yx**2)
         return loss.item()
 
