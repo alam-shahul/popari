@@ -38,6 +38,8 @@ def popari_with_neighbors(dataset_path, context, shared_model_batch_effect_corre
 
     trainer.save_results()
 
+    shared_model_batch_effect_correction.synchronize_datasets()
+
     return obj
 
 

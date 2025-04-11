@@ -586,9 +586,10 @@ class HierarchicalView:
                 dataset.uns["Sigma_x_inv"][dataset.name][:] = (
                     self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
                 )
-                dataset.uns["batch_effect"][dataset.name][:] = (
-                    self.batch_optimizer.batch_effect_state[dataset.name].cpu().detach().numpy()
-                )
+                if self.batch_effect_correction:
+                    dataset.uns["batch_effect"][dataset.name][:] = (
+                        self.batch_optimizer.batch_effect_state[dataset.name].cpu().detach().numpy()
+                    )
 
             # dataset.uns["losses"]["nll_embeddings"].append(self.embedding_optimizer.nll_embeddings())
             # dataset.uns["losses"]["nll_spatial_affinities"].append(self.parameter_optimizer.nll_spatial_affinities())
