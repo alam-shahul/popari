@@ -96,6 +96,26 @@ def metagene_loss_nag():
     return metagene_loss
 
 
+def test_get_loss_and_gradient(metagene_loss_nag):
+    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
+    loss, grad = metagene_loss_nag.get_loss_and_gradient(M)
+
+    expected_loss = -0.165
+    expected_grad = torch.tensor([[-0.29, 0.39], [0.38, -0.18]], dtype=torch.float32)
+
+    assert abs(loss - expected_loss) < 1e-4
+    assert torch.allclose(grad, expected_grad, rtol=1e-4)
+
+
+def test_estimate_M_nag_closure(metagene_loss_nag):
+    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
+    M_new = metagene_loss_nag(M)
+    assert M_new.shape == M.shape
+    assert torch.all(M_new >= 0)
+    assert torch.allclose(M_new, torch.tensor([[0.7137, 0.3248], [0.2863, 0.6752]]), rtol=1e-3)
+    assert torch.allclose(M_new.sum(dim=0), torch.tensor([1.0, 1.0]), rtol=1e-4)
+
+
 @pytest.fixture(scope="function")
 def batch_metagene_loss_nag():
     verbose = 0
@@ -131,26 +151,6 @@ def batch_metagene_loss_nag():
     )
 
     return metagene_loss
-
-
-def test_get_loss_and_gradient(metagene_loss_nag):
-    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
-    loss, grad = metagene_loss_nag.get_loss_and_gradient(M)
-
-    expected_loss = -0.165
-    expected_grad = torch.tensor([[-0.29, 0.39], [0.38, -0.18]], dtype=torch.float32)
-
-    assert abs(loss - expected_loss) < 1e-4
-    assert torch.allclose(grad, expected_grad, rtol=1e-4)
-
-
-def test_estimate_M_nag_closure(metagene_loss_nag):
-    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
-    M_new = metagene_loss_nag(M)
-    assert M_new.shape == M.shape
-    assert torch.all(M_new >= 0)
-    assert torch.allclose(M_new, torch.tensor([[0.7137, 0.3248], [0.2863, 0.6752]]), rtol=1e-3)
-    assert torch.allclose(M_new.sum(dim=0), torch.tensor([1.0, 1.0]), rtol=1e-4)
 
 
 def test_get_loss_and_gradient_with_batch_effect(batch_metagene_loss_nag):
