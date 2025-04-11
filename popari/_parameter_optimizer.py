@@ -949,7 +949,13 @@ class ParameterOptimizer:
         if self.batch_effect_correction:
             batch_effects = [self.batch_effect_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
             estimate_batch_sigma_yx = BatchSigmayxLoss(self.sigma_yx_inv_mode)
-            self.sigma_yxs[:] = estimate_sigma_yx(self.Ys, embedding_states, metagene_states, self.betas, batch_effects)
+            self.sigma_yxs[:] = estimate_batch_sigma_yx(
+                self.Ys,
+                embedding_states,
+                batch_effects,
+                metagene_states,
+                self.betas,
+            )
         else:
             estimate_sigma_yx = SigmayxLoss(self.sigma_yx_inv_mode)
             self.sigma_yxs[:] = estimate_sigma_yx(self.Ys, embedding_states, metagene_states, self.betas)

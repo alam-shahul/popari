@@ -109,7 +109,7 @@ class BatchEffectOptimizer:
         batch_effect_loss = BatchEffectLoss()
 
         # loss = compute_loss_batch(B, M, X, Y, sigma_yx)
-        loss = self.batch_effect_loss.compute_loss(B, M, X, Y, sigma_yx)
+        loss = batch_effect_loss.compute_loss(B, M, X, Y, sigma_yx)
         return loss
 
     @torch.no_grad()
@@ -187,7 +187,7 @@ class BatchEffectOptimizer:
 
         # Compute final loss
         # final_loss = compute_loss_batch(B, M, X, Y, sigma_yx)
-        final_loss = self.batch_effect_loss.compute_loss(B, M, X, Y, sigma_yx)
+        final_loss = batch_effect_loss.compute_loss(B)
         return final_loss, B
 
 
