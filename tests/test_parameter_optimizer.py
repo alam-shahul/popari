@@ -6,7 +6,13 @@ import numpy as np
 import pytest
 import torch
 
-from popari._parameter_optimizer_util import BatchEffectMNAG, ComputeLossNllM, EstimateMNAG, SigmayxLoss
+from popari._parameter_optimizer_util import (
+    BatchEffectMNAG,
+    BatchSigmayxLoss,
+    ComputeLossNllM,
+    EstimateMNAG,
+    SigmayxLoss,
+)
 
 
 def test_compute_loss_nll_M_closure():
@@ -90,29 +96,6 @@ def metagene_loss_nag():
     return metagene_loss
 
 
-def test_get_loss_and_gradient(metagene_loss_nag):
-    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
-    # batch_effects = [torch.tensor([0.0, 0.0], dtype=torch.float32), torch.tensor([0.0, 0.0], dtype=torch.float32)]
-
-    loss, grad = metagene_loss_nag.get_loss_and_gradient(M)
-
-    expected_loss = -0.165
-    expected_grad = torch.tensor([[-0.29, 0.39], [0.38, -0.18]], dtype=torch.float32)
-
-    assert abs(loss - expected_loss) < 1e-4
-    assert torch.allclose(grad, expected_grad, rtol=1e-4)
-
-
-def test_estimate_M_nag_closure(metagene_loss_nag):
-    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
-    # batch_effects = [torch.tensor([0.0, 0.0], dtype=torch.float32), torch.tensor([0.0, 0.0], dtype=torch.float32)]
-    M_new = metagene_loss_nag(M)
-
-    assert M_new.shape == M.shape
-    assert torch.all(M_new >= 0)
-    assert torch.allclose(M_new.sum(dim=0), torch.tensor([1.0, 1.0]), rtol=1e-4)
-
-
 @pytest.fixture(scope="function")
 def batch_metagene_loss_nag():
     verbose = 0
@@ -150,6 +133,26 @@ def batch_metagene_loss_nag():
     return metagene_loss
 
 
+def test_get_loss_and_gradient(metagene_loss_nag):
+    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
+    loss, grad = metagene_loss_nag.get_loss_and_gradient(M)
+
+    expected_loss = -0.165
+    expected_grad = torch.tensor([[-0.29, 0.39], [0.38, -0.18]], dtype=torch.float32)
+
+    assert abs(loss - expected_loss) < 1e-4
+    assert torch.allclose(grad, expected_grad, rtol=1e-4)
+
+
+def test_estimate_M_nag_closure(metagene_loss_nag):
+    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
+    M_new = metagene_loss_nag(M)
+    assert M_new.shape == M.shape
+    assert torch.all(M_new >= 0)
+    assert torch.allclose(M_new, torch.tensor([[0.7137, 0.3248], [0.2863, 0.6752]]), rtol=1e-3)
+    assert torch.allclose(M_new.sum(dim=0), torch.tensor([1.0, 1.0]), rtol=1e-4)
+
+
 def test_get_loss_and_gradient_with_batch_effect(batch_metagene_loss_nag):
     M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
     batch_effects = [torch.tensor([0.3, 0.7], dtype=torch.float32), torch.tensor([0.2, 0.8], dtype=torch.float32)]
@@ -162,17 +165,74 @@ def test_get_loss_and_gradient_with_batch_effect(batch_metagene_loss_nag):
     assert torch.allclose(grad, expected_grad, rtol=1e-4)
 
 
-def test_estimate_sigma_yx():
-    Ys = [torch.tensor([[1.0, 2.0], [3.0, 4.0]])]
-    embedding_states = [torch.tensor([[0.5, 1.5], [2.5, 3.5]])]
-    metagene_states = [torch.tensor([[0.5, 1.0], [1.0, 0.5]])]
-    betas = [1.0]
-    expected_sigma_yx = 1.030776
+def test_batch_estimate_M_nag_closure(batch_metagene_loss_nag):
+    M = torch.tensor([[0.3, 0.7], [0.6, 0.4]], dtype=torch.float32)
+    batch_effects = [torch.tensor([0.3, 0.7], dtype=torch.float32), torch.tensor([0.2, 0.8], dtype=torch.float32)]
 
+    M_new = batch_metagene_loss_nag(M, batch_effects)
+    assert M_new.shape == M.shape
+    assert torch.all(M_new >= 0)
+    assert torch.allclose(M_new, torch.tensor([[9.9999e-01, 1.0000e-05], [1.0000e-05, 9.9999e-01]]), rtol=1e-4)
+    assert torch.allclose(M_new.sum(dim=0), torch.tensor([1.0, 1.0]), rtol=1e-4)
+
+
+def test_estimate_sigma_yx():
+    Ys = [
+        torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+        torch.tensor([[5.0, 6.0], [7.0, 8.0]]),
+    ]
+
+    embedding_states = [
+        torch.tensor([[0.5, 1.5], [2.5, 3.5]]),
+        torch.tensor([[4.5, 5.5], [6.5, 7.5]]),
+    ]
+
+    metagene_states = [
+        torch.tensor([[0.5, 1.0], [1.0, 0.5]]),
+        torch.tensor([[1.5, 2.0], [2.0, 1.5]]),
+    ]
+
+    betas = [1.0, 1.0]
+
+    expected_sigma_yx_separate = torch.tensor([1.03077638, 14.73304081])
     sigma_yx_separate = SigmayxLoss(sigma_yx_inv_mode="separate")
     estimate_sigma_yx_separate = sigma_yx_separate(Ys, embedding_states, metagene_states, betas)
-    assert abs(estimate_sigma_yx_separate.item() - expected_sigma_yx) < 1e-4
+    assert torch.allclose(torch.from_numpy(estimate_sigma_yx_separate).float(), expected_sigma_yx_separate, rtol=1e-4)
 
+    expected_sigma_yx_average = torch.tensor([10.44329908, 10.44329908])
     sigma_yx_average = SigmayxLoss(sigma_yx_inv_mode="average")
     estimate_sigma_yx_average = sigma_yx_average(Ys, embedding_states, metagene_states, betas)
-    assert abs(estimate_sigma_yx_average.item() - expected_sigma_yx) < 1e-4
+    assert torch.allclose(torch.from_numpy(estimate_sigma_yx_average).float(), expected_sigma_yx_average, rtol=1e-4)
+
+
+def test_estimate_batch_sigma_yx():
+    Ys = [
+        torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+        torch.tensor([[5.0, 6.0], [7.0, 8.0]]),
+    ]
+
+    embedding_states = [
+        torch.tensor([[0.5, 1.5], [2.5, 3.5]]),
+        torch.tensor([[4.5, 5.5], [6.5, 7.5]]),
+    ]
+
+    metagene_states = [
+        torch.tensor([[0.5, 1.0], [1.0, 0.5]]),
+        torch.tensor([[1.5, 2.0], [2.0, 1.5]]),
+    ]
+
+    batch_effect_states = [
+        torch.tensor([[0.1, 0.2], [0.3, 0.4]]),
+        torch.tensor([[0.5, 0.6], [0.7, 0.8]]),
+    ]
+
+    betas = [1.0, 1.0]
+    expected_sigma_yx_separate = torch.tensor([0.94571408, 12.04416396])
+    sigma_yx_separate = BatchSigmayxLoss(sigma_yx_inv_mode="separate")
+    estimate_sigma_yx_separate = sigma_yx_separate(Ys, embedding_states, batch_effect_states, metagene_states, betas)
+    assert torch.allclose(torch.from_numpy(estimate_sigma_yx_separate).float(), expected_sigma_yx_separate, rtol=1e-4)
+
+    expected_sigma_yx_average = torch.tensor([8.54272382, 8.54272382])
+    sigma_yx_average = BatchSigmayxLoss(sigma_yx_inv_mode="average")
+    estimate_sigma_yx_average = sigma_yx_average(Ys, embedding_states, batch_effect_states, metagene_states, betas)
+    assert torch.allclose(torch.from_numpy(estimate_sigma_yx_average).float(), expected_sigma_yx_average, rtol=1e-4)
