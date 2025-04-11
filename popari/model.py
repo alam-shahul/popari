@@ -235,6 +235,9 @@ class Popari:
         self.datasets = [
             PopariDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)
         ]
+        for dataset in self.datasets:
+            dataset.compute_spatial_neighbors()
+
         self.num_replicates = len(self.datasets)
 
     def load_dataset(self, dataset_path: Union[str, Path]):

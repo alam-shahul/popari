@@ -920,17 +920,6 @@ class ParameterOptimizer:
 
     def update_sigma_yx(self):
         """Update sigma_yx for each replicate."""
-
-        # print((self.Ys[0]).is_sparse)
-        # print((self.embedding_optimizer.embedding_state[self.datasets[0].name]).is_sparse)
-        # print((self.metagene_state[self.datasets[0].name].T).is_sparse)
-        # squared_loss = np.zeros(len(self.datasets))
-        # for index, (Y, dataset) in enumerate(zip(self.Ys, self.datasets)):
-        #     result = torch.square(-(self.embedding_optimizer.embedding_state[dataset.name] @ self.metagene_state[dataset.name].T) + Y).sum()
-        #     print(result)
-        #     2/0
-        #     squared_loss[index] = result
-
         squared_terms = [
             torch.addmm(
                 Y,

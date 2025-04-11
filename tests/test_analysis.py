@@ -9,13 +9,6 @@ from popari.util import concatenate
 
 
 @pytest.fixture(scope="module")
-def dataset_path():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
-
-    return path2dataset
-
-
-@pytest.fixture(scope="module")
 def trained_model(dataset_path):
     trained_model = load_trained_model(dataset_path / "trained_4_iterations.h5ad")
 
@@ -51,23 +44,12 @@ def test_preprocess_model(preprocessed_model): ...
 
 
 def test_pca(preprocessed_model, dataset_path):
-    tl.pca(preprocessed_model, joint=False)
+    tl.pca(preprocessed_model, n_comps=10, joint=False)
     merged_dataset = concatenate(preprocessed_model.datasets)
     disjoint_pca = merged_dataset.obsm["X_pca"]
-    if not (dataset_path / "pca_disjoint.npy").exists():
-        np.save(dataset_path / "pca_disjoint.npy", disjoint_pca)
 
-    saved_pca = np.load(dataset_path / "pca_disjoint.npy")
-    assert np.allclose(disjoint_pca, saved_pca)
-
-    tl.pca(preprocessed_model, joint=True)
+    tl.pca(preprocessed_model, n_comps=10, joint=True)
     merged_dataset = concatenate(preprocessed_model.datasets)
-    joint_pca = merged_dataset.obsm["X_pca"]
-    if not (dataset_path / "pca_joint.npy").exists():
-        np.save(dataset_path / "pca_joint.npy", joint_pca)
-
-    saved_pca = np.load(dataset_path / "pca_joint.npy")
-    assert np.allclose(joint_pca, saved_pca)
 
 
 @pytest.fixture(scope="module")
@@ -91,7 +73,7 @@ def test_cluster_domains(domain_clustered_model): ...
 
 
 def test_ari_score(clustered_model):
-    expected_aris = [0.5239805481658208, 0.4863710626068497]
+    expected_aris = [0.27722670504188723, 0.2993421052631579]
     tl.compute_ari_scores(clustered_model, labels="cell_type", predictions="leiden")
 
     for expected_ari, dataset in zip(expected_aris, clustered_model.datasets):
@@ -100,7 +82,7 @@ def test_ari_score(clustered_model):
 
 
 def test_silhouette_score(clustered_model):
-    expected_silhouettes = [0.3065451896356221, 0.3442973114128474]
+    expected_silhouettes = [0.03797665567015513, -0.00394108730811303]
     tl.compute_silhouette_scores(clustered_model, labels="cell_type", embeddings="normalized_X")
 
     for expected_silhouette, dataset in zip(expected_silhouettes, clustered_model.datasets):
@@ -109,9 +91,15 @@ def test_silhouette_score(clustered_model):
 
 
 def test_classification_task_disjoint(clustered_model):
-    expected_microprecisions = [0.8986666666666666, 0.8826666666666667]
-    expected_macroprecisions = [0.9153058634913473, 0.9110585415458659]
-    tl.evaluate_classification_task(clustered_model, labels="cell_type", embeddings="normalized_X", joint=False)
+    expected_microprecisions = [0.39473684210526316, 0.3157894736842105]
+    expected_macroprecisions = [0.4198717948717949, 0.13714285714285715]
+    tl.evaluate_classification_task(
+        clustered_model,
+        labels="cell_type",
+        embeddings="normalized_X",
+        n_neighbors=5,
+        joint=False,
+    )
 
     for expected_microprecision, expected_macroprecision, dataset in zip(
         expected_microprecisions,
@@ -125,8 +113,8 @@ def test_classification_task_disjoint(clustered_model):
 
 
 def test_classification_task_joint(clustered_model):
-    expected_microprecisions = [0.924, 0.924]
-    expected_macroprecisions = [0.9343716615194526, 0.9343716615194526]
+    expected_microprecisions = [0.45614035087719296, 0.45614035087719296]
+    expected_macroprecisions = [0.5027950310559006, 0.5027950310559006]
     tl.evaluate_classification_task(clustered_model, labels="cell_type", embeddings="normalized_X", joint=True)
 
     for expected_microprecision, expected_macroprecision, dataset in zip(

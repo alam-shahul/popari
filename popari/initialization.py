@@ -84,6 +84,9 @@ def initialize_leiden(
 
     assert "random_state" in kwargs_leiden
 
+    dimensions = [dataset.shape for dataset in datasets]
+    n_components = min(n_components, np.min(dimensions) - 1)
+
     _pca(datasets, n_comps=n_components, joint=True)
 
     # Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)

@@ -867,7 +867,7 @@ def _plot_all_embeddings(
     },
 )
 @broadcast
-def _evaluate_classification_task(dataset: PopariDataset, embeddings: str, labels: str):
+def _evaluate_classification_task(dataset: PopariDataset, embeddings: str, labels: str, n_neighbors: int = 10):
     """"""
 
     le = LabelEncoder()
@@ -881,7 +881,7 @@ def _evaluate_classification_task(dataset: PopariDataset, embeddings: str, label
         random_state=42,
         stratify=encoded_labels,
     )
-    model = KNeighborsClassifier(n_neighbors=10)
+    model = KNeighborsClassifier(n_neighbors=n_neighbors)
     model.fit(X_train, y_train)
 
     df = []
