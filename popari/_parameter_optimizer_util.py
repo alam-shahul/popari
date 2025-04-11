@@ -223,7 +223,7 @@ class EstimateMNAG(nn.Module):
         return M
 
 
-class Sigma_yx_Loss(nn.Module):
+class SigmayxLoss(nn.Module):
     def __init__(self, sigma_yx_inv_mode):
         super().__init__()
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
@@ -245,6 +245,41 @@ class Sigma_yx_Loss(nn.Module):
 
         num_replicates = len(embedding_states)
         sizes = np.array([Y.numel() for Y in Ys])
+
+        if self.sigma_yx_inv_mode == "separate":
+            sigma_yxs = np.sqrt(squared_loss / sizes)
+        elif self.sigma_yx_inv_mode == "average":
+            sigma_yx = np.sqrt(np.dot(betas, squared_loss) / np.dot(betas, sizes))
+            sigma_yxs = np.full(num_replicates, float(sigma_yx))
+        else:
+            raise NotImplementedError
+
+        return sigma_yxs
+
+
+class BatchSigmayxLoss(Sigma_yx_Loss):
+    def forward(self, Ys, embedding_states, batch_effect_states, metagene_states, betas):
+        squared_terms = [
+            torch.addmm(
+                Y,
+                embedding_state + batch_effect_state,
+                metagene_state,
+                alpha=-1,
+            )
+            for Y, embedding_state, batch_effect_state, metagene_state in zip(
+                Ys,
+                embedding_states,
+                batch_effect_states,
+                metagene_states,
+            )
+        ]
+
+        squared_loss = np.array(
+            [torch.linalg.norm(squared_term, ord="fro").item() ** 2 for squared_term in squared_terms],
+        )
+
+        num_replicates = len(embedding_states)
+        sizes = np.add(np.array([Y.numel() for Y in Ys]), np.array([X.numel() for X in embedding_states]))
 
         if self.sigma_yx_inv_mode == "separate":
             sigma_yxs = np.sqrt(squared_loss / sizes)
