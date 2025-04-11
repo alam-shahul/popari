@@ -912,7 +912,7 @@ class ParameterOptimizer:
                     break
 
         elif backend_algorithm == "gd Nesterov":
-            M = estimate_M(M, batch_effects)
+            M = estimate_M(M)
         else:
             raise NotImplementedError
 
