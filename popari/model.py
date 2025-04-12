@@ -529,10 +529,14 @@ class Popari:
             dataset.X = raw_dataset.X.copy()
             num_cells, _ = dataset.shape
 
-            if not issparse(dataset.X):
-                dataset.X = csr_array(dataset.X)
+            # if not issparse(dataset.X):
+            #     dataset.X = csr_array(dataset.X)
+            if issparse(dataset.X):
+                Y = torch.from_numpy(dataset.X.todense()).to(**self.context)
+            else:
+                Y = torch.from_numpy(dataset.X).to(**self.context)
 
-            Y = convert_scipy_csr_to_pytorch_coo(dataset.X, self.context)
+            # Y = convert_scipy_csr_to_pytorch_coo(dataset.X, self.context)
             Y *= (self.K * 1) / (Y.sum() / num_cells)
             high_resolution_view.Ys[index] = Y
 
