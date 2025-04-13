@@ -241,8 +241,10 @@ class BatchEffectMNAG(EstimateMNAG):
         grad = quadratic_factor_grad - linear_term_grad
 
         if not all(torch.all(tensor == 0) for tensor in batch_effects):
-            loss += -0.5 * torch.sum(torch.log(torch.linalg.eigvalsh(M.T @ M) + 1e-10))
-            grad += -M @ torch.inverse(M.T @ M + 1e-10 * torch.eye(M.shape[1], device=M.device))
+            loss += -0.5 * torch.sum(torch.logdet((M.T @ M) + 1e-10))
+            grad += -M @ torch.inverse(
+                M.T @ M + 1e-10 * torch.eye(M.shape[1], device=M.device),
+            )  # torch.cholesky_inverse
 
         loss += self.constant
 
