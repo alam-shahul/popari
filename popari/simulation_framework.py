@@ -563,7 +563,7 @@ class SyntheticDataset(AnnData):
             batch_stdev = batch_effect_scale * np.ones(num_metagenes)
             lower_bound = np.zeros(num_metagenes)
             batch_effect = sample_truncated_gaussian(batch_mean, batch_stdev, lower_bound, self.batch_metagene_indices)
-            self.uns["batch_effect"] = {self.name: batch_effect}
+            self.uns["ground_truth_batch_effect"] = {self.name: batch_effect}
             self.obsm["ground_truth_X"] = X_i * self.S[:, np.newaxis] + batch_effect
 
         else:
