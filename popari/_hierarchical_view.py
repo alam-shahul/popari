@@ -292,8 +292,23 @@ class HierarchicalView:
                         (self.Ys[dataset_index].to_dense() - self.Xs[dataset_index] @ self.M.T),
                         dim=0,
                     )
+                    print("batch initialization", MTM_inv_MT @ mean_diff)
                     self.batch_optimizer.batch_effect_state[dataset.name][:] = MTM_inv_MT @ mean_diff
+
                     # self.batch_optimizer.batch_effect_state[dataset.name][:] = torch.zeros(K)
+
+                    # dataset_mean = torch.mean(self.Ys[dataset_index].to_dense(), dim=0)
+                    # model_mean = torch.mean(self.Xs[dataset_index] @ self.M.T, dim=0)
+                    # mean_diff = dataset_mean - model_mean
+                    # MTM = self.M.T @ self.M
+                    # MTM_regularized = MTM + torch.eye(self.K, **self.context) * 1e-6
+                    # batch_effect = mean_diff @ self.M @ torch.inverse(MTM_regularized)
+                    # print("batch initialization", batch_effect)
+                    # self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
+
+                    # batch_effect = torch.rand(self.K, **self.context) * 0.01
+                    # print("batch initialization", batch_effect)
+                    # self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
 
             self.parameter_optimizer.scale_metagenes()
 
