@@ -364,3 +364,84 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
         # assert loss <= loss_prev, (loss_prev, loss)
 
         return loss
+
+    def update_z(self, Z):
+        _, K = Z.size()
+
+        pbar = trange(self.N, leave=False, disable=True, desc="Updating Z w/ nbrs via Nesterov GD")
+        func, grad = self.get_batch_loss_and_grad(
+            Z,
+            self.S,
+            self.MTM,
+            self.YM * self.S - self.adjacency_matrix @ Z @ self.Sigma_x_inv / 2,
+        )
+        for idx in IndependentSet(self.E_adjacency_list, device=self.device, batch_size=1024):
+            quad_batch = self.MTM
+            linear_batch_spatial = -torch.index_select(self.adjacency_matrix, 0, idx) @ Z @ self.Sigma_x_inv
+            Z_batch = Z[idx].contiguous()
+            S_batch = self.S[idx].contiguous()
+            optimizer = NesterovGD(Z_batch, self.base_step_size / S_batch.square())
+            ppbar = trange(100, leave=False, disable=not (self.verbose > 3))
+            for i_iter in ppbar:
+                if self.embedding_acceleration_trick:
+                    self.update_s()  # TODO: update S_batch directly
+                S_batch = self.S[idx].contiguous()
+                linear_batch = linear_batch_spatial + self.YM[idx] * S_batch
+                if i_iter == 0:
+                    func, grad = self.get_batch_loss_and_grad(
+                        Z_batch,
+                        S_batch,
+                        quad_batch,
+                        linear_batch,
+                    )  # TODO: if we remove this line does it still run?
+                    func, grad = self.get_batch_loss_and_grad(
+                        Z,
+                        self.S,
+                        self.MTM,
+                        self.YM * self.S - self.adjacency_matrix @ Z @ self.Sigma_x_inv / 2,
+                    )
+
+                NesterovGD.step_size = (
+                    self.base_step_size / S_batch.square()
+                )  # TM: I think this converges as s converges
+                func, grad = self.get_batch_loss_and_grad(Z_batch, S_batch, quad_batch, linear_batch)
+
+                Z_batch_prev = Z_batch.clone()
+                Z_batch = optimizer.step(grad)
+
+                Z_batch[:, K // 2 :] = 1e-5
+
+                if self.use_inplace_ops:
+                    Z_batch = project2simplex_(Z_batch, dim=1)
+                else:
+                    Z_batch = project2simplex(Z_batch, dim=1)
+
+                optimizer.set_parameters(Z_batch)
+
+                dZ = (Z_batch_prev - Z_batch).abs().max().item()
+                Z[idx] = Z_batch
+                description = f"func={func:.1e}, dZ={dZ:.1e}"
+                ppbar.set_description(description)
+                if dZ < self.tol:
+                    break
+            ppbar.close()
+
+            Z[idx] = Z_batch
+            func, grad = self.get_batch_loss_and_grad(Z_batch, S_batch, quad_batch, linear_batch)
+            func, grad = self.get_batch_loss_and_grad(
+                Z,
+                self.S,
+                self.MTM,
+                self.YM * self.S - self.adjacency_matrix @ Z @ self.Sigma_x_inv / 2,
+            )
+            pbar.update(len(idx))
+
+        pbar.close()
+        func, grad = self.get_batch_loss_and_grad(
+            Z,
+            self.S,
+            self.MTM,
+            self.YM * self.S - self.adjacency_matrix @ Z @ self.Sigma_x_inv / 2,
+        )
+
+        return Z

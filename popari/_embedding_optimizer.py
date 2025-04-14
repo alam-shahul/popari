@@ -364,6 +364,9 @@ class EmbeddingOptimizer:
         TM: Inverse is precomputed once, and projection is cheap. Not sure if it works theoretically
 
         """
+
+        N, K = X.size()
+
         # Precomputing quantities
         MTM = M.T @ M / (sigma_yx**2)
         YM = Y.to(M.device) @ M / (sigma_yx**2)
