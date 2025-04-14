@@ -342,6 +342,10 @@ class Popari:
         """
         if self.verbose:
             print(f"{get_datetime()} Updating latent states")
+
+        if any(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.parameter_optimizer.prior_x_modes):
+            self.parameter_optimizer.update_prior_x_cross_dataset_average()
+
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
 
         if synchronize:

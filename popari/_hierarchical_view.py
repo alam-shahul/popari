@@ -284,22 +284,17 @@ class HierarchicalView:
                 dataset_averages = []
                 for dataset_index, dataset in enumerate(self.datasets):
                     X = self.Xs[dataset_index]
-                    print("X", X)
                     avg_values = torch.mean(X, dim=0)
-                    print("average", avg_values)
                     dataset_averages.append(avg_values)
 
                 dataset_averages = torch.stack(dataset_averages)
-                print("all average", dataset_averages)
                 min_values, _ = torch.min(dataset_averages, dim=0)
-                print("min values", min_values)
 
             for dataset_index, dataset in enumerate(self.datasets):
                 self.parameter_optimizer.metagene_state[dataset.name][:] = self.M
                 self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
                 if self.batch_effect_correction:
                     dataset_avg = dataset_averages[dataset_index]
-                    print("dataset_avg", dataset_avg, min_values)
                     batch_effect = torch.clamp(dataset_avg - min_values, min=0)
                     print("batch initialization", batch_effect)
                     self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect

@@ -116,6 +116,8 @@ class ParameterOptimizer:
 
         if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        elif all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
+            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         else:
@@ -130,6 +132,19 @@ class ParameterOptimizer:
     @adjacency_matrices.setter
     def adjacency_matrices(self, val):
         self._adjacency_matrices = val
+
+    def update_prior_x_cross_dataset_average(self):
+        """Update prior_x to use the average embedding across all datasets."""
+        if all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
+            avg_embedding = torch.zeros(self.K, **self.context)
+            dataset_count = len(self.datasets)
+
+            for dataset in self.datasets:
+                embeddings = self.embedding_optimizer.embedding_state[dataset.name]
+                avg_embedding += embeddings.sum(dim=0) / embeddings.shape[0]
+
+            avg_embedding /= dataset_count
+            self.prior_xs = [(avg_embedding.clone(),) for _ in range(dataset_count)]
 
     def link(self, embedding_optimizer, batch_optimizer=None):
         """Link to embedding_optimizer and batch_optimizer."""
