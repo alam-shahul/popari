@@ -117,6 +117,11 @@ class BatchEffectOptimizer:
         """Estimate batch effect for a single dataset using Nesterov's
         Accelerated Gradient."""
 
+        G, K = M.size()
+
+        B = B.clone()
+        B[: K // 2] = 1e-5
+
         batch_effect_loss = BatchEffectLoss(Y, M, X, sigma_yx)
 
         # hessian = compute_hessian_batch(M, sigma_yx)
@@ -146,7 +151,12 @@ class BatchEffectOptimizer:
                 B_prev = B.clone()
                 B = optimizer.step(grad)
 
+                print(f"{B_prev = }")
+                print(f"{B = }")
+
                 B.clip_(min=1e-5)
+                B[: K // 2] = 1e-5
+
                 # Check convergence
                 dB = (B_prev - B).abs().max().item()
                 dloss = loss_prev - loss

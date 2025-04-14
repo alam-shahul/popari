@@ -798,22 +798,23 @@ class ParameterOptimizer:
             constant=constant,
         )
 
-        estimate_M_batch = BatchEffectMNAG(
-            M_bar=M_bar,
-            lambda_M=self.lambda_M,
-            M_constraint=self.M_constraint,
-            use_inplace_ops=self.use_inplace_ops,
-            verbose=self.verbose,
-            metagene_mode=self.metagene_mode,
-            n_epochs=n_epochs,
-            tol=tol,
-            simplex_projection_mode=simplex_projection_mode,
-            quadratic_factor=quadratic_factor,
-            differential_regularization_quadratic_factor=differential_regularization_quadratic_factor,
-            linear_factor=linear_factor,
-            differential_regularization_linear_factor=differential_regularization_linear_factor,
-            constant=constant,
-        )
+        if self.batch_effect_correction:
+            estimate_M_batch = BatchEffectMNAG(
+                M_bar=M_bar,
+                lambda_M=self.lambda_M,
+                M_constraint=self.M_constraint,
+                use_inplace_ops=self.use_inplace_ops,
+                verbose=self.verbose,
+                metagene_mode=self.metagene_mode,
+                n_epochs=n_epochs,
+                tol=tol,
+                simplex_projection_mode=simplex_projection_mode,
+                quadratic_factor=quadratic_factor,
+                differential_regularization_quadratic_factor=differential_regularization_quadratic_factor,
+                linear_factor=linear_factor,
+                differential_regularization_linear_factor=differential_regularization_linear_factor,
+                constant=constant,
+            )
 
         if backend_algorithm == "mu":
             for epoch in progress_bar:
