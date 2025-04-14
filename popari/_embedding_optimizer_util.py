@@ -50,7 +50,7 @@ class EmbeddingLossNoNeighborsGD(EmbeddingLossNoNeighbors):
         quadratic_term_gradient = X @ self.MTM
         linear_term_gradient = self.YM
         if self.prior_x_mode == "exponential shared fixed":
-            linear_term_gradient = linear_term_gradient - self.prior_x[0][None]
+            linear_term_gradient = linear_term_gradient - torch.sign(self.prior_x[0])
         elif self.prior_x_mode == "cross_dataset_average":
             linear_term_gradient = linear_term_gradient - self.prior_x[0][None]
         elif not self.prior_x_mode:
@@ -342,16 +342,8 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
             # TODO: why divide by two?
             self.S.sub_(self.prior_x[0][0] / 2)
         elif self.prior_x_mode == "cross_dataset_average":
-            # Adjust for the new cross-dataset average prior
-            # The regularization term is ||Z*S - prior_x||_1 which affects S calculation
-            # We want to minimize ||Z*S - avg_Z||_1 with respect to S
-            # The derivative with respect to S gives us a sum of signs for each dimension
-            # avg_Z = self.prior_x[0]
-            # # Calculate sign(Z - avg_Z) to determine direction of regularization
-            # sign_diff = torch.sign(self.Z - avg_Z[None, :])
-            # # Subtract the sum of signs to adjust for the L1 penalty
-            # self.S.sub_(sign_diff.sum(axis=1, keepdim=True) / 2)
-            self.S.sub_(self.prior_x[0][0] / 2)
+            sign_diff = torch.sign((self.Z * self.S + self.B) - self.prior_x[0])
+            self.S.sub_(sign_diff.sum(axis=1, keepdim=True) / 2)
         elif not self.prior_x_mode:
             pass
         else:
@@ -367,7 +359,8 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
         if self.prior_x_mode == "exponential shared fixed":
             loss += self.prior_x[0][0] * self.S.sum()
         elif self.prior_x_mode == "cross_dataset_average":
-            loss += torch.sum(self.Z * self.S - self.prior_x[0][None])
+            print("loss value", torch.sum(torch.abs(XB - self.prior_x[0])))
+            loss += torch.sum(torch.abs(XB - self.prior_x[0]))
         elif not self.prior_x_mode:
             pass
         else:

@@ -99,6 +99,7 @@ class EmbeddingOptimizer:
                     dataset,
                 )
             elif self.batch_effect_correction:
+                print("Prior x in update embedding", prior_x)
                 B = self.batch_optimizer.batch_effect_state[dataset.name].to(self.context["device"])
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr_batch(
                     Y,

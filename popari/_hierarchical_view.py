@@ -326,7 +326,7 @@ class HierarchicalView:
                     # self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
 
             self.parameter_optimizer.scale_metagenes()
-
+            self.parameter_optimizer.update_prior_x_cross_dataset_average()
             # # Ensure initial embeddings do not have too large magnitudes
             # for dataset_index, dataset in enumerate(self.datasets):
             #     initial_X = self.embedding_optimizer.embedding_state[dataset.name]

@@ -107,8 +107,6 @@ class BatchEffectOptimizer:
         effect."""
 
         batch_effect_loss = BatchEffectLoss()
-
-        # loss = compute_loss_batch(B, M, X, Y, sigma_yx)
         loss = batch_effect_loss.compute_loss(B, M, X, Y, sigma_yx)
         return loss
 
@@ -145,15 +143,14 @@ class BatchEffectOptimizer:
             optimizer = NesterovGD(B.clone(), base_step_size)
 
             for epoch in pbar:
-                # loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
                 loss, grad = batch_effect_loss(B)
 
                 B_prev = B.clone()
                 B = optimizer.step(grad)
 
                 B.clip_(min=1e-5)
-                print(f"{B_prev = }")
-                print(f"{B = }")
+                # print(f"{B_prev = }")
+                # print(f"{B = }")
                 # B[: K // 2] = 1e-5
 
                 # Check convergence
@@ -173,7 +170,6 @@ class BatchEffectOptimizer:
 
         elif update_alg == "gd":
             for epoch in pbar:
-                # loss, grad = calc_func_grad_batch(B, M, X, Y, sigma_yx)
                 loss, grad = batch_effect_loss(B, M, X, Y, sigma_yx)
 
                 B_prev = B.clone()
@@ -197,7 +193,6 @@ class BatchEffectOptimizer:
                     break
 
         # Compute final loss
-        # final_loss = compute_loss_batch(B, M, X, Y, sigma_yx)
         final_loss = batch_effect_loss.compute_loss(B)
         return final_loss, B
 

@@ -117,7 +117,7 @@ class ParameterOptimizer:
         if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+            self.prior_xs = [(None,) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         else:
@@ -136,15 +136,25 @@ class ParameterOptimizer:
     def update_prior_x_cross_dataset_average(self):
         """Update prior_x to use the average embedding across all datasets."""
         if all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
-            avg_embedding = torch.zeros(self.K, **self.context)
-            dataset_count = len(self.datasets)
+            global_avg_embedding = torch.zeros(self.K, **self.context)
+            total_embeddings = 0
 
             for dataset in self.datasets:
                 embeddings = self.embedding_optimizer.embedding_state[dataset.name]
-                avg_embedding += embeddings.sum(dim=0) / embeddings.shape[0]
+                global_avg_embedding += embeddings.sum(dim=0)
+                total_embeddings += embeddings.shape[0]
 
-            avg_embedding /= dataset_count
-            self.prior_xs = [(avg_embedding.clone(),) for _ in range(dataset_count)]
+            global_avg_embedding /= total_embeddings
+
+            self.prior_xs = []
+            for dataset in self.datasets:
+                self.prior_xs.append((self.embedding_optimizer.embedding_state[dataset.name] - global_avg_embedding,))
+
+            for i in range(len(self.prior_xs)):
+                norm = torch.norm(self.prior_xs[i][0], dim=1, keepdim=True)
+                norm = torch.clamp(norm, min=1e-10)
+                self.prior_xs[i] = (self.prior_xs[i][0] / norm,)
+            print("self.prior_xs", self.prior_xs)
 
     def link(self, embedding_optimizer, batch_optimizer=None):
         """Link to embedding_optimizer and batch_optimizer."""
