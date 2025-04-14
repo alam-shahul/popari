@@ -150,7 +150,8 @@ class BatchEffectOptimizer:
 
                 B.clip_(min=1e-5)
                 # print(f"{B_prev = }")
-                # print(f"{B = }")
+                print(f"{X = }")
+                print(f"{B = }")
                 # B[: K // 2] = 1e-5
 
                 # Check convergence
