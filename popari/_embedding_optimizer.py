@@ -40,7 +40,7 @@ class EmbeddingOptimizer:
         embedding_mini_iterations=1000,
         embedding_acceleration_trick=True,
         verbose=0,
-        batch_effect_correction=False,
+        batch_effect_correction=None,
     ):
         self.batch_effect_correction = batch_effect_correction
         self.verbose = verbose
@@ -98,7 +98,7 @@ class EmbeddingOptimizer:
                     prior_x,
                     dataset,
                 )
-            elif self.batch_effect_correction:
+            elif self.batch_effect_correction is not None:
                 print("Prior x in update embedding", prior_x)
                 B = self.batch_optimizer.batch_effect_state[dataset.name].to(self.context["device"])
                 loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr_batch(
@@ -385,26 +385,76 @@ class EmbeddingOptimizer:
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
 
-        embedding_updater = BatchEffectEmbeddingLossWithNeighborsNesterov(
-            Z,
-            S,
-            B,
-            MTM,
-            YM,
-            Ynorm,
-            adjacency_matrix,
-            prior_x_mode,
-            prior_x,
-            Sigma_x_inv,
-            E_adjacency_list,
-            self.context["device"],
-            base_step_size,
-            self.verbose,
-            self.embedding_acceleration_trick,
-            self.use_inplace_ops,
-            self.embedding_mini_iterations,
-            tol,
-        )
+        if self.batch_effect_correction == "joint_metagenes":
+            if prior_x_mode == "cross_dataset_average":
+
+                embeddings_list = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
+                stacked_embeddings = torch.stack(embeddings_list, dim=0)
+                average_across_samples = torch.mean(stacked_embeddings, dim=0)
+
+                embedding_updater = BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(
+                    Z,
+                    S,
+                    B,
+                    MTM,
+                    YM,
+                    Ynorm,
+                    adjacency_matrix,
+                    prior_x_mode,
+                    prior_x,
+                    average_across_samples,
+                    Sigma_x_inv,
+                    E_adjacency_list,
+                    self.context["device"],
+                    base_step_size,
+                    self.verbose,
+                    self.embedding_acceleration_trick,
+                    self.use_inplace_ops,
+                    self.embedding_mini_iterations,
+                    tol,
+                )
+            else:
+                embedding_updater = BatchEffectEmbeddingLossWithNeighborsNesterov(
+                    Z,
+                    S,
+                    B,
+                    MTM,
+                    YM,
+                    Ynorm,
+                    adjacency_matrix,
+                    prior_x_mode,
+                    prior_x,
+                    Sigma_x_inv,
+                    E_adjacency_list,
+                    self.context["device"],
+                    base_step_size,
+                    self.verbose,
+                    self.embedding_acceleration_trick,
+                    self.use_inplace_ops,
+                    self.embedding_mini_iterations,
+                    tol,
+                )
+        elif self.batch_effect_correction == "split_metagenes":
+            embedding_updater = BatchEffectEmbeddingLossWithNeighborsNesterov(
+                Z,
+                S,
+                B,
+                MTM,
+                YM,
+                Ynorm,
+                adjacency_matrix,
+                prior_x_mode,
+                prior_x,
+                Sigma_x_inv,
+                E_adjacency_list,
+                self.context["device"],
+                base_step_size,
+                self.verbose,
+                self.embedding_acceleration_trick,
+                self.use_inplace_ops,
+                self.embedding_mini_iterations,
+                tol,
+            )
 
         loss, X = embedding_updater()
 

@@ -44,7 +44,7 @@ class HierarchicalView:
         parameter_optimizer_hyperparameters: dict,
         embedding_optimizer_hyperparameters: dict,
         batch_optimizer_hyperparameters: dict,
-        batch_effect_correction: bool,
+        batch_effect_correction: str,
         binned_Ys: list = None,
         superresolution_lr: float = 1e-3,
         level: int = 0,
@@ -151,6 +151,7 @@ class HierarchicalView:
         if self.verbose:
             print(f"{get_datetime()} Initializing ParameterOptimizer")
 
+        print("hierarchical batch", self.batch_effect_correction)
         self.parameter_optimizer = ParameterOptimizer(
             self.K,
             self.Ys,
@@ -295,6 +296,10 @@ class HierarchicalView:
                 self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
                 if self.batch_effect_correction:
                     dataset_avg = dataset_averages[dataset_index]
+
+                    # batch_effect = torch.zeros(K, **self.context)
+                    # batch_effect[:self.K//2] = 1e-5
+                    # batch_effect[self.K//2:] = torch.clamp(dataset_avg[self.K//2:] - min_values[self.K//2:], min=0)
                     batch_effect = torch.clamp(dataset_avg - min_values, min=0)
                     print("batch initialization", batch_effect)
                     self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
@@ -326,7 +331,7 @@ class HierarchicalView:
                     # self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
 
             self.parameter_optimizer.scale_metagenes()
-            self.parameter_optimizer.update_prior_x_cross_dataset_average()
+            # self.parameter_optimizer.update_prior_x_cross_dataset_average()
             # # Ensure initial embeddings do not have too large magnitudes
             # for dataset_index, dataset in enumerate(self.datasets):
             #     initial_X = self.embedding_optimizer.embedding_state[dataset.name]

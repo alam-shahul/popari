@@ -69,7 +69,7 @@ def shared_model_batch_effect_correction(mock_datasets, context):
         initialization_method="svd",
         datasets=mock_datasets,
         replicate_names=["mock_1", "mock_2"],
-        batch_effect_correction=True,
+        batch_effect_correction="joint_metagenes",
         verbose=1,
     )
 

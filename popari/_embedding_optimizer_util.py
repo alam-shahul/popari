@@ -342,9 +342,13 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
             # TODO: why divide by two?
             self.S.sub_(self.prior_x[0][0] / 2)
         elif self.prior_x_mode == "cross_dataset_average":
-            sign_diff = torch.sign((self.Z * self.S) - self.prior_x[0])
+            # sign_diff = torch.sign((self.Z * self.S) - self.prior_x[0])
             # print("update s", sign_diff.sum(axis=1, keepdim=True))
-            self.S.sub_(sign_diff.sum(axis=1, keepdim=True) / 2)
+            # self.S.sub_(sign_diff.sum(axis=1, keepdim=True) / 2)
+            # diff = (self.Z * self.S) - self.prior_x[0]
+            # reg_term = diff.mean(axis=1, keepdim=True)
+            # self.S.sub_(reg_term)
+            self.S.sub_(self.prior_x[0].mean(axis=1, keepdim=True) / 2)
         elif not self.prior_x_mode:
             pass
         else:
@@ -361,7 +365,8 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
             loss += self.prior_x[0][0] * self.S.sum()
         elif self.prior_x_mode == "cross_dataset_average":
             # print("loss value", torch.sum(self.Z * self.S - self.prior_x[0]))
-            loss += torch.sum(self.Z * self.S - self.prior_x[0])
+            # loss += torch.sum(self.Z * self.S - self.prior_x[0]) #- torch.var(self.Z * self.S, dim=0).sum()
+            loss += torch.sum(self.prior_x[0]) - torch.var(self.Z * self.S, dim=0).sum()
         elif not self.prior_x_mode:
             pass
         else:
@@ -418,7 +423,7 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
                 Z_batch_prev = Z_batch.clone()
                 Z_batch = optimizer.step(grad)
 
-                # Z_batch[:, K // 2 :] = 1e-5
+                # Z_batch[:, K//2:] = 1e-5
 
                 if self.use_inplace_ops:
                     Z_batch = project2simplex_(Z_batch, dim=1)
@@ -446,6 +451,7 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
             pbar.update(len(idx))
 
         pbar.close()
+        # Z_batch[:, K//2:] = 1e-5
         func, grad = self.get_batch_loss_and_grad(
             Z,
             self.S,
@@ -454,3 +460,49 @@ class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNe
         )
 
         return Z
+
+
+class BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(BatchEffectEmbeddingLossWithNeighborsNesterov):
+    def __init__(
+        self,
+        Z,
+        S,
+        B,
+        MTM,
+        YM,
+        Ynorm,
+        adjacency_matrix,
+        prior_x_mode,
+        prior_x,
+        average_across_samples,
+        Sigma_x_inv,
+        E_adjacency_list,
+        device,
+        base_step_size,
+        verbose,
+        embedding_acceleration_trick,
+        use_inplace_ops,
+        embedding_mini_iterations,
+        tol,
+    ):
+        super().__init__(
+            Z,
+            S,
+            B,
+            MTM,
+            YM,
+            Ynorm,
+            adjacency_matrix,
+            prior_x_mode,
+            prior_x,
+            Sigma_x_inv,
+            E_adjacency_list,
+            device,
+            base_step_size,
+            verbose,
+            embedding_acceleration_trick,
+            use_inplace_ops,
+            embedding_mini_iterations,
+            tol,
+        )
+        self.average_across_samples = average_across_samples

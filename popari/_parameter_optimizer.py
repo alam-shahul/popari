@@ -50,7 +50,7 @@ class ParameterOptimizer:
         context=None,
         use_inplace_ops=False,
         verbose=0,
-        batch_effect_correction=False,
+        batch_effect_correction=None,
     ):
         self.batch_effect_correction = batch_effect_correction
         self.verbose = verbose
@@ -117,7 +117,8 @@ class ParameterOptimizer:
         if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(None,) for _ in range(len(self.datasets))]
+            # self.prior_xs = [(None,) for _ in range(len(self.datasets))]
+            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         else:
@@ -133,6 +134,7 @@ class ParameterOptimizer:
     def adjacency_matrices(self, val):
         self._adjacency_matrices = val
 
+    '''
     def update_prior_x_cross_dataset_average(self):
         """Update prior_x to use the average embedding across all datasets."""
         if all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
@@ -155,6 +157,7 @@ class ParameterOptimizer:
                 norm = torch.clamp(norm, min=1e-10)
                 self.prior_xs[i] = (self.prior_xs[i][0] / norm,)
             print("self.prior_xs", self.prior_xs)
+    '''
 
     def link(self, embedding_optimizer, batch_optimizer=None):
         """Link to embedding_optimizer and batch_optimizer."""
@@ -740,7 +743,7 @@ class ParameterOptimizer:
 
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
 
-        if self.batch_effect_correction:
+        if self.batch_effect_correction is not None:
             batch_effects = [self.batch_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
             for dataset, X, Y, scaled_beta, B in zip(datasets, Xs, Ys, scaled_betas, batch_effects):
                 # X_c^TX_c
@@ -958,7 +961,7 @@ class ParameterOptimizer:
                     break
 
         elif backend_algorithm == "gd Nesterov":
-            if self.batch_effect_correction:
+            if self.batch_effect_correction is not None:
                 M = estimate_M_batch(M, batch_effects)
             else:
                 M = estimate_M(M)
@@ -973,7 +976,7 @@ class ParameterOptimizer:
         embedding_states = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
         metagene_states = [self.metagene_state[dataset.name].T for dataset in self.datasets]
 
-        if self.batch_effect_correction:
+        if self.batch_effect_correction is not None:
             batch_effects = [self.batch_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
             estimate_batch_sigma_yx = BatchSigmayxLoss(self.sigma_yx_inv_mode)
             self.sigma_yxs[:] = estimate_batch_sigma_yx(

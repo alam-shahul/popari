@@ -55,7 +55,7 @@ def popari_with_leiden_initialization(context, mock_datasets):
         datasets=mock_datasets,
         replicate_names=replicate_names,
         verbose=4,
-        batch_effect_correction=True,
+        batch_effect_correction="joint_metagenes",
     )
 
 

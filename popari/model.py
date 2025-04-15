@@ -120,7 +120,7 @@ class Popari:
         batch_step_size_multiplier: float = 1.0,
         batch_mini_iterations: int = 1000,
         batch_tol: float = 1e-5,
-        batch_effect_correction: bool = False,
+        batch_effect_correction: str = None,
         downsampling_method: str = "grid",
         binning_downsample_rate: float = 0.2,
         chunks: int = 2,
@@ -220,6 +220,7 @@ class Popari:
             "batch_mini_iterations": batch_mini_iterations,
             "batch_tol": batch_tol,
         }
+        print("model", batch_effect_correction)
         self.batch_effect_correction = batch_effect_correction
 
         self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
@@ -343,8 +344,8 @@ class Popari:
         if self.verbose:
             print(f"{get_datetime()} Updating latent states")
 
-        if any(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.parameter_optimizer.prior_x_modes):
-            self.parameter_optimizer.update_prior_x_cross_dataset_average()
+        # if any(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.parameter_optimizer.prior_x_modes):
+        #    self.parameter_optimizer.update_prior_x_cross_dataset_average()
 
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
 
