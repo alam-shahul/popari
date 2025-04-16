@@ -529,13 +529,13 @@ class BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(BatchEffectEmbedd
             # TODO: why divide by two?
             self.S.sub_(self.prior_x[0][0] / 2)
         elif self.prior_x_mode == "cross_dataset_average":
-            # sign_of_prior = (torch.sign(self.S * self.Z - self.average_across_samples) * self.Z).sum(
-            #     axis=1,
-            #     keepdim=True,
-            # )
-            # # self.S.sub_(self.prior_x[0][0] * sign_of_prior / 2)
+            sign_of_prior = (torch.sign(self.S * self.Z - self.average_across_samples) * self.Z).sum(
+                axis=1,
+                keepdim=True,
+            )
+            self.S.sub_(self.prior_x[0][0] * sign_of_prior / 2)
             # self.S.sub_((self.prior_x[0][0] * sign_of_prior + self.prior_x[0][0]) / 2)
-            pass
+            # pass
         elif not self.prior_x_mode:
             pass
         else:
@@ -551,12 +551,12 @@ class BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(BatchEffectEmbedd
         if self.prior_x_mode == "exponential shared fixed":
             loss += self.prior_x[0][0] * self.S.sum()
         elif self.prior_x_mode == "cross_dataset_average":
-            # loss += self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum()
+            loss += self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum()
             # loss += (
             #     self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum()
             #     + self.prior_x[0][0] * self.S.sum()
             # )
-            pass
+            # pass
         elif not self.prior_x_mode:
             pass
         else:
