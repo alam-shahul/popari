@@ -101,6 +101,40 @@ class BatchBlendTrainer(Trainer):
         self.model.estimate_batch_effect(synchronize=synchronize)
 
 
+class BatchBlendCrossTrainer(Trainer):
+    def train(self):
+        nmf_progress_bar = trange(self.parameters.nmf_iterations, leave=True, disable=not self.verbose)
+        for _ in nmf_progress_bar:
+            if self.verbose > 0:
+                description = f"-------------- NMF Iteration {self.nmf_iterations} --------------"
+                nmf_progress_bar.set_description(description)
+
+            self.update_nmf(self.nmf_iterations, spatial=False)
+            self.nmf_iterations += 1
+
+        progress_bar = trange(self.parameters.iterations, leave=True, disable=not self.verbose)
+        for _ in progress_bar:
+            if self.verbose > 0:
+                description = f"------------------ Iteration {self.iterations} ------------------"
+                progress_bar.set_description(description)
+
+            self.update_spatial(self.iterations, spatial=True)
+            self.iterations += 1
+
+    def update_nmf(self, iterations, spatial=True):
+        synchronize = not (iterations % self.parameters.synchronization_frequency)
+
+        self.model.estimate_parameters(update_spatial_affinities=spatial, synchronize=synchronize)
+        self.model.estimate_weights(use_neighbors=spatial, synchronize=synchronize)
+        self.model.estimate_batch_effect(synchronize=synchronize)
+
+    def update_spatial(self, iterations, spatial=True):
+        synchronize = not (iterations % self.parameters.synchronization_frequency)
+
+        self.model.estimate_parameters(update_spatial_affinities=spatial, synchronize=synchronize)
+        self.model.estimate_weights(use_neighbors=spatial, synchronize=synchronize)
+
+
 class MLFlowTrainer(Trainer):
     def __init__(self, parameters: MLFlowTrainParameters, model: Popari, verbose: int = 0):
         super().__init__(parameters, model, verbose)
