@@ -220,7 +220,6 @@ class Popari:
             "batch_mini_iterations": batch_mini_iterations,
             "batch_tol": batch_tol,
         }
-        print("model", batch_effect_correction)
         self.batch_effect_correction = batch_effect_correction
 
         self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)

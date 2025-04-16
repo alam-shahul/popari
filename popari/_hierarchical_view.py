@@ -151,7 +151,6 @@ class HierarchicalView:
         if self.verbose:
             print(f"{get_datetime()} Initializing ParameterOptimizer")
 
-        print("hierarchical batch", self.batch_effect_correction)
         self.parameter_optimizer = ParameterOptimizer(
             self.K,
             self.Ys,
