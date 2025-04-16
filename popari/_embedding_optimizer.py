@@ -115,9 +115,10 @@ class EmbeddingOptimizer:
                     if other_dataset.name != dataset.name:
                         embeddings_list.append(self.embedding_state[dataset.name])
                 stacked_embeddings = torch.cat(embeddings_list, dim=0)
+                # stacked_embeddings = torch.stack(embeddings_list, dim=0)
                 prior_embeddings = torch.mean(stacked_embeddings, dim=0)
                 average_across_samples.append(prior_embeddings)
-                print("priors", prior_embeddings[0])
+                print("priors", prior_embeddings)
 
         for dataset_index, dataset in enumerate(self.datasets):
             is_spatial_replicate = "adjacency_list" in dataset.obsm

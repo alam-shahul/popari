@@ -79,9 +79,10 @@ class EmbeddingLossTripletLossNoNeighborsGD(EmbeddingLossNoNeighbors):
         elif self.prior_x_mode == "cross_dataset_average":
             sign_of_prior = torch.sign(X - self.average_across_samples)
             # print("sign of prior", linear_term_gradient.shape, sign_of_prior.shape)
-            linear_term_gradient = linear_term_gradient - (self.prior_x[0][None] * sign_of_prior)
             # linear_term_gradient = linear_term_gradient - (self.prior_x[0][None] * sign_of_prior)
-            # linear_term_gradient = linear_term_gradient - ((self.prior_x[0][None] * sign_of_prior) + self.prior_x[0][None])
+            linear_term_gradient = linear_term_gradient - (
+                (self.prior_x[0][None] * sign_of_prior) + self.prior_x[0][None]
+            )
         elif not self.prior_x_mode:
             pass
         else:
@@ -532,9 +533,8 @@ class BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(BatchEffectEmbedd
                 axis=1,
                 keepdim=True,
             )
-            # print("sign of prior", self.S.shape, sign_of_prior.shape)
-            self.S.sub_(self.prior_x[0][0] * sign_of_prior / 2)
-            # self.S.sub_((self.prior_x[0][0] * sign_of_prior + self.prior_x[0][0])/ 2)
+            # self.S.sub_(self.prior_x[0][0] * sign_of_prior / 2)
+            self.S.sub_((self.prior_x[0][0] * sign_of_prior + self.prior_x[0][0]) / 2)
         elif not self.prior_x_mode:
             pass
         else:
@@ -550,8 +550,11 @@ class BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(BatchEffectEmbedd
         if self.prior_x_mode == "exponential shared fixed":
             loss += self.prior_x[0][0] * self.S.sum()
         elif self.prior_x_mode == "cross_dataset_average":
-            loss += self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum()
-            # loss += (self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum() + self.prior_x[0][0] * self.S.sum())
+            # loss += self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum()
+            loss += (
+                self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum()
+                + self.prior_x[0][0] * self.S.sum()
+            )
         elif not self.prior_x_mode:
             pass
         else:

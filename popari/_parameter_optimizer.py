@@ -117,7 +117,7 @@ class ParameterOptimizer:
         if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(0.7 * torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         else:
