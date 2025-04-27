@@ -7,30 +7,6 @@ from tqdm.auto import tqdm, trange
 
 from popari.util import IndependentSet, NesterovGD, project2simplex, project2simplex_
 
-# def multiplicative_update_wonbr_closure(X_prev, MTM, YM, Ynorm, prior_x_mode, prior_x, loss_prev):
-#     def multiplicative_update(X_prev):
-#         """TODO:UNTESTED."""
-#         X = torch.clip(X_prev, min=1e-10)
-#         loss = ((X @ MTM) * X).sum() / 2 - X.view(-1) @ YM.view(-1) + Ynorm / 2
-#         numerator = YM
-#         denominator = X @ MTM
-#         if prior_x_mode == "exponential shared fixed":
-#             # see sklearn.decomposition.NMF
-#             loss += (X @ prior_x[0]).sum()
-#             denominator += prior_x[0][None]
-#         else:
-#             raise NotImplementedError
-#
-#         loss = loss.item()
-#         assert loss <= loss_prev * (1 + 1e-4), (loss_prev, loss, (loss_prev - loss) / loss)
-#         multiplicative_factor = numerator / denominator
-#         X *= multiplicative_factor
-#         torch.clip(X, min=1e-10)
-#
-#         return X, loss
-#
-#     return multiplicative_update(X_prev)
-
 
 class EmbeddingLossNoNeighbors(nn.Module):
     def __init__(self, MTM, YM, Ynorm, prior_x_mode, prior_x, step_size):
@@ -78,8 +54,6 @@ class EmbeddingLossTripletLossNoNeighborsGD(EmbeddingLossNoNeighbors):
             linear_term_gradient = linear_term_gradient - self.prior_x[0][None]
         elif self.prior_x_mode == "cross_dataset_average":
             sign_of_prior = torch.sign(X - self.average_across_samples)
-            # print("sign of prior", linear_term_gradient.shape, sign_of_prior.shape)
-            # linear_term_gradient = linear_term_gradient - (self.prior_x[0][None] * sign_of_prior)
             linear_term_gradient = linear_term_gradient - (
                 (self.prior_x[0][None] * sign_of_prior) + self.prior_x[0][None]
             )
@@ -99,6 +73,31 @@ class EmbeddingLossTripletLossNoNeighborsGD(EmbeddingLossNoNeighbors):
 class EmbeddingLossNoNeighborsMU(EmbeddingLossNoNeighbors):
     #  TODO: complete
     pass
+
+
+# def multiplicative_update_wonbr_closure(X_prev, MTM, YM, Ynorm, prior_x_mode, prior_x, loss_prev):
+#     def multiplicative_update(X_prev):
+#         """TODO:UNTESTED."""
+#         X = torch.clip(X_prev, min=1e-10)
+#         loss = ((X @ MTM) * X).sum() / 2 - X.view(-1) @ YM.view(-1) + Ynorm / 2
+#         numerator = YM
+#         denominator = X @ MTM
+#         if prior_x_mode == "exponential shared fixed":
+#             # see sklearn.decomposition.NMF
+#             loss += (X @ prior_x[0]).sum()
+#             denominator += prior_x[0][None]
+#         else:
+#             raise NotImplementedError
+#
+#         loss = loss.item()
+#         assert loss <= loss_prev * (1 + 1e-4), (loss_prev, loss, (loss_prev - loss) / loss)
+#         multiplicative_factor = numerator / denominator
+#         X *= multiplicative_factor
+#         torch.clip(X, min=1e-10)
+#
+#         return X, loss
+#
+#     return multiplicative_update(X_prev)
 
 
 class EmbeddingLossWithNeighbors(nn.Module, ABC):
@@ -145,12 +144,10 @@ class EmbeddingLossWithNeighbors(nn.Module, ABC):
         self.N = len(Z)
 
     def update_s(self):
-        # S[:] = (YM * Z).sum(axis=1, keepdim=True)
         self.S[:] = (self.YM * self.Z).sum(
             axis=1,
             keepdim=True,
-        )  #  TODO: there used to be a B multiplying self.MTM, add that back eventually
-
+        )
         if self.prior_x_mode == "exponential shared fixed":
             # TODO: why divide by two?
             self.S.sub_(self.prior_x[0][0] / 2)
@@ -175,7 +172,7 @@ class EmbeddingLossWithNeighbors(nn.Module, ABC):
         return f.item(), g
 
     def compute_loss(self):
-        X = self.Z * self.S  # TODO removed batch effect, add back in
+        X = self.Z * self.S
         loss = ((X @ self.MTM) * X).sum() / 2 - (X * self.YM).sum() + self.Ynorm / 2
         if self.prior_x_mode == "exponential shared fixed":
             loss += self.prior_x[0][0] * self.S.sum()
@@ -298,26 +295,6 @@ class EmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighbors):
         )
 
         return Z
-
-
-# def get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z, B):
-#     def update_s():
-#         # S[:] = (YM * Z).sum(axis=1, keepdim=True)
-#         S[:] = (YM * Z - ((Z @ MTM) * B)).sum(axis=1, keepdim=True)
-#         if prior_x_mode == "exponential shared fixed":
-#             # TODO: why divide by two?
-#             S.sub_(prior_x[0][0] / 2)
-#         elif not prior_x_mode:
-#             pass
-#         else:
-#             raise NotImplementedError
-#
-#         denominator = ((Z @ MTM) * Z).sum(axis=1, keepdim=True)
-#         S.div_(denominator)
-#         S.clip_(min=1e-5)
-#         return
-#
-#     return update_s()
 
 
 class BatchEffectEmbeddingLossWithNeighborsNesterov(EmbeddingLossWithNeighborsNesterov):
@@ -522,7 +499,6 @@ class BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(BatchEffectEmbedd
         self.average_across_samples = average_across_samples
 
     def update_s(self):
-        # S[:] = (YM * Z).sum(axis=1, keepdim=True)
         self.S[:] = (self.YM * self.Z - ((self.Z @ self.MTM) * self.B)).sum(axis=1, keepdim=True)
 
         if self.prior_x_mode == "exponential shared fixed":
@@ -551,7 +527,7 @@ class BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(BatchEffectEmbedd
         if self.prior_x_mode == "exponential shared fixed":
             loss += self.prior_x[0][0] * self.S.sum()
         elif self.prior_x_mode == "cross_dataset_average":
-            loss += self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum()
+            loss += self.prior_x[0][0] * torch.abs(self.S * self.Z - self.average_across_samples).sum()
             # loss += (
             #     self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum()
             #     + self.prior_x[0][0] * self.S.sum()
