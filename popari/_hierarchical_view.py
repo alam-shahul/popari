@@ -300,7 +300,7 @@ class HierarchicalView:
                     # batch_effect[:self.K//2] = 1e-5
                     # batch_effect[self.K//2:] = torch.clamp(dataset_avg[self.K//2:] - min_values[self.K//2:], min=0)
                     batch_effect = torch.clamp(dataset_avg - min_values, min=0)
-                    print("batch initialization", batch_effect)
+                    # print("batch initialization", batch_effect)
                     self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
 
                     # Y ≈ (X+B) @ M.T -> B ≈ (Y - X @ M.T) @ M @ (M.T @ M)^(-1)

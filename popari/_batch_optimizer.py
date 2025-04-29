@@ -114,7 +114,6 @@ class BatchEffectOptimizer:
     def estimate_batch_effect(self, Y, M, X, B, sigma_yx, dataset, update_alg="nesterov"):
         """Estimate batch effect for a single dataset using Nesterov's
         Accelerated Gradient."""
-        print("B", B)
         G, K = M.size()
 
         B = B.clone()

@@ -118,14 +118,12 @@ class EmbeddingOptimizer:
                 # stacked_embeddings = torch.stack(embeddings_list, dim=0)
                 prior_embeddings = torch.mean(stacked_embeddings, dim=0)
                 average_across_samples.append(prior_embeddings)
-                print("priors", prior_embeddings)
 
         for dataset_index, dataset in enumerate(self.datasets):
             is_spatial_replicate = "adjacency_list" in dataset.obsm
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
             X = self.embedding_state[dataset.name].to(self.context["device"])
-            print("X", X[:5])
             M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
