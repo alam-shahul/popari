@@ -82,7 +82,7 @@ class EmbeddingOptimizer:
 
         loss_list = []
 
-        if self.prior_x_modes[0] == "cross_dataset_average":
+        if self.prior_x_modes[0] == "cross dataset average":
             average_across_samples = []
             for dataset in self.datasets:
                 embeddings_list = []
@@ -102,7 +102,7 @@ class EmbeddingOptimizer:
             prior_x_mode = self.prior_x_modes[dataset_index]
             prior_x = self.prior_xs[dataset_index]
             if not is_spatial_replicate or not use_neighbors:
-                if prior_x_mode == "cross_dataset_average":
+                if prior_x_mode == "cross dataset average":
                     loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wonbr_cross(
                         Y,
                         M,
@@ -124,7 +124,7 @@ class EmbeddingOptimizer:
                         dataset,
                     )
             elif self.batch_effect_correction is not None:
-                if prior_x_mode == "cross_dataset_average":
+                if prior_x_mode == "cross dataset average":
                     B = self.batch_optimizer.batch_effect_state[dataset.name].to(self.context["device"])
                     loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr_batch_cross(
                         Y,

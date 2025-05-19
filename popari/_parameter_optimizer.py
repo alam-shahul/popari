@@ -790,6 +790,8 @@ class ParameterOptimizer:
             linear_factor=linear_factor,
             differential_regularization_linear_factor=differential_regularization_linear_factor,
             constant=constant,
+            prior_batch_modes=self.prior_batch_modes,
+            prior_batches=self.prior_batches,
         )
 
         if self.batch_effect_correction:

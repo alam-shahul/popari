@@ -28,7 +28,7 @@ class BatchEffectLoss(nn.Module):
         """
         numerator = self.MTM @ B - self.MT_diff_sum
         if self.prior_batch_mode == "exponential":
-            numerator += self.prior_batch[0][None] * (self.self.sigma_yx**2) * self.MTM @ B
+            numerator += (self.prior_batch[0][None] * (self.sigma_yx**2) * (self.MTM @ B)).squeeze()
         grad = (numerator) / (self.sigma_yx**2)
         loss = self.compute_loss(B)
 
@@ -52,7 +52,7 @@ class BatchEffectLoss(nn.Module):
         term2 = (self.YM @ B) - (self.X @ self.MTM @ B)
         numerator = term1 + 2 * term2.sum(dim=0)
         if self.prior_batch_mode == "exponential":
-            numerator += 2 * self.prior_batch[0][None] * (self.sigma_yx**2) * B @ self.MTM @ B
+            numerator += 2 * torch.sum(self.prior_batch[0][None] * (self.sigma_yx**2) * (B @ self.MTM @ B))
         loss = (numerator) / (2 * self.sigma_yx**2)
         return loss.item()
 

@@ -52,7 +52,7 @@ class EmbeddingLossTripletLossNoNeighborsGD(EmbeddingLossNoNeighbors):
         linear_term_gradient = self.YM
         if self.prior_x_mode == "exponential shared fixed":
             linear_term_gradient = linear_term_gradient - self.prior_x[0][None]
-        elif self.prior_x_mode == "cross_dataset_average":
+        elif self.prior_x_mode == "cross dataset average":
             sign_of_prior = torch.sign(X - self.average_across_samples)
             linear_term_gradient = linear_term_gradient - (
                 (self.prior_x[0][None] * sign_of_prior) + self.prior_x[0][None]
@@ -504,7 +504,7 @@ class BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(BatchEffectEmbedd
         if self.prior_x_mode == "exponential shared fixed":
             # TODO: why divide by two?
             self.S.sub_(self.prior_x[0][0] / 2)
-        elif self.prior_x_mode == "cross_dataset_average":
+        elif self.prior_x_mode == "cross dataset average":
             sign_of_prior = (torch.sign(self.S * self.Z - self.average_across_samples) * self.Z).sum(
                 axis=1,
                 keepdim=True,
@@ -526,7 +526,7 @@ class BatchEffectTripletLossEmbeddingLossWithNeighborsNesterov(BatchEffectEmbedd
         loss = ((XB @ self.MTM) * XB).sum() / 2 - (XB * self.YM).sum() + self.Ynorm / 2
         if self.prior_x_mode == "exponential shared fixed":
             loss += self.prior_x[0][0] * self.S.sum()
-        elif self.prior_x_mode == "cross_dataset_average":
+        elif self.prior_x_mode == "cross dataset average":
             loss += self.prior_x[0][0] * torch.abs(self.S * self.Z - self.average_across_samples).sum()
             # loss += (
             #     self.prior_x[0][0] * torch.abs(self.S - self.average_across_samples).sum()

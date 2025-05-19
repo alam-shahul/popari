@@ -242,13 +242,9 @@ class BatchEffectMNAG(EstimateMNAG):
             )  # torch.cholesky_inverse
 
         if self.prior_batch_modes[0] == "exponential":
-            temp_loss = 0
-            temp_grad = 0
             for idx, tensor in enumerate(batch_effects):
-                temp_loss += self.prior_batch_modes[idx] * tensor * M.T @ M * tensor
-                temp_grad += 2 * M * tensor @ tensor.T
-            loss += temp_loss
-            grad += temp_grad
+                loss += torch.sum(self.prior_batches[idx][0][None] @ (tensor * (M.T @ M) * tensor))
+                grad += 2 * M * (tensor @ tensor.T)
 
         loss += self.constant
 

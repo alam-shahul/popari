@@ -150,7 +150,7 @@ class HierarchicalView:
 
         if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
             prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
-        elif all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
+        elif all(prior_x_mode == "cross dataset average" for prior_x_mode in self.prior_x_modes):
             prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
         elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
             prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
@@ -223,7 +223,6 @@ class HierarchicalView:
                 context=self.context,
                 use_inplace_ops=self.use_inplace_ops,
                 verbose=self.verbose,
-                batch_effect_correction=self.batch_effect_correction,
                 **batch_optimizer_hyperparameters,
             )
 
@@ -325,47 +324,10 @@ class HierarchicalView:
                 self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
                 if self.batch_effect_correction:
                     dataset_avg = dataset_averages[dataset_index]
-
-                    # batch_effect = torch.zeros(K, **self.context)
-                    # batch_effect[:self.K//2] = 1e-5
-                    # batch_effect[self.K//2:] = torch.clamp(dataset_avg[self.K//2:] - min_values[self.K//2:], min=0)
                     batch_effect = torch.clamp(dataset_avg - min_values, min=0)
-                    # print("batch initialization", batch_effect)
                     self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
 
-                    # Y ≈ (X+B) @ M.T -> B ≈ (Y - X @ M.T) @ M @ (M.T @ M)^(-1)
-                    # MTM_inv_MT = (
-                    #     torch.inverse(self.M.T @ self.M + 1e-10 * torch.eye(self.K, device=self.M.device)) @ self.M.T
-                    # )
-                    # mean_diff = torch.mean(
-                    #     (self.Ys[dataset_index].to_dense() - self.Xs[dataset_index] @ self.M.T),
-                    #     dim=0,
-                    # )
-                    # print("batch initialization", MTM_inv_MT @ mean_diff)
-                    # self.batch_optimizer.batch_effect_state[dataset.name][:] = MTM_inv_MT @ mean_diff
-
-                    # self.batch_optimizer.batch_effect_state[dataset.name][:] = torch.zeros(K)
-
-                    # dataset_mean = torch.mean(self.Ys[dataset_index].to_dense(), dim=0)
-                    # model_mean = torch.mean(self.Xs[dataset_index] @ self.M.T, dim=0)
-                    # mean_diff = dataset_mean - model_mean
-                    # MTM = self.M.T @ self.M
-                    # MTM_regularized = MTM + torch.eye(self.K, **self.context) * 1e-6
-                    # batch_effect = mean_diff @ self.M @ torch.inverse(MTM_regularized)
-                    # print("batch initialization", batch_effect)
-                    # self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
-
-                    # batch_effect = torch.rand(self.K, **self.context)
-                    # print("batch initialization", batch_effect)
-                    # self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
-
             self.parameter_optimizer.scale_metagenes()
-            # self.parameter_optimizer.update_prior_x_cross_dataset_average()
-            # # Ensure initial embeddings do not have too large magnitudes
-            # for dataset_index, dataset in enumerate(self.datasets):
-            #     initial_X = self.embedding_optimizer.embedding_state[dataset.name]
-            #     cell_normalized_X = initial_X / torch.linalg.norm(initial_X, dim=0, keepdim=True)
-            #     self.embedding_optimizer.embedding_state[dataset.name][:] = cell_normalized_X
 
             self.Sigma_x_inv_bar = None
 
