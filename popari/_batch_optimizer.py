@@ -8,16 +8,7 @@ from tqdm.auto import tqdm, trange
 
 from popari._batch_optimizer_util import BatchEffectLoss
 from popari._popari_dataset import PopariDataset
-from popari.util import (
-    IndependentSet,
-    NesterovGD,
-    get_datetime,
-    project2simplex,
-    project2simplex_,
-    project_M,
-    project_M_,
-    sample_graph_iid,
-)
+from popari.util import NesterovGD, get_datetime
 
 
 class BatchEffectOptimizer:
@@ -28,6 +19,10 @@ class BatchEffectOptimizer:
         K,
         Ys,
         datasets,
+        prior_x_modes,
+        prior_xs,
+        prior_batch_modes,
+        prior_batches,
         initial_context=None,
         context=None,
         use_inplace_ops=False,
@@ -35,11 +30,14 @@ class BatchEffectOptimizer:
         batch_mini_iterations=1000,
         batch_tol=1e-5,
         verbose=0,
-        batch_effect_correction=False,
     ):
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
         self.datasets = datasets
+        self.prior_x_modes = prior_x_modes
+        self.prior_xs = prior_xs
+        self.prior_batch_modes = prior_batch_modes
+        self.prior_batches = prior_batches
         self.hierarchical = False
         self.K = K
         self.Ys = Ys
@@ -78,8 +76,9 @@ class BatchEffectOptimizer:
             X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
             M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
             B = self.batch_effect_state[dataset.name].to(self.context["device"])
-
-            loss, updated_B = self.estimate_batch_effect(Y, M, X, B, sigma_yx, dataset)
+            prior_batch_mode = self.prior_batch_modes[dataset_index]
+            prior_batch = self.prior_batches[dataset_index]
+            loss, updated_B = self.estimate_batch_effect(Y, M, X, B, sigma_yx, dataset, prior_batch_mode, prior_batch)
             self.batch_effect_state[dataset.name][:] = updated_B
             loss_list.append(loss)
 
@@ -111,14 +110,25 @@ class BatchEffectOptimizer:
         return loss
 
     @torch.no_grad()
-    def estimate_batch_effect(self, Y, M, X, B, sigma_yx, dataset, update_alg="nesterov"):
+    def estimate_batch_effect(
+        self,
+        Y,
+        M,
+        X,
+        B,
+        sigma_yx,
+        dataset,
+        prior_batch_mode,
+        prior_batch,
+        update_alg="nesterov",
+    ):
         """Estimate batch effect for a single dataset using Nesterov's
         Accelerated Gradient."""
         G, K = M.size()
 
         B = B.clone()
 
-        batch_effect_loss = BatchEffectLoss(Y, M, X, sigma_yx)
+        batch_effect_loss = BatchEffectLoss(Y, M, X, sigma_yx, prior_batch_mode, prior_batch)
 
         # hessian = compute_hessian_batch(M, sigma_yx)
         hessian = batch_effect_loss.compute_hessian()

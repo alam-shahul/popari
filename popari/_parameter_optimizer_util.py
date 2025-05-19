@@ -4,18 +4,9 @@ import torch
 import torch.nn as nn
 from tqdm.auto import tqdm, trange
 
-from popari._popari_dataset import PopariDataset
-from popari.sample_for_integral import integrate_of_exponential_over_simplex
-from popari.util import (
-    IndependentSet,
-    NesterovGD,
-    get_datetime,
-    project2simplex,
-    project2simplex_,
-    project_M,
-    project_M_,
-    sample_graph_iid,
-)
+from popari.util import NesterovGD, project_M, project_M_
+
+#### Optimization of M ####
 
 
 class ComputeLossNllM(nn.Module):
@@ -85,6 +76,8 @@ class EstimateMNAG(nn.Module):
         linear_factor,
         differential_regularization_linear_factor,
         constant,
+        prior_batch_modes,
+        prior_batches,
     ):
         super().__init__()
         self.metagene_mode = metagene_mode
@@ -101,6 +94,8 @@ class EstimateMNAG(nn.Module):
         self.linear_factor = linear_factor
         self.differential_regularization_linear_factor = differential_regularization_linear_factor
         self.constant = constant
+        self.prior_batch_modes = prior_batch_modes
+        self.prior_batches = prior_batches
 
     def get_loss_and_gradient(
         self,
@@ -246,6 +241,15 @@ class BatchEffectMNAG(EstimateMNAG):
                 M.T @ M + 1e-10 * torch.eye(M.shape[1], device=M.device),
             )  # torch.cholesky_inverse
 
+        if self.prior_batch_modes[0] == "exponential":
+            temp_loss = 0
+            temp_grad = 0
+            for idx, tensor in enumerate(batch_effects):
+                temp_loss += self.prior_batch_modes[idx] * tensor * M.T @ M * tensor
+                temp_grad += 2 * M * tensor @ tensor.T
+            loss += temp_loss
+            grad += temp_grad
+
         loss += self.constant
 
         if self.metagene_mode == "differential" and self.M_bar is not None:
@@ -337,10 +341,14 @@ class BatchEffectMNAG(EstimateMNAG):
         return M
 
 
+#### Optimization of Sigmayx ####
+
+
 class SigmayxLoss(nn.Module):
-    def __init__(self, sigma_yx_inv_mode):
+    def __init__(self, sigma_yx_inv_mode, prior_batch_modes):
         super().__init__()
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
+        self.prior_batch_mode = prior_batch_modes[0]
 
     def forward(self, Ys, embedding_states, metagene_states, betas):
         squared_terms = [
@@ -393,7 +401,10 @@ class BatchSigmayxLoss(SigmayxLoss):
         )
 
         num_replicates = len(embedding_states)
-        sizes = np.add(np.array([Y.numel() for Y in Ys]), np.array([X.numel() for X in embedding_states]))
+        if self.prior_batch_mode == "exponential":
+            sizes = np.array([Y.numel() for Y in Ys])
+        else:
+            sizes = np.add(np.array([Y.numel() for Y in Ys]), np.array([X.numel() for X in embedding_states]))
 
         if self.sigma_yx_inv_mode == "separate":
             sigma_yxs = np.sqrt(squared_loss / sizes)

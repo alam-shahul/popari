@@ -3,20 +3,15 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
 
-from popari._parameter_optimizer_util import BatchEffectMNAG, BatchSigmayxLoss, EstimateMNAG, SigmayxLoss
-from popari._popari_dataset import PopariDataset
-from popari.sample_for_integral import integrate_of_exponential_over_simplex
-from popari.util import (
-    IndependentSet,
-    NesterovGD,
-    convert_scipy_csr_to_pytorch_coo,
-    get_datetime,
-    project2simplex,
-    project2simplex_,
-    project_M,
-    project_M_,
-    sample_graph_iid,
+from popari._parameter_optimizer_util import (
+    BatchEffectMNAG,
+    BatchSigmayxLoss,
+    ComputeLossNllM,
+    EstimateMNAG,
+    SigmayxLoss,
 )
+from popari.sample_for_integral import integrate_of_exponential_over_simplex
+from popari.util import get_datetime, project_M, project_M_, sample_graph_iid
 
 
 class ParameterOptimizer:
@@ -29,6 +24,9 @@ class ParameterOptimizer:
         datasets,
         betas,
         prior_x_modes,
+        prior_xs,
+        prior_batch_modes,
+        prior_batches,
         metagene_groups,
         metagene_tags,
         spatial_affinity_groups,
@@ -76,6 +74,9 @@ class ParameterOptimizer:
         self.metagene_mode = metagene_mode
         self.M_constraint = M_constraint
         self.prior_x_modes = prior_x_modes
+        self.prior_xs = prior_xs
+        self.prior_batch_modes = prior_batch_modes
+        self.prior_batches = prior_batches
         self.betas = betas
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
@@ -113,15 +114,6 @@ class ParameterOptimizer:
             lr=self.spatial_affinity_lr,
             context=self.context,
         )
-
-        if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
-        elif all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
-        elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
-        else:
-            raise NotImplementedError
 
         self.sigma_yxs = np.zeros(len(self.datasets))
 
@@ -816,11 +808,15 @@ class ParameterOptimizer:
                 linear_factor=linear_factor,
                 differential_regularization_linear_factor=differential_regularization_linear_factor,
                 constant=constant,
+                prior_batch_modes=self.prior_batch_modes,
+                prior_batches=self.prior_batches,
             )
 
         if backend_algorithm == "mu":
             for epoch in progress_bar:
-                loss = (((M @ quadratic_factor) * M).sum() - 2 * (M * linear_term).sum() + constant) / 2
+                loss = (
+                    ((M @ quadratic_factor) * M).sum() - 2 * (M * linear_term).sum() + constant
+                ) / 2  # missing definition of linear_term
                 loss = loss.item()
                 numerator = linear_term
                 denominator = M @ quadratic_factor
@@ -903,7 +899,7 @@ class ParameterOptimizer:
                 #     self.lambda_M,
                 #     self.M_constraint,
                 # )
-                loss_new, grad_new = compute_loss_and_gradient_Mg(
+                loss_new, grad_new = compute_loss_and_gradient_M(
                     M,
                     quadratic_factor,
                     differential_regularization_quadratic_factor,
@@ -952,7 +948,7 @@ class ParameterOptimizer:
 
         if self.batch_effect_correction is not None:
             batch_effects = [self.batch_optimizer.batch_effect_state[dataset.name] for dataset in self.datasets]
-            estimate_batch_sigma_yx = BatchSigmayxLoss(self.sigma_yx_inv_mode)
+            estimate_batch_sigma_yx = BatchSigmayxLoss(self.sigma_yx_inv_mode, self.prior_batch_modes)
             self.sigma_yxs[:] = estimate_batch_sigma_yx(
                 self.Ys,
                 embedding_states,
@@ -961,7 +957,7 @@ class ParameterOptimizer:
                 self.betas,
             )
         else:
-            estimate_sigma_yx = SigmayxLoss(self.sigma_yx_inv_mode)
+            estimate_sigma_yx = SigmayxLoss(self.sigma_yx_inv_mode, self.prior_batch_modes)
             self.sigma_yxs[:] = estimate_sigma_yx(self.Ys, embedding_states, metagene_states, self.betas)
 
     def nll_sigma_yx(self):

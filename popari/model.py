@@ -100,6 +100,7 @@ class Popari:
         spatial_affinity_groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
         prior_x_modes: Optional[Sequence[str]] = None,
+        prior_batch_modes: Optional[Sequence[str]] = None,
         M_constraint: str = "simplex",
         sigma_yx_inv_mode: str = "separate",
         torch_context: Optional[dict] = None,
@@ -222,7 +223,13 @@ class Popari:
         }
         self.batch_effect_correction = batch_effect_correction
 
-        self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
+        self._initialize(
+            betas=betas,
+            prior_x_modes=prior_x_modes,
+            prior_batch_modes=prior_batch_modes,
+            method=initialization_method,
+            pretrained=pretrained,
+        )
 
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
         """Load Popari data directly from AnnData objects.
@@ -258,6 +265,7 @@ class Popari:
         pretrained=False,
         betas: Optional[Sequence[float]] = None,
         prior_x_modes: Optional[Sequence[str]] = None,
+        prior_batch_modes: Optional[Sequence[str]] = None,
         method: str = "svd",
     ):
         """Initialize metagenes and hidden states.
@@ -277,6 +285,7 @@ class Popari:
             "hierarchical_levels": self.hierarchical_levels,
             "betas": betas,
             "prior_x_modes": prior_x_modes,
+            "prior_batch_modes": prior_batch_modes,
             "use_inplace_ops": self.use_inplace_ops,
             "method": method,
             "pretrained": self.pretrained,
@@ -342,9 +351,6 @@ class Popari:
         """
         if self.verbose:
             print(f"{get_datetime()} Updating latent states")
-
-        # if any(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.parameter_optimizer.prior_x_modes):
-        #    self.parameter_optimizer.update_prior_x_cross_dataset_average()
 
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
 

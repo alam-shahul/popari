@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class BatchEffectLoss(nn.Module):
-    def __init__(self, Y, M, X, sigma_yx):
+    def __init__(self, Y, M, X, sigma_yx, prior_batch_mode, prior_batch):
         super().__init__()
 
         self.MTM = M.T @ M
@@ -12,6 +12,8 @@ class BatchEffectLoss(nn.Module):
 
         self.MT_diff_sum = (self.YM - self.X @ self.MTM).sum(dim=0)
         self.sigma_yx = sigma_yx
+        self.prior_batch_mode = prior_batch_mode
+        self.prior_batch = prior_batch
 
     def forward(self, B):
         """Calculate function value and gradient for batch effect optimization.
@@ -24,7 +26,10 @@ class BatchEffectLoss(nn.Module):
         Returns:
             batch effect optimization loss and gradient
         """
-        grad = (self.MTM @ B - self.MT_diff_sum) / (self.sigma_yx**2)
+        numerator = self.MTM @ B - self.MT_diff_sum
+        if self.prior_batch_mode == "exponential":
+            numerator += self.prior_batch[0][None] * (self.self.sigma_yx**2) * self.MTM @ B
+        grad = (numerator) / (self.sigma_yx**2)
         loss = self.compute_loss(B)
 
         return loss, grad
@@ -45,7 +50,10 @@ class BatchEffectLoss(nn.Module):
         """
         term1 = B @ self.MTM @ B
         term2 = (self.YM @ B) - (self.X @ self.MTM @ B)
-        loss = (term1 + 2 * term2.sum(dim=0)) / (2 * self.sigma_yx**2)
+        numerator = term1 + 2 * term2.sum(dim=0)
+        if self.prior_batch_mode == "exponential":
+            numerator += 2 * self.prior_batch[0][None] * (self.sigma_yx**2) * B @ self.MTM @ B
+        loss = (numerator) / (2 * self.sigma_yx**2)
         return loss.item()
 
     def compute_hessian(self):
@@ -61,4 +69,7 @@ class BatchEffectLoss(nn.Module):
             Hessian matrix for batch effect optimization
 
         """
-        return self.MTM / (self.sigma_yx**2)
+        numerator = self.MTM
+        if self.prior_batch_mode == "exponential":
+            numerator += self.prior_batch[0][None] * (self.sigma_yx**2) * self.MTM
+        return numerator / (self.sigma_yx**2)

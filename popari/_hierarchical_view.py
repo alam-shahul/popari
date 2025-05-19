@@ -31,6 +31,7 @@ class HierarchicalView:
         datasets: Sequence[PopariDataset],
         betas: list,
         prior_x_modes: list,
+        prior_batch_modes: list,
         method: str,
         random_state: int,
         K: int,
@@ -145,8 +146,26 @@ class HierarchicalView:
 
         if prior_x_modes is None:
             prior_x_modes = [None] * self.num_replicates
-
         self.prior_x_modes = prior_x_modes
+
+        if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
+            prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        elif all(prior_x_mode == "cross_dataset_average" for prior_x_mode in self.prior_x_modes):
+            prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
+            prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        else:
+            raise NotImplementedError
+
+        if prior_batch_modes is None:
+            prior_batch_modes = [None] * self.num_replicates
+        self.prior_batch_modes = prior_batch_modes
+        if all(prior_batch_mode == "exponential" for prior_batch_mode in self.prior_batch_modes):
+            prior_batches = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        elif all(prior_batch_mode == None for prior_batch_mode in self.prior_batch_modes):
+            prior_batches = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        else:
+            raise NotImplementedError
 
         if self.verbose:
             print(f"{get_datetime()} Initializing ParameterOptimizer")
@@ -157,6 +176,9 @@ class HierarchicalView:
             self.datasets,
             self.betas,
             prior_x_modes,
+            prior_xs,
+            prior_batch_modes,
+            prior_batches,
             initial_context=self.initial_context,
             context=self.context,
             use_inplace_ops=self.use_inplace_ops,
@@ -172,6 +194,10 @@ class HierarchicalView:
             self.K,
             self.Ys,
             self.datasets,
+            prior_x_modes,
+            prior_xs,
+            prior_batch_modes,
+            prior_batches,
             initial_context=self.initial_context,
             context=self.context,
             use_inplace_ops=self.use_inplace_ops,
@@ -189,6 +215,10 @@ class HierarchicalView:
                 self.K,
                 self.Ys,
                 self.datasets,
+                prior_x_modes,
+                prior_xs,
+                prior_batch_modes,
+                prior_batches,
                 initial_context=self.initial_context,
                 context=self.context,
                 use_inplace_ops=self.use_inplace_ops,

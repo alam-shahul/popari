@@ -15,17 +15,7 @@ from popari._embedding_optimizer_util import (
     EmbeddingLossWithNeighborsNesterov,
 )
 from popari._popari_dataset import PopariDataset
-from popari.util import (
-    IndependentSet,
-    NesterovGD,
-    convert_scipy_csr_to_pytorch_coo,
-    get_datetime,
-    project2simplex,
-    project2simplex_,
-    project_M,
-    project_M_,
-    sample_graph_iid,
-)
+from popari.util import get_datetime
 
 
 class EmbeddingOptimizer:
@@ -36,6 +26,10 @@ class EmbeddingOptimizer:
         K,
         Ys,
         datasets,
+        prior_x_modes,
+        prior_xs,
+        prior_batch_modes,
+        prior_batches,
         initial_context=None,
         context=None,
         use_inplace_ops=False,
@@ -49,6 +43,10 @@ class EmbeddingOptimizer:
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
         self.datasets = datasets
+        self.prior_x_modes = prior_x_modes
+        self.prior_xs = prior_xs
+        self.prior_batch_modes = prior_batch_modes
+        self.prior_batches = prior_batches
         self.hierarchical = False
         self.K = K
         self.Ys = Ys
@@ -84,30 +82,7 @@ class EmbeddingOptimizer:
 
         loss_list = []
 
-        if self.parameter_optimizer.prior_x_modes[0] == "cross_dataset_average":
-            # average_across_samples = []
-            # for dataset in self.datasets:
-            #     this_embeddings = self.embedding_state[dataset.name]
-
-            #     reference_embeddings = []
-            #     for other_dataset in self.datasets:
-            #         #if other_dataset.name != dataset.name:
-            #             reference_embeddings.append(self.embedding_state[other_dataset.name])
-
-            #     reference_embeddings = torch.cat(reference_embeddings, dim=0) # (N_all, K)
-            #     N_all = reference_embeddings.shape[0]
-
-            #     query = this_embeddings.detach().cpu().numpy().astype('float32')
-            #     reference = reference_embeddings.detach().cpu().numpy().astype('float32')
-
-            #     index = faiss.IndexFlatL2(reference.shape[1])
-            #     index.add(reference)
-
-            #     _, indices = index.search(query, int(N_all * 0.1))  # (N, top_k)
-            #     neighbor_embeds = reference_embeddings[torch.tensor(indices)]
-            #     prior_embeddings = neighbor_embeds.mean(dim=1)  # (N, K)
-            #     average_across_samples.append(prior_embeddings)
-
+        if self.prior_x_modes[0] == "cross_dataset_average":
             average_across_samples = []
             for dataset in self.datasets:
                 embeddings_list = []
@@ -115,7 +90,6 @@ class EmbeddingOptimizer:
                     if other_dataset.name != dataset.name:
                         embeddings_list.append(self.embedding_state[dataset.name])
                 stacked_embeddings = torch.cat(embeddings_list, dim=0)
-                # stacked_embeddings = torch.stack(embeddings_list, dim=0)
                 prior_embeddings = torch.mean(stacked_embeddings, dim=0)
                 average_across_samples.append(prior_embeddings)
 
@@ -125,8 +99,8 @@ class EmbeddingOptimizer:
             Y = self.Ys[dataset_index].to(self.context["device"])
             X = self.embedding_state[dataset.name].to(self.context["device"])
             M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
-            prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
-            prior_x = self.parameter_optimizer.prior_xs[dataset_index]
+            prior_x_mode = self.prior_x_modes[dataset_index]
+            prior_x = self.prior_xs[dataset_index]
             if not is_spatial_replicate or not use_neighbors:
                 if prior_x_mode == "cross_dataset_average":
                     loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wonbr_cross(
@@ -199,8 +173,8 @@ class EmbeddingOptimizer:
                 X = self.embedding_state[dataset.name].to(self.context["device"])
                 M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
                 B = self.batch_optimizer.batch_effect_state[dataset.name].to(self.context["device"])
-                prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
-                prior_x = self.parameter_optimizer.prior_xs[dataset_index]
+                prior_x_mode = self.prior_x_modes[dataset_index]
+                prior_x = self.prior_xs[dataset_index]
                 if not is_spatial_replicate or not use_neighbors:
                     loss = self.nll_weight_wonbr(
                         Y,

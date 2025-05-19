@@ -42,7 +42,6 @@ class Trainer:
         parameters: TrainParameters,
         model: Popari,
         verbose: int = 0,
-        batch_effect_correction: bool = False,
     ):
         self.model = model
         self.parameters = parameters
