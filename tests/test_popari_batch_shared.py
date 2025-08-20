@@ -6,21 +6,21 @@ import torch
 
 from popari import tl
 from popari.model import Popari
-from popari.train import Trainer, TrainParameters
+from popari.train import BatchBlendTrainer, TrainParameters
 
 
 @pytest.fixture(scope="module")
-def popari_with_neighbors(dataset_path, context, shared_model):
-    obj = shared_model
+def popari_with_neighbors(dataset_path, context, shared_model_batch_effect_correction):
+    obj = shared_model_batch_effect_correction
 
     iterations = 1
     train_parameters = TrainParameters(
         nmf_iterations=0,
         iterations=iterations,
-        savepath=(dataset_path / f"trained_{iterations}_iterations.h5ad"),
+        savepath=(dataset_path / f"trained_{iterations}_iterations_batch.h5ad"),
     )
 
-    trainer = Trainer(
+    trainer = BatchBlendTrainer(
         parameters=train_parameters,
         model=obj,
         verbose=True,
@@ -38,6 +38,8 @@ def popari_with_neighbors(dataset_path, context, shared_model):
 
     trainer.save_results()
 
+    shared_model_batch_effect_correction.synchronize_datasets()
+
     return obj
 
 
@@ -53,6 +55,7 @@ def popari_with_leiden_initialization(context, mock_datasets):
         datasets=mock_datasets,
         replicate_names=replicate_names,
         verbose=4,
+        batch_effect_correction="joint_metagenes",
     )
 
 
@@ -94,12 +97,12 @@ def test_louvain_clustering(popari_with_neighbors):
         joint=True,
     )
 
-    expected_aris = [0.1798389126604581, 0.06944444444444445]
+    expected_aris = [0.22932521562658548, 0.07203389830508475]
     for expected_ari, dataset in zip(expected_aris, popari_with_neighbors.datasets):
         print(f"ARI score: {dataset.uns['ari']}")
         assert expected_ari == pytest.approx(dataset.uns["ari"], abs=1e-3)
 
-    expected_silhouettes = [-0.011309038681332075, -0.06082095978987505]
+    expected_silhouettes = [0.013099687366138417, -0.01735394138090781]
     for expected_silhouette, dataset in zip(expected_silhouettes, popari_with_neighbors.datasets):
         print(f"Silhouette score: {dataset.uns['silhouette']}")
         assert expected_silhouette == pytest.approx(dataset.uns["silhouette"], abs=1e-3)

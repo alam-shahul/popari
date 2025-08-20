@@ -5,16 +5,17 @@ from typing import Optional, Sequence
 
 import numpy as np
 import torch
-from scipy.sparse import csr_array
+from scipy.sparse import csr_array, issparse
 from tqdm.auto import trange
 
+from popari._batch_optimizer import BatchEffectOptimizer
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
 from popari._embedding_optimizer import EmbeddingOptimizer
 from popari._parameter_optimizer import ParameterOptimizer
 from popari._popari_dataset import PopariDataset
 from popari.initialization import initialize_dummy, initialize_kmeans, initialize_leiden, initialize_svd
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
-from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
+from popari.util import convert_scipy_csr_to_pytorch_coo, get_datetime
 
 
 class HierarchicalView:
@@ -30,6 +31,7 @@ class HierarchicalView:
         datasets: Sequence[PopariDataset],
         betas: list,
         prior_x_modes: list,
+        prior_batch_modes: list,
         method: str,
         random_state: int,
         K: int,
@@ -42,12 +44,14 @@ class HierarchicalView:
         spatial_affinity_groups: dict,
         parameter_optimizer_hyperparameters: dict,
         embedding_optimizer_hyperparameters: dict,
+        batch_optimizer_hyperparameters: dict,
+        batch_effect_correction: str,
         binned_Ys: list = None,
         superresolution_lr: float = 1e-3,
         level: int = 0,
         hierarchical_levels: int | None = 1,
     ):
-
+        self.batch_effect_correction = batch_effect_correction
         self.datasets = datasets
         self.replicate_names = [dataset.name for dataset in datasets]
         self.K = K
@@ -125,7 +129,11 @@ class HierarchicalView:
             self.Ys = []
             for dataset in self.datasets:
                 num_cells, _ = dataset.shape
-                Y = convert_numpy_to_pytorch_sparse_coo(dataset.X, self.context)
+                if issparse(dataset.X):
+                    Y = torch.from_numpy(dataset.X.todense()).to(**self.context)
+                else:
+                    Y = torch.from_numpy(dataset.X).to(**self.context)
+
                 Y *= (self.K * 1) / (Y.sum() / num_cells)
                 self.Ys.append(Y)
         else:
@@ -138,8 +146,29 @@ class HierarchicalView:
 
         if prior_x_modes is None:
             prior_x_modes = [None] * self.num_replicates
-
         self.prior_x_modes = prior_x_modes
+
+        if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
+            prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        elif all(prior_x_mode == "cross dataset average" for prior_x_mode in self.prior_x_modes):
+            prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
+            prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        else:
+            raise NotImplementedError
+
+        if prior_batch_modes is None:
+            prior_batch_modes = [None] * self.num_replicates
+        self.prior_batch_modes = prior_batch_modes
+        if all(prior_batch_mode == "exponential" for prior_batch_mode in self.prior_batch_modes):
+            prior_batches = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        elif all(prior_batch_mode == None for prior_batch_mode in self.prior_batch_modes):
+            prior_batches = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+        else:
+            raise NotImplementedError
+
+        if self.verbose:
+            print(f"{get_datetime()} Initializing ParameterOptimizer")
 
         self.parameter_optimizer = ParameterOptimizer(
             self.K,
@@ -147,10 +176,14 @@ class HierarchicalView:
             self.datasets,
             self.betas,
             prior_x_modes,
+            prior_xs,
+            prior_batch_modes,
+            prior_batches,
             initial_context=self.initial_context,
             context=self.context,
             use_inplace_ops=self.use_inplace_ops,
             verbose=self.verbose,
+            batch_effect_correction=self.batch_effect_correction,
             **parameter_optimizer_hyperparameters,
         )
         self.superresolution_lr = superresolution_lr
@@ -161,14 +194,55 @@ class HierarchicalView:
             self.K,
             self.Ys,
             self.datasets,
+            prior_x_modes,
+            prior_xs,
+            prior_batch_modes,
+            prior_batches,
             initial_context=self.initial_context,
             context=self.context,
             use_inplace_ops=self.use_inplace_ops,
             verbose=self.verbose,
+            batch_effect_correction=self.batch_effect_correction,
             **embedding_optimizer_hyperparameters,
         )
-        self.parameter_optimizer.link(self.embedding_optimizer)
-        self.embedding_optimizer.link(self.parameter_optimizer)
+
+        if self.verbose:
+            print(f"{get_datetime()} Initializing BatchEffectOptimizer")
+
+        self.batch_optimizer = None
+        if self.batch_effect_correction:
+            self.batch_optimizer = BatchEffectOptimizer(
+                self.K,
+                self.Ys,
+                self.datasets,
+                prior_x_modes,
+                prior_xs,
+                prior_batch_modes,
+                prior_batches,
+                initial_context=self.initial_context,
+                context=self.context,
+                use_inplace_ops=self.use_inplace_ops,
+                verbose=self.verbose,
+                **batch_optimizer_hyperparameters,
+            )
+
+        self.parameter_optimizer.link(self.embedding_optimizer, self.batch_optimizer)
+        self.embedding_optimizer.link(self.parameter_optimizer, self.batch_optimizer)
+
+        adjacency_matrices = {}
+        for dataset_index, dataset in enumerate(self.datasets):
+            adjacency_matrix = convert_scipy_csr_to_pytorch_coo(
+                dataset.obsp["adjacency_matrix"],
+                self.initial_context,
+            )
+            adjacency_matrices[dataset.name] = adjacency_matrix
+
+        self.embedding_optimizer.adjacency_matrices = adjacency_matrices
+        self.parameter_optimizer.adjacency_matrices = adjacency_matrices
+
+        if self.batch_effect_correction:
+            self.batch_optimizer.link(self.embedding_optimizer, self.parameter_optimizer)
+            self.batch_optimizer.adjacency_matrices = adjacency_matrices
 
         if self.pretrained:
             first_dataset = self.datasets[0]
@@ -184,19 +258,16 @@ class HierarchicalView:
                 self.embedding_optimizer.embedding_state[dataset.name][:] = torch.from_numpy(dataset.obsm["X"]).to(
                     **self.initial_context,
                 )
-                self.embedding_optimizer.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(
-                    dataset.obsp["adjacency_matrix"],
-                    self.initial_context,
-                )
-                self.parameter_optimizer.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(
-                    dataset.obsp["adjacency_matrix"],
-                    self.initial_context,
-                )
 
                 self.parameter_optimizer.spatial_affinity_state[dataset.name] = torch.from_numpy(
                     dataset.uns["Sigma_x_inv"][dataset.name],
                 ).to(**self.initial_context)
                 spatial_affinity_copy[dataset_index] = self.parameter_optimizer.spatial_affinity_state[dataset.name]
+
+                if self.batch_effect_correction:
+                    self.batch_optimizer.batch_effect_state[dataset.name][:] = torch.from_numpy(
+                        dataset.uns["batch_effect"][dataset.name],
+                    ).to(**self.initial_context)
 
             self.parameter_optimizer.update_sigma_yx()
             self.parameter_optimizer.spatial_affinity_state.initialize_optimizers(spatial_affinity_copy)
@@ -238,17 +309,25 @@ class HierarchicalView:
             else:
                 raise NotImplementedError
 
+            if self.batch_effect_correction:
+                dataset_averages = []
+                for dataset_index, dataset in enumerate(self.datasets):
+                    X = self.Xs[dataset_index]
+                    avg_values = torch.mean(X, dim=0)
+                    dataset_averages.append(avg_values)
+
+                dataset_averages = torch.stack(dataset_averages)
+                min_values, _ = torch.min(dataset_averages, dim=0)
+
             for dataset_index, dataset in enumerate(self.datasets):
                 self.parameter_optimizer.metagene_state[dataset.name][:] = self.M
                 self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
+                if self.batch_effect_correction:
+                    dataset_avg = dataset_averages[dataset_index]
+                    batch_effect = torch.clamp(dataset_avg - min_values, min=0)
+                    self.batch_optimizer.batch_effect_state[dataset.name][:] = batch_effect
 
             self.parameter_optimizer.scale_metagenes()
-
-            # # Ensure initial embeddings do not have too large magnitudes
-            # for dataset_index, dataset in enumerate(self.datasets):
-            #     initial_X = self.embedding_optimizer.embedding_state[dataset.name]
-            #     cell_normalized_X = initial_X / torch.linalg.norm(initial_X, dim=0, keepdim=True)
-            #     self.embedding_optimizer.embedding_state[dataset.name][:] = cell_normalized_X
 
             self.Sigma_x_inv_bar = None
 
@@ -256,7 +335,6 @@ class HierarchicalView:
 
             # # Update metagenes to ensure that they lie on simplex after normalizign embeddings
             # self.parameter_optimizer.update_metagenes()
-
             initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
 
             # Initializing spatial affinities
@@ -273,6 +351,10 @@ class HierarchicalView:
 
                 Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
                 dataset.uns["Sigma_x_inv"] = {dataset.name: Sigma_x_inv}
+
+                if self.batch_effect_correction:
+                    batch_effect = self.batch_optimizer.batch_effect_state[dataset.name].cpu().detach().numpy()
+                    dataset.uns["batch_effect"] = {dataset.name: batch_effect}
 
                 dataset.uns["popari_hyperparameters"] = {
                     "prior_x": self.parameter_optimizer.prior_xs[dataset_index][0].cpu().detach().numpy(),
@@ -370,7 +452,7 @@ class HierarchicalView:
 
             # Precomputing quantities
             MTM = M.T @ M / (sigma_yx**2)
-            BTB = convert_numpy_to_pytorch_sparse_coo((B.T @ B).tocoo(), context=self.context)
+            BTB = convert_scipy_csr_to_pytorch_coo((B.T @ B), context=self.context)
             YM = Y @ M / (sigma_yx**2)
             BTX_B = torch.from_numpy(B.T @ X_B).to(self.context["device"]).to(self.context["dtype"])
 
@@ -530,6 +612,10 @@ class HierarchicalView:
                 dataset.uns["Sigma_x_inv"][dataset.name][:] = (
                     self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
                 )
+                if self.batch_effect_correction:
+                    dataset.uns["batch_effect"][dataset.name][:] = (
+                        self.batch_optimizer.batch_effect_state[dataset.name].cpu().detach().numpy()
+                    )
 
             # dataset.uns["losses"]["nll_embeddings"].append(self.embedding_optimizer.nll_embeddings())
             # dataset.uns["losses"]["nll_spatial_affinities"].append(self.parameter_optimizer.nll_spatial_affinities())
@@ -742,8 +828,8 @@ class Hierarchy:
                 )
 
                 binned_datasets.append(binned_dataset)
-                bin_assignments = convert_numpy_to_pytorch_sparse_coo(
-                    csr_array(binned_dataset.obsm[f"bin_assignments_{binned_dataset_name}"]).tocoo(),
+                bin_assignments = convert_scipy_csr_to_pytorch_coo(
+                    binned_dataset.obsm[f"bin_assignments_{binned_dataset_name}"],
                     context=context,
                 )
 
@@ -776,7 +862,7 @@ class Hierarchy:
                     B = dataset.obsm[f"bin_assignments_{dataset.name}"]
                     dataset.obsm[f"bin_assignments_{dataset.name}"] = csr_array(B)
                     binned_Y = (
-                        convert_numpy_to_pytorch_sparse_coo(
+                        convert_scipy_csr_to_pytorch_coo(
                             dataset.obsm[f"bin_assignments_{dataset.name}"],
                             context=context,
                         )

@@ -257,7 +257,6 @@ def test_untrainable_superresolve(superresolved_model, untrainable_model):
 
         for dataset in view.datasets:
             assert dataset.X.sum() > 0
-
         loss = view._superresolve_embeddings(n_epochs=10, tol=1e-8)
         assert not np.any(np.isnan(loss))
 
@@ -270,7 +269,6 @@ def test_superresolution(superresolved_model, loaded_model, test_datapath):
         assert np.allclose(dataset.obsm["X"], loaded_dataset.obsm["X"])
 
     # loaded_model.superresolve(n_epochs=10, tol=1e-8)
-
     superresolved_model.nll(level=0, use_spatial=True)
 
 

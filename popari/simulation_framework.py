@@ -356,7 +356,7 @@ class SyntheticDataset(AnnData):
         if batch_effect_indices is not None and len(batch_effect_indices) > 0:
             self.batch_effect = True
         self.batch_metagene_indices = batch_effect_indices
-        self.uns["batch_effect"] = {self.name: np.zeros((1, self.params.num_real_metagenes))}
+        self.uns["ground_truth_batch_effect"] = {self.name: np.zeros((1, self.params.num_real_metagenes))}
 
     def synthesize_metagenes(
         self,
@@ -563,7 +563,7 @@ class SyntheticDataset(AnnData):
             batch_stdev = batch_effect_scale * np.ones(num_metagenes)
             lower_bound = np.zeros(num_metagenes)
             batch_effect = sample_truncated_gaussian(batch_mean, batch_stdev, lower_bound, self.batch_metagene_indices)
-            self.uns["batch_effect"] = {self.name: batch_effect}
+            self.uns["ground_truth_batch_effect"] = {self.name: batch_effect}
             self.obsm["ground_truth_X"] = X_i * self.S[:, np.newaxis] + batch_effect
 
         else:
