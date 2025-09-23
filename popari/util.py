@@ -752,6 +752,19 @@ def get_metagene_signature(
     return list(signature_genes)
 
 
+def get_matching_order(scores):
+    """Order the metagenes by correspondence to rows in AUROC score matrix.
+
+    Return:
+        a list specific the indices that place the metagenes in the best order
+
+    """
+
+    order = np.argsort(np.argmax(scores, axis=0) - np.max(scores, axis=0) / (np.max(scores) + 1))
+
+    return order
+
+
 def convert_adjacency_matrix_to_awkward_array(adjacency_matrix: sparray):
     """Convert COO adjacency matrix to ragged Awkward Array."""
 

@@ -21,6 +21,7 @@ from popari._dataset_utils import (
     _plot_metagene_embedding,
     _plot_metagene_signature_enrichment,
     _plot_umap,
+    _spatial_affinity_heatmap,
     for_model,
     setup_squarish_axes,
 )
@@ -31,6 +32,7 @@ metagene_embedding = for_model(_plot_metagene_embedding, return_outputs=True)
 confusion_matrix = for_model(_plot_confusion_matrix, return_outputs=True)
 umap = for_model(_plot_umap, return_outputs=True)
 multireplicate_heatmap = for_model(_multireplicate_heatmap, return_outputs=True)
+spatial_affinity_heatmap = for_model(_spatial_affinity_heatmap, return_outputs=True)
 clusters_to_categories = for_model(_plot_clusters_to_categories, return_outputs=True)
 metagene_signature_enrichment = for_model(_plot_metagene_signature_enrichment, return_outputs=True)
 
@@ -62,52 +64,6 @@ def multigroup_heatmap(
 
     groups = trained_model.metagene_groups if group_type == "metagene" else trained_model.spatial_affinity_groups
     _multigroup_heatmap(datasets, title_font_size=title_font_size, groups=groups, axes=axes, key=key, **heatmap_kwargs)
-
-
-def spatial_affinities(
-    trained_model: Popari,
-    title_font_size: Optional[int] = None,
-    spatial_affinity_key: Optional[str] = "Sigma_x_inv",
-    axes: Optional[Sequence[Axes]] = None,
-    level=0,
-    **heatmap_kwargs,
-):
-    r"""Plot Sigma_x_inv across all datasets.
-
-    Wrapper function to enable plotting of continuous 2D data across multiple replicates. Only
-    one of ``obsm``, ``obsp`` or ``uns`` should be used.
-
-    Args:
-        trained_model: the trained Popari model.
-        axes: A predefined set of matplotlib axes to plot on.
-        obsm: the key in the ``.obsm`` dataframe to plot.
-        obsp: the key in the ``.obsp`` dataframe to plot.
-        uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
-        **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
-
-    """
-    datasets = trained_model.hierarchy[level].datasets
-
-    # Override following kwargs with
-    cmap = heatmap_kwargs.pop("cmap") if "cmap" in heatmap_kwargs else "bwr"
-    nested = heatmap_kwargs.pop("nested") if "nested" in heatmap_kwargs else True
-    max_value = round(
-        np.max(np.abs(np.array([dataset.uns[spatial_affinity_key][dataset.name] for dataset in datasets]))),
-    )
-    vmin = -max_value
-    vmax = max_value
-
-    _multireplicate_heatmap(
-        datasets,
-        title_font_size=title_font_size,
-        axes=axes,
-        uns=spatial_affinity_key,
-        nested=nested,
-        cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
-        **heatmap_kwargs,
-    )
 
 
 def all_embeddings(

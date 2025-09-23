@@ -3,8 +3,6 @@ from typing import Callable, Mapping, Optional, Sequence
 
 import anndata as ad
 import matplotlib.patches as patches
-import mpl_toolkits.axisartist.angle_helper as angle_helper
-import mpl_toolkits.axisartist.floating_axes as floating_axes
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -17,6 +15,8 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 from matplotlib.transforms import Affine2D
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.axisartist import angle_helper, floating_axes
 from mpl_toolkits.axisartist.grid_finder import DictFormatter, FixedLocator, MaxNLocator
 from scipy.sparse import csr_array, csr_matrix, issparse
 from scipy.stats import wilcoxon, zscore
@@ -455,6 +455,7 @@ def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="
             edges_width=edges_width,
             legend_fontsize=legend_fontsize,
             ax=ax,
+            title=dataset.name,
             fig=fig,
             palette=palette,
             edgecolors=edgecolors,
@@ -536,6 +537,9 @@ def _multireplicate_heatmap(
     if axes is None:
         fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey, dpi=dpi)
 
+    for ax in axes.flat:
+        ax.grid(False)
+
     aspect = heatmap_kwargs.pop("aspect", 1)
     cmap = heatmap_kwargs.pop("cmap", "hot")
 
@@ -583,6 +587,83 @@ def _multireplicate_heatmap(
         plt.colorbar(im, ax=ax, orientation="vertical", fraction=0.046, pad=0.04)
 
     return fig
+
+
+def _spatial_affinity_heatmap(
+    datasets: Sequence[PopariDataset],
+    spatial_affinity_key: Optional[str] = "Sigma_x_inv",
+    axes: Optional[Sequence[Axes]] = None,
+    metagene_order: Optional[Sequence[int]] = None,
+    **heatmap_kwargs,
+):
+    r"""Plot Sigma_x_inv across all datasets.
+
+    Wrapper function to enable plotting of continuous 2D data across multiple replicates. Only
+    one of ``obsm``, ``obsp`` or ``uns`` should be used.
+
+    Args:
+        trained_model: the trained Popari model.
+        axes: A predefined set of matplotlib axes to plot on.
+        obsm: the key in the ``.obsm`` dataframe to plot.
+        obsp: the key in the ``.obsp`` dataframe to plot.
+        uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
+        **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
+
+    """
+
+    dpi = heatmap_kwargs.pop("dpi", 100)
+    fig = None
+    if axes is None:
+        fig, axes = setup_squarish_axes(len(datasets), sharex=True, sharey=True, dpi=dpi)
+
+    # Override following kwargs with
+    cmap = heatmap_kwargs.pop("cmap") if "cmap" in heatmap_kwargs else "bwr"
+    nested = heatmap_kwargs.pop("nested") if "nested" in heatmap_kwargs else True
+    spatial_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.name] for dataset in datasets])
+    max_value = round(np.max(np.abs(spatial_affinities)))
+
+    _, K, _ = spatial_affinities.shape
+
+    vmin = -max_value
+    vmax = max_value
+
+    if metagene_order is not None:
+        for dataset in datasets:
+            spatial_affinity = dataset.uns[spatial_affinity_key][dataset.name]
+            reordered_spatial_affinity = spatial_affinity[metagene_order][:, metagene_order]
+            dataset.uns[f"{spatial_affinity_key}_reordered"] = {
+                dataset.name: reordered_spatial_affinity,
+            }
+
+        spatial_affinity_key = f"{spatial_affinity_key}_reordered"
+    else:
+        metagene_order = np.arange(K)
+
+    _multireplicate_heatmap(
+        datasets,
+        axes=axes,
+        uns=spatial_affinity_key,
+        nested=nested,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        **heatmap_kwargs,
+    )
+
+    fig = axes.flat[0].get_figure()
+    metagene_labels = [f"m{k}" for k in metagene_order]
+    for ax_idx, ax in enumerate(axes.flat):
+        if metagene_order is not None:
+            ax.set_xticks(np.arange(K), metagene_labels, fontsize="x-small", rotation=90)
+            ax.set_yticks(np.arange(K), metagene_labels, fontsize="x-small")
+
+        ax.grid(False)
+        im = ax.images[0]
+        im.colorbar.remove()
+
+    cax = fig.add_axes([0.95, 0.2, 0.05, 0.6])
+    fig.colorbar(im, ax=cax, orientation="vertical")
+    cax.set_axis_off()
 
 
 def _multigroup_heatmap(
