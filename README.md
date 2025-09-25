@@ -2,14 +2,23 @@
 
 Popari is a versatile framework for joint analysis and investigation of complex spatial transcriptomics datasets. Read the documentation (including installation instructions) [here](https://popari.readthedocs.io/en/latest/).
 
+<!--
 > :warning: **Popari is still under active development.** Check back in a bit for a more complete user experience!
+-->
 
 <p align="center">
   <img src="./overview_figure.png" width="800">
 </p>
 
+## Hardware requirements
+Popari requires CUDA-capable GPU hardware as a prerequisite. At least ~10 GB of GPU memory - for example, as provided by an NVIDIA GeForce RTX 2080 Ti chip - is necessary for most applications.
+
+
 ## Dev instructions
 
+<details>
+<summary>Click to expand dev instructions!</summary>
+  
 For development, create a fresh Python environment; this should not contain the PyPI-published
 version of the package.
 
@@ -78,3 +87,4 @@ make html
 ```
 
 4. Push to GitHub, and documentation will automatically build.
+</details>
