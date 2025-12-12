@@ -466,13 +466,45 @@ def sample_graph_iid(adjacency_list, indices_remaining, sample_size):
     return valid_indices
 
 
-def convert_numpy_to_pytorch_sparse_coo(numpy_coo, context):
-    indices = np.array(numpy_coo.nonzero())
-    values = numpy_coo.data[numpy_coo.data.nonzero()]
+def convert_scipy_csr_to_pytorch_coo(scipy_csr, context):
+    # indices = np.array(scipy_csr.nonzero())
+    # values = scipy_csr.data[scipy_csr.data.nonzero()]
 
-    i = torch.LongTensor(indices)
-    v = torch.FloatTensor(values)
-    size = numpy_coo.shape
+    row_ptr = scipy_csr.indptr
+    col_indices = scipy_csr.indices
+    data = scipy_csr.data
+
+    row_indices = np.zeros_like(col_indices)
+
+    for i in range(len(row_ptr) - 1):
+        row_indices[row_ptr[i] : row_ptr[i + 1]] = i
+
+    # Stack row and column indices
+    indices = np.vstack((row_indices, col_indices))
+
+    i = torch.from_numpy(indices).long()
+    v = torch.from_numpy(data)
+    size = scipy_csr.shape
+
+    torch_csr = torch.sparse_coo_tensor(i, v, size=size, **context)
+
+    return torch_csr
+
+
+def convert_scipy_coo_to_pytorch_coo(scipy_coo, context):
+    # indices = np.array(scipy_coo.nonzero())
+    # values = scipy_coo.data[scipy_coo.data.nonzero()]
+
+    values = scipy_coo.data
+    row_indices = scipy_coo.row
+    col_indices = scipy_coo.col
+
+    # Stack row and column indices
+    indices = np.vstack((row_indices, col_indices))
+
+    i = torch.from_scipy(indices).long()
+    v = torch.from_scipy(values)
+    size = scipy_coo.shape
 
     torch_coo = torch.sparse_coo_tensor(i, v, size=size, **context)
 

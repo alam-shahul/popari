@@ -1,6 +1,7 @@
 # Quickstart
 
 ## Load datasets
+
 ```python
 from pathlib import Path
 
@@ -19,13 +20,15 @@ for fov in range(5):
 ```
 
 ## Define hyperparameters
+
 ```python
 K = 20 # Number of metagenes
 lambda_Sigma_x_inv = 1e-4 # Spatial affinity regularization hyperparameter
-torch_context = dict(device='cuda:0', dtype=torch.float32) # Context for PyTorch tensor instantiation 
+torch_context = dict(device='cuda:0', dtype=torch.float32) # Context for PyTorch tensor instantiation
 ```
 
 ## Initialize
+
 ```python
 popari_demo = Popari(
     K=K,
@@ -33,8 +36,10 @@ popari_demo = Popari(
     lambda_Sigma_x_inv=lambda_Sigma_x_inv,
     torch_context=torch_context
 )
-```    
+```
+
 ## Train
+
 ```python
 # Initialization with NMF
 for iteration in range(5):
@@ -49,6 +54,7 @@ for iteration in range(num_iterations):
 ```
 
 ## Save to disk
+
 ```python
 result_filepath = Path(f"./demo_{num_iterations}_iterations.h5ad")
 popari_demo.save_results(result_filepath)

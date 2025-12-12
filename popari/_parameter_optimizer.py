@@ -3,12 +3,13 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
 
+from popari._parameter_optimizer_closures import *
 from popari._popari_dataset import PopariDataset
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import (
     IndependentSet,
     NesterovGD,
-    convert_numpy_to_pytorch_sparse_coo,
+    convert_scipy_csr_to_pytorch_coo,
     get_datetime,
     project2simplex,
     project2simplex_,
@@ -49,7 +50,9 @@ class ParameterOptimizer:
         context=None,
         use_inplace_ops=False,
         verbose=0,
+        batch_effect_correction=False,
     ):
+        self.batch_effect_correction = batch_effect_correction
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
 
@@ -78,10 +81,7 @@ class ParameterOptimizer:
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
         self.adjacency_lists = {dataset.name: dataset.obsm["adjacency_list"] for dataset in self.datasets}
-        self.adjacency_matrices = {
-            dataset.name: convert_numpy_to_pytorch_sparse_coo(dataset.obsp["adjacency_matrix"], self.context)
-            for dataset in self.datasets
-        }
+        self._adjacency_matrices = {}
 
         if self.verbose:
             print(f"{get_datetime()} Initializing MetageneState")
@@ -123,9 +123,19 @@ class ParameterOptimizer:
 
         self.sigma_yxs = np.zeros(len(self.datasets))
 
-    def link(self, embedding_optimizer):
-        """Link to embedding_optimizer."""
+    @property
+    def adjacency_matrices(self):
+        return self._adjacency_matrices
+
+    @adjacency_matrices.setter
+    def adjacency_matrices(self, val):
+        self._adjacency_matrices = val
+
+    def link(self, embedding_optimizer, batch_optimizer=None):
+        """Link to embedding_optimizer and batch_optimizer."""
+
         self.embedding_optimizer = embedding_optimizer
+        self.batch_effect_optimizer = batch_optimizer
 
     def scale_metagenes(self):
         norm_axis = 1
@@ -616,29 +626,18 @@ class ParameterOptimizer:
             for group_M_bar in M_bar:
                 differential_regularization_linear_term += group_weighting * self.lambda_M * group_M_bar
 
-        def compute_loss(M):
-            quadratic_factor_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
-            loss = (quadratic_factor_grad * M).sum()
-            linear_term_grad = linear_term + differential_regularization_linear_term
-            loss -= 2 * (linear_term_grad * M).sum()
-
-            loss += constant
-
-            if self.metagene_mode == "differential" and M_bar is not None:
-                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (
-                    differential_regularization_linear_term * M
-                ).sum()
-                group_weighting = 1 / len(M_bar)
-                for group_M_bar in M_bar:
-                    differential_regularization_term += (
-                        group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
-                    )
-
-            loss /= 2
-
-            return loss.item()
-
-        loss = compute_loss(M)
+        compute_loss = compute_loss_nll_M_closure(
+            M,
+            quadratic_factor,
+            differential_regularization_quadratic_factor,
+            linear_term,
+            differential_regularization_linear_term,
+            constant,
+            self.metagene_mode,
+            M_bar,
+            self.lambda_M,
+        )
+        loss = compute_loss
 
         return loss
 
@@ -703,12 +702,18 @@ class ParameterOptimizer:
             print(f"M constant: {constant: .1e}")
             # print(f"M constant magnitude: {constant_magnitude:.1e}")
 
+        batch_effects = [self.batch_effect_optimizer.batch_effect_state[dataset.name] for dataset in datasets]
+        print(batch_effects)
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
-        for dataset, X, Y, scaled_beta in zip(datasets, Xs, Ys, scaled_betas):
+        for dataset, X, Y, scaled_beta, B in zip(datasets, Xs, Ys, scaled_betas, batch_effects):
             # X_c^TX_c
-            quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
+            # quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
+            X_B = X + B
+            quadratic_factor.addmm_(X_B.T, X_B, alpha=scaled_beta)
+
             # MX_c^TY_c
-            linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
+            # linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
+            linear_factor.addmm_(Y.T, X_B, alpha=scaled_beta)
 
         # if self.lambda_M > 0 and M_bar is not None:
         #     quadratic_factor.diagonal().add_(self.lambda_M)
@@ -739,95 +744,27 @@ class ParameterOptimizer:
         verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format="{desc}{postfix}")
         progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, desc="Updating M", miniters=1000)
 
-        def compute_loss_and_gradient(M):
-            quadratic_factor_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
-            loss = (quadratic_factor_grad * M).sum()
-            verbose_description = ""
-            if self.verbose > 2:
-                verbose_description += f"M quadratic term: {loss:.1e}"
-            linear_term_grad = linear_factor + differential_regularization_linear_factor
-            loss -= 2 * (linear_term_grad * M).sum()
-            grad = quadratic_factor_grad - linear_term_grad
+        # compute_loss_and_gradient = compute_loss_and_gradient_M_closure(M, quadratic_factor, differential_regularization_quadratic_factor, self.verbose, differential_regularization_linear_factor, constant, self.metagene_mode, M_bar, self.lambda_M, self.M_constraint)
 
-            loss += constant
-
-            if self.metagene_mode == "differential" and M_bar is not None:
-                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (
-                    differential_regularization_linear_factor * M
-                ).sum()
-                group_weighting = 1 / len(M_bar)
-                for group_M_bar in M_bar:
-                    differential_regularization_term += (
-                        group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
-                    )
-
-            if self.verbose > 2:
-                # print(f"M regularization term: {regularization_term}")
-                if self.metagene_mode == "differential":
-                    verbose_description += f"M differential regularization term: {differential_regularization_term}"
-
-            loss /= 2
-
-            if self.M_constraint == "simplex":
-                grad.sub_(grad.sum(0, keepdim=True))
-
-            return loss.item(), grad
-
-        def estimate_M_nag(M):
-            """Estimate M using Nesterov accelerated gradient descent.
-
-            Args:
-                M (torch.Tensor) : current estimate of meteagene parameters
-
-            """
-            loss, grad = compute_loss_and_gradient(M)
-            if self.verbose > 1:
-                print(f"M NAG Initial Loss: {loss}")
-
-            step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
-            loss = np.inf
-
-            optimizer = NesterovGD(M.clone(), step_size)
-            for epoch in progress_bar:
-                loss_prev = loss
-                M_prev = M.clone()
-
-                # Update M
-                loss, grad = compute_loss_and_gradient(M)
-                M = optimizer.step(grad)
-                if simplex_projection_mode == "exact":
-                    if self.use_inplace_ops:
-                        M = project_M_(M, self.M_constraint)
-                    else:
-                        M = project_M(M, self.M_constraint)
-                elif simplex_projection_mode == "approximate":
-                    raise NotImplementedError()
-
-                optimizer.set_parameters(M)
-
-                dloss = loss_prev - loss
-                dM = (M_prev - M).abs().max().item()
-                stop_criterion = dM < tol and epoch > 5
-                assert not np.isnan(loss)
-                if epoch % 5 == 0 or stop_criterion:
-                    description = (
-                        f"Updating M: loss = {loss:.1e}, "
-                        f"%δloss = {dloss / loss:.1e}, "
-                        f"δM = {dM:.1e}"
-                        # f'lr={step_size_scale:.1e}'
-                    )
-                    progress_bar.set_description(description)
-                if stop_criterion:
-                    break
-
-            verbose_bar.close()
-            progress_bar.close()
-
-            loss, grad = compute_loss_and_gradient(M)
-            if self.verbose > 1:
-                print(f"M NAG Final Loss: {loss}")
-
-            return M
+        estimate_M_nag = estimate_M_nag_closure(
+            M,
+            self.verbose,
+            quadratic_factor,
+            differential_regularization_quadratic_factor,
+            linear_factor,
+            differential_regularization_linear_factor,
+            constant,
+            self.metagene_mode,
+            M_bar,
+            self.lambda_M,
+            progress_bar,
+            simplex_projection_mode,
+            self.use_inplace_ops,
+            self.M_constraint,
+            tol,
+            verbose_bar,
+            batch_effects,
+        )
 
         if backend_algorithm == "mu":
             for epoch in progress_bar:
@@ -862,7 +799,20 @@ class ParameterOptimizer:
         elif backend_algorithm == "gd":
             step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
             step_size_scale = 1
-            loss, grad = compute_loss_and_gradient(M)
+            loss, grad = compute_loss_and_gradient(
+                M,
+                quadratic_factor,
+                differential_regularization_quadratic_factor,
+                self.verbose,
+                linear_factor,
+                differential_regularization_linear_factor,
+                constant,
+                self.metagene_mode,
+                M_bar,
+                self.lambda_M,
+                self.M_constraint,
+                batch_effects,
+            )
             dM = dloss = np.inf
             for epoch in progress_bar:
                 M_new = M.sub(grad, alpha=step_size * step_size_scale)
@@ -873,7 +823,20 @@ class ParameterOptimizer:
                         M = project_M(M_new, self.M_constraint)
                 elif simplex_projection_mode == "approximate":
                     pass
-                loss_new, grad_new = compute_loss_and_gradient(M_new)
+                loss_new, grad_new = compute_loss_and_gradient(
+                    M_new,
+                    quadratic_factor,
+                    differential_regularization_quadratic_factor,
+                    self.verbose,
+                    linear_factor,
+                    differential_regularization_linear_factor,
+                    constant,
+                    self.metagene_mode,
+                    M_bar,
+                    self.lambda_M,
+                    self.M_constraint,
+                    batch_effects,
+                )
                 if loss_new < loss or step_size_scale == 1:
                     dM = (M_new - M).abs().max().item()
                     dloss = loss - loss_new
@@ -897,7 +860,7 @@ class ParameterOptimizer:
                     break
 
         elif backend_algorithm == "gd Nesterov":
-            M = estimate_M_nag(M)
+            M = estimate_M_nag
         else:
             raise NotImplementedError
 
@@ -915,10 +878,12 @@ class ParameterOptimizer:
         #     print(result)
         #     2/0
         #     squared_loss[index] = result
+
         squared_terms = [
             torch.addmm(
-                Y.to_dense(),
-                self.embedding_optimizer.embedding_state[dataset.name],
+                Y,
+                self.embedding_optimizer.embedding_state[dataset.name]
+                + self.batch_effect_optimizer.batch_effect_state[dataset.name],
                 self.metagene_state[dataset.name].T,
                 alpha=-1,
             )
@@ -928,7 +893,16 @@ class ParameterOptimizer:
             [torch.linalg.norm(squared_term, ord="fro").item() ** 2 for squared_term in squared_terms],
         )
         num_replicates = len(self.datasets)
-        sizes = np.array([Y.numel() for Y in self.Ys])
+        num_cells, _ = self.datasets[0].shape
+
+        if all(torch.all(tensor == 0) for tensor in self.batch_effect_optimizer.batch_effect_state.values()):
+            sizes = np.array([Y.numel() for Y in self.Ys])
+        else:
+            sizes = np.add(
+                np.array([Y.numel() for Y in self.Ys]),
+                np.array([self.K * num_cells for _ in range(num_replicates)]),
+            )
+
         if self.sigma_yx_inv_mode == "separate":
             self.sigma_yxs[:] = np.sqrt(squared_loss / sizes)
         elif self.sigma_yx_inv_mode == "average":
@@ -942,7 +916,9 @@ class ParameterOptimizer:
             squared_terms = [
                 torch.addmm(
                     Y.to_dense(),
-                    self.embedding_optimizer.embedding_state[dataset.name],
+                    # self.embedding_optimizer.embedding_state[dataset.name],
+                    self.embedding_optimizer.embedding_state[dataset.name]
+                    + self.batch_effect_optimizer.batch_effect_state[dataset.name],
                     self.metagene_state[dataset.name].T,
                     alpha=-1,
                 )

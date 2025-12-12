@@ -16,7 +16,7 @@ from tqdm import trange
 from popari._hierarchical_view import HierarchicalView, Hierarchy
 from popari._popari_dataset import PopariDataset
 from popari.io import load_anndata, merge_anndata, save_anndata, unmerge_anndata
-from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
+from popari.util import convert_scipy_csr_to_pytorch_coo, get_datetime
 
 
 class Popari:
@@ -116,6 +116,10 @@ class Popari:
         embedding_mini_iterations: int = 1000,
         embedding_acceleration_trick: bool = True,
         embedding_step_size_multiplier: float = 1.0,
+        batch_step_size_multiplier: float = 1.0,
+        batch_mini_iterations: int = 1000,
+        batch_tol: float = 1e-5,
+        batch_effect_correction: bool = False,
         downsampling_method: str = "grid",
         binning_downsample_rate: float = 0.2,
         chunks: int = 2,
@@ -209,6 +213,14 @@ class Popari:
             "embedding_acceleration_trick": embedding_acceleration_trick,
         }
 
+        # Should modify these hyperparameters
+        self.batch_effect_optimizer_hyperparameters = {
+            "batch_step_size_multiplier": batch_step_size_multiplier,
+            "batch_mini_iterations": batch_mini_iterations,
+            "batch_tol": batch_tol,
+        }
+        self.batch_effect_correction = batch_effect_correction
+
         self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
 
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
@@ -270,6 +282,8 @@ class Popari:
             "superresolution_lr": self.superresolution_lr,
             "parameter_optimizer_hyperparameters": self.parameter_optimizer_hyperparameters,
             "embedding_optimizer_hyperparameters": self.embedding_optimizer_hyperparameters,
+            "batch_effect_optimizer_hyperparameters": self.batch_effect_optimizer_hyperparameters,
+            "batch_effect_correction": self.batch_effect_correction,
         }
 
         bin_assignment_kwargs = {}
@@ -278,14 +292,15 @@ class Popari:
         elif self.downsampling_method == "partition":
             bin_assignment_kwargs["adjacency_list_key"] = "adjacency_list"
 
-        self.base_view = HierarchicalView(self.datasets, level=0, **hierarchical_view_kwargs)
-
         if self.pretrained:
             self.hierarchy = Hierarchy.reconstruct(
                 self.reloaded_hierarchy,
                 **hierarchical_view_kwargs,
             )
+            self.base_view = self.hierarchy[self.hierarchical_levels - 1]
         else:
+            self.base_view = HierarchicalView(self.datasets, level=0, **hierarchical_view_kwargs)
+
             self.hierarchy = Hierarchy(
                 downsampling_method=self.downsampling_method,
                 base_view=self.base_view,
@@ -298,8 +313,6 @@ class Popari:
                 **bin_assignment_kwargs,
             )
 
-        self.base_view = self.hierarchy[self.hierarchical_levels - 1]
-
         self.active_view = self.base_view
 
         self.datasets = self.active_view.datasets
@@ -307,6 +320,7 @@ class Popari:
         self.betas = self.active_view.betas
         self.parameter_optimizer = self.active_view.parameter_optimizer
         self.embedding_optimizer = self.active_view.embedding_optimizer
+        self.batch_effect_optimizer = self.active_view.batch_effect_optimizer
         self.metagene_groups = self.active_view.metagene_groups
         self.metagene_tags = self.active_view.metagene_tags
         self.spatial_affinity_groups = self.active_view.spatial_affinity_groups
@@ -325,6 +339,15 @@ class Popari:
         if self.verbose:
             print(f"{get_datetime()} Updating latent states")
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
+
+        if synchronize:
+            self.synchronize_datasets()
+
+    def estimate_batch_effect(self, synchronize: bool = True):
+        """Update batch effect (latent states) for each replicate."""
+        if self.verbose:
+            print(f"{get_datetime()} Updating batch effect")
+        self.batch_effect_optimizer.update_batch_effects()
 
         if synchronize:
             self.synchronize_datasets()
@@ -502,7 +525,10 @@ class Popari:
             dataset.X = raw_dataset.X.copy()
             num_cells, _ = dataset.shape
 
-            Y = convert_numpy_to_pytorch_sparse_coo(dataset.X, self.context)
+            if not issparse(dataset.X):
+                dataset.X = csr_array(dataset.X)
+
+            Y = convert_scipy_csr_to_pytorch_coo(dataset.X, self.context)
             Y *= (self.K * 1) / (Y.sum() / num_cells)
             high_resolution_view.Ys[index] = Y
 
@@ -518,7 +544,7 @@ class Popari:
                 binned_expression = bin_assignments @ dataset.X
                 binned_dataset.X = binned_expression
 
-                bin_assignments_tensor = convert_numpy_to_pytorch_sparse_coo(
+                bin_assignments_tensor = convert_scipy_csr_to_pytorch_coo(
                     bin_assignments,
                     context=self.initial_context,
                 )
