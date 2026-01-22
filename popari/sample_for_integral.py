@@ -1,9 +1,12 @@
-import sys, os, time
+import os
+import sys
+import time
 from multiprocessing import Pool
 
 import numpy as np
-import torch
 import scipy
+import torch
+
 
 def project2simplex(y, dim=0, zero_threshold=1e-10):
     """
@@ -17,9 +20,9 @@ def project2simplex(y, dim=0, zero_threshold=1e-10):
     Args:
         y: vector to be projected to unit simplex
     """
-    
+
     num_components = y.shape[dim]
-    
+
     mu = (y.sum(dim=dim, keepdim=True) - 1) / num_components
     previous_derivative = derivative = None
     for _ in range(num_components):
@@ -33,14 +36,14 @@ def project2simplex(y, dim=0, zero_threshold=1e-10):
         mu -= newton_update
         previous_derivative = derivative
     assert (derivative == previous_derivative).all()
-    
+
     assert not torch.isnan(y).any(), y
 
     y = (y - mu).clip(min=zero_threshold)
     assert not torch.isnan(y).any(), (mu, derivative)
 
     assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-3, y.sum(dim=dim).sub_(1).abs_().max()
-    
+
     return y
 
 
@@ -49,9 +52,11 @@ def test_project2simplex():
     x = x * 3 - 1
     project2simplex(x, dim=0)
 
+
 def test_project2simplex_basic():
-    x = torch.tensor([1/2, 1/4, 1/4])
+    x = torch.tensor([1 / 2, 1 / 4, 1 / 4])
     assert x.allclose(project2simplex(x.clone(), dim=0))
+
 
 def integrate_of_exponential_over_simplex(eta, eps=1e-30):
     assert torch.isfinite(eta).all()
@@ -70,7 +75,7 @@ def integrate_of_exponential_over_simplex(eta, eps=1e-30):
         log_abs[:, k] = difference.sum(axis=1)
     assert torch.isfinite(log_abs).all()
     log_abs.neg_()
-   
+
     # signed logsumexp
     maxes, _ = log_abs.max(axis=1, keepdim=True)
     ret = log_abs.sub(maxes).exp()
@@ -84,6 +89,7 @@ def integrate_of_exponential_over_simplex(eta, eps=1e-30):
     ret = ret.log().add(squeezed_maxes)
 
     return ret
+
 
 if __name__ == "__main__":
     test_project2simplex_basic()

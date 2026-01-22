@@ -65,6 +65,26 @@ def sample_gaussian(sigma: NDArray, means: NDArray, N: int = 1, random_state=0) 
     return np.squeeze(x)
 
 
+def sample_truncated_gaussian(means: NDArray, stdevs: NDArray, lower_bound: NDArray, indices: NDArray) -> NDArray:
+    """Sample truncated Gaussian batch effect.
+
+    Args:
+        means: mean of multivariate gaussians
+        stdevs: standard deviations of multivariate gaussians
+        lower_bound: lower bound array of each of the multivariate gaussians
+        indices: indices upon which to sample from multivariate gaussian
+
+    Returns:
+        An array of truncated gaussian values from the means and standard deviations for the indices specified
+
+    """
+    samples = np.zeros(len(means))
+    for i in indices:
+        a = (lower_bound[i] - means[i]) / stdevs[i]
+        samples[i] = stdevs[i] * truncnorm.rvs(a, np.inf, loc=means[i], scale=stdevs[i], size=(1, 1)) + means[i]
+    return samples
+
+
 def sample_2D_points(num_points, minimum_distance: float, width: float = 1.0, height: float = 1.0, random_state=0):
     """Generate 2D samples that are at least minimum_distance apart from each
     other."""
@@ -264,6 +284,7 @@ class SyntheticDataset(AnnData):
         parameters: SimulationParameters,
         random_state: Union[int, np.random.Generator] = None,
         verbose: int = 0,
+        batch_effect_indices: NDArray = None,
     ):
         """Generate random coordinates (as well as expression values) for a
         single ST FOV."""
@@ -330,6 +351,12 @@ class SyntheticDataset(AnnData):
             canvas_width=600,
             density=1,
         )
+
+        self.batch_effect = False
+        if batch_effect_indices is not None and len(batch_effect_indices) > 0:
+            self.batch_effect = True
+        self.batch_metagene_indices = batch_effect_indices
+        self.uns["batch_effect"] = {self.name: np.zeros((1, self.params.num_real_metagenes))}
 
     def synthesize_metagenes(
         self,
@@ -459,7 +486,6 @@ class SyntheticDataset(AnnData):
         sigma_x = sigma_x * self.params.sig_x_scale
 
         X = sample_normalized_embeddings(Z, sigma_x, rng=self.rng)
-
         return X, cell_type_assignments
 
     def simulate_expression(self, predefined_metagenes=None, metagene_magnitudes=None, **simulation_parameters):
@@ -479,6 +505,7 @@ class SyntheticDataset(AnnData):
         self,
         metagene_magnitudes=None,
         predefined_metagenes=None,
+        batch_effect_scale=2,
     ):
         """Simulate metagenes and embeddings following metagene-based SpiceMix
         model."""
@@ -530,7 +557,18 @@ class SyntheticDataset(AnnData):
             size=self.params.num_cells,
             random_state=self.rng,
         )
-        self.obsm["ground_truth_X"] = X_i * self.S[:, np.newaxis]
+
+        if self.batch_effect:
+            batch_mean = np.zeros(num_metagenes)
+            batch_stdev = batch_effect_scale * np.ones(num_metagenes)
+            lower_bound = np.zeros(num_metagenes)
+            batch_effect = sample_truncated_gaussian(batch_mean, batch_stdev, lower_bound, self.batch_metagene_indices)
+            self.uns["batch_effect"] = {self.name: batch_effect}
+            self.obsm["ground_truth_X"] = X_i * self.S[:, np.newaxis] + batch_effect
+
+        else:
+            self.obsm["ground_truth_X"] = X_i * self.S[:, np.newaxis]
+
         cell_type_encoded = C_i.astype(int)
         cell_type = [self.uns["simulation_parameters"]["cell_type_names"][index] for index in cell_type_encoded]
         self.obs["cell_type"] = cell_type
@@ -669,20 +707,28 @@ class MultiReplicateSyntheticDataset:
         dataset_constructor: SyntheticDataset,
         random_state=0,
         verbose=0,
+        percent_batch_effect=0.0,
     ):
         self.verbose = verbose
         self.datasets = {}
         self.replicate_parameters = replicate_parameters
 
-        # random.seed(random_state)
         self.rng = np.random.default_rng(random_state)
+        first_key = next(iter(self.replicate_parameters))
+        num_metagenes = self.replicate_parameters[first_key].num_real_metagenes
 
         for replicate_name in self.replicate_parameters:
+            batch_metagene_indices = self.rng.choice(
+                np.arange(num_metagenes),
+                size=int(percent_batch_effect * num_metagenes),
+                replace=False,
+            )
             synthetic_dataset = dataset_constructor(
                 replicate_name=replicate_name,
                 parameters=replicate_parameters[replicate_name],
                 random_state=self.rng,
                 verbose=self.verbose,
+                batch_effect_indices=batch_metagene_indices,
             )
             self.datasets[replicate_name] = synthetic_dataset
 

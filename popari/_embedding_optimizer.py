@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm, trange
 
+from popari._embedding_optimizer_closures import *
 from popari._popari_dataset import PopariDataset
 from popari.util import (
     IndependentSet,
@@ -166,43 +167,19 @@ class EmbeddingOptimizer:
         step_size = 1 / torch.linalg.eigvalsh(MTM).max().item()
         loss_prev, loss = np.inf, np.nan
 
-        def multiplicative_update(X_prev):
-            """TODO:UNTESTED."""
-            X = torch.clip(X_prev, min=1e-10)
-            loss = ((X @ MTM) * X).sum() / 2 - clipped_X.view(-1) @ YM.view(-1) + Ynorm / 2
-            numerator = YM
-            denominator = X @ MTM
-            if prior_x_mode == "exponential shared fixed":
-                # see sklearn.decomposition.NMF
-                loss += (X @ prior_x[0]).sum()
-                denominator += prior_x[0][None]
-            else:
-                raise NotImplementedError
+        multiplicative_update = multiplicative_update_wonbr_closure(
+            X_prev,
+            X,
+            MTM,
+            clipped_X,
+            YM,
+            Ynorm,
+            prior_x_mode,
+            prior_x,
+            loss_prev,
+        )
 
-            loss = loss.item()
-            assert loss <= loss_prev * (1 + 1e-4), (loss_prev, loss, (loss_prev - loss) / loss)
-            multiplicative_factor = numerator / denominator
-            X *= multiplicative_factor
-            torch.clip(X, min=1e-10)
-
-            return X, loss
-
-        def gradient_update(X):
-            """TODO:UNTESTED."""
-            quadratic_term_gradient = X @ MTM
-            linear_term_gradient = YM
-            if prior_x_mode == "exponential shared fixed":
-                linear_term_gradient = linear_term_gradient - prior_x[0][None]
-            elif not prior_x_mode:
-                pass
-            else:
-                raise NotImplementedError
-            loss = (quadratic_term_gradient * X).sum().item() / 2 - (linear_term_gradient * X).sum().item() + Ynorm / 2
-            gradient = quadratic_term_gradient - linear_term_gradient
-            X = X.sub(gradient, alpha=step_size)
-            X = torch.clip(X, min=1e-10)
-
-            return X, loss
+        gradient_update = gradient_update_wonbr_closure(X, MTM, YM, prior_x_mode, prior_x, Ynorm, step_size)
 
         progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, miniters=1000)
         for epoch in progress_bar:
@@ -297,148 +274,54 @@ class EmbeddingOptimizer:
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
 
-        def update_s():
-            S[:] = (YM * Z).sum(axis=1, keepdim=True)
-            if prior_x_mode == "exponential shared fixed":
-                # TODO: why divide by two?
-                S.sub_(prior_x[0][0] / 2)
-            elif not prior_x_mode:
-                pass
-            else:
-                raise NotImplementedError
+        update_s = get_update_s_wnbr_closure(S, YM, MTM, prior_x, prior_x_mode, Z)
 
-            denominator = ((Z @ MTM) * Z).sum(axis=1, keepdim=True)
-            S.div_(denominator)
-            S.clip_(min=1e-5)
+        # calc_func_grad = calc_func_grad_wnbr_closure(Z_batch, S_batch, quad, linear)
 
-        def calc_func_grad(Z_batch, S_batch, quad, linear):
-            t = (Z_batch @ quad).mul_(S_batch**2)
-            f = (t * Z_batch).sum() / 2
-            g = t
-            t = linear
-            f -= (t * Z_batch).sum()
-            g -= t
-            g.sub_(g.sum(1, keepdim=True))
+        update_z_gd = update_z_gd_wnbr_closure(
+            Z,
+            base_step_size,
+            S,
+            N,
+            E_adjacency_list,
+            self.context["device"],
+            MTM,
+            YM,
+            adjacency_matrix,
+            Sigma_x_inv,
+            self.use_inplace_ops,
+            tol,
+        )
 
-            return f.item(), g
+        update_z_gd_nesterov = update_z_gd_nesterov_wnbr_closure(
+            Z,
+            N,
+            S,
+            MTM,
+            YM,
+            adjacency_matrix,
+            Sigma_x_inv,
+            E_adjacency_list,
+            self.context["device"],
+            base_step_size,
+            self.verbose,
+            self.embedding_acceleration_trick,
+            update_s,
+            self.use_inplace_ops,
+            tol,
+        )
 
-        def update_z_gd(Z):
-            step_size = base_step_size / S.square()
-            pbar = tqdm(range(N), leave=False, disable=True)
-            for idx in IndependentSet(E_adjacency_list, device=self.context["device"], batch_size=128):
-                step_size_scale = 1
-                quad_batch = MTM
-                linear_batch = YM[idx] * S[idx] - torch.index_select(adjacency_matrix, 0, idx) @ Z @ Sigma_x_inv
-                Z_batch = Z[idx].contiguous()
-                S_batch = S[idx].contiguous()
-                step_size_batch = step_size[idx].contiguous()
-                func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-                while True:
-                    Z_batch_new = Z_batch - step_size_batch * step_size_scale * grad
-                    if self.use_inplace_ops:
-                        Z_batch_new = project2simplex_(Z_batch_new, dim=1)
-                    else:
-                        Z_batch_new = project2simplex(Z_batch_new, dim=1)
-                    dZ = Z_batch_new.sub(Z_batch).abs().max().item()
-                    func_new, grad_new = calc_func_grad(Z_batch_new, S_batch, quad_batch, linear_batch)
-                    if func_new < func:
-                        Z_batch = Z_batch_new
-                        func = func_new
-                        grad = grad_new
-                        step_size_scale *= 1.1
-                        continue
-                    else:
-                        step_size_scale *= 0.5
-                    if dZ < tol or step_size_scale < 0.5:
-                        break
-                assert step_size_scale > 0.1
-                Z[idx] = Z_batch
-                pbar.set_description(f"Updating Z w/ nbrs via line search: lr={step_size_scale:.1e}")
-                pbar.update(len(idx))
-            pbar.close()
-
-            return Z
-
-        def update_z_gd_nesterov(Z):
-            pbar = trange(N, leave=False, disable=True, desc="Updating Z w/ nbrs via Nesterov GD")
-
-            func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
-            for idx in IndependentSet(E_adjacency_list, device=self.context["device"], batch_size=1024):
-                quad_batch = MTM
-                linear_batch_spatial = -torch.index_select(adjacency_matrix, 0, idx) @ Z @ Sigma_x_inv
-                Z_batch = Z[idx].contiguous()
-                S_batch = S[idx].contiguous()
-
-                optimizer = NesterovGD(Z_batch, base_step_size / S_batch.square())
-                ppbar = trange(100, leave=False, disable=not (self.verbose > 3))
-                for i_iter in ppbar:
-                    if self.embedding_acceleration_trick:
-                        update_s()  # TODO: update S_batch directly
-                    S_batch = S[idx].contiguous()
-                    linear_batch = linear_batch_spatial + YM[idx] * S_batch
-                    if i_iter == 0:
-                        func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-                        func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
-                    NesterovGD.step_size = (
-                        base_step_size / S_batch.square()
-                    )  # TM: I think this converges as s converges
-                    func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-                    # grad_limit = torch.quantile(torch.abs(grad), 0.9)
-                    # max_before = torch.max(torch.abs(grad))
-                    # grad.clamp_(min=-grad_limit, max=grad_limit)
-                    # max_after = torch.max(torch.abs(grad))
-                    Z_batch_prev = Z_batch.clone()
-                    Z_batch = optimizer.step(grad)
-                    # if max(torch.linalg.norm(Z_batch_copy, ord=1, axis=1)) > 1000:
-                    #     print(f"L1 norm of Z_batch_copy: {torch.linalg.norm(Z_batch_copy, ord=1, axis=1)}")
-                    #     print(f"Max L1 norm of Z_batch_copy: {max(torch.linalg.norm(Z_batch_copy, ord=1, axis=1))}")
-                    #     print(f"L2 norm of Z_batch_copy: {torch.linalg.norm(Z_batch_copy, ord=2, axis=1)}")
-                    #     print(f"Max L2 norm of Z_batch_copy: {max(torch.linalg.norm(Z_batch_copy, ord=2, axis=1))}")
-                    #     print(f"Grad: {grad}")
-                    #     print(f"Grad max before: {max_before}")
-                    #     print(f"grad limit:{grad_limit}")
-                    #     print(f"Grad max after: {max_after}")
-
-                    if self.use_inplace_ops:
-                        Z_batch = project2simplex_(Z_batch, dim=1)
-                    else:
-                        Z_batch = project2simplex(Z_batch, dim=1)
-
-                    optimizer.set_parameters(Z_batch)
-
-                    dZ = (Z_batch_prev - Z_batch).abs().max().item()
-                    Z[idx] = Z_batch
-                    description = f"func={func:.1e}, dZ={dZ:.1e}"
-                    ppbar.set_description(description)
-                    if dZ < tol:
-                        break
-                ppbar.close()
-
-                Z[idx] = Z_batch
-                func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-                func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
-                pbar.update(len(idx))
-            pbar.close()
-            func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
-
-            return Z
-
-        def compute_loss():
-            X = Z * S
-            loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
-            if prior_x_mode == "exponential shared fixed":
-                loss += prior_x[0][0] * S.sum()
-            elif not prior_x_mode:
-                pass
-            else:
-                raise NotImplementedError
-
-            if Sigma_x_inv is not None:
-                loss += ((adjacency_matrix @ Z) @ Sigma_x_inv).mul(Z).sum() / 2
-            loss = loss.item()
-            # assert loss <= loss_prev, (loss_prev, loss)
-            return loss
-
+        compute_loss = compute_loss_wnbr_closure(
+            Z,
+            S,
+            MTM,
+            YM,
+            Ynorm,
+            prior_x_mode,
+            prior_x,
+            Sigma_x_inv,
+            adjacency_matrix,
+        )
         # TM: consider combine compute_loss and update_z to remove a call to torch.sparse.mm
         # TM: the above idea is not practical if we update only a subset of nodes each time
 
@@ -446,7 +329,7 @@ class EmbeddingOptimizer:
         pbar = trange(self.embedding_mini_iterations, disable=not self.verbose, desc="Updating weight w/ neighbors")
 
         for epoch in pbar:
-            update_s()
+            update_s
             Z_prev = Z.clone().detach()
             # We may use Nesterov first and then vanilla GD in later iterations
             # update_z_mu(Z)
@@ -454,10 +337,10 @@ class EmbeddingOptimizer:
             if update_alg == "gd":
                 Z = update_z_gd(Z)
             elif update_alg == "nesterov":
-                Z = update_z_gd_nesterov(Z)
+                Z = update_z_gd_nesterov
 
             loss_prev = loss
-            loss = compute_loss()
+            loss = compute_loss
             dloss = loss_prev - loss
             dZ = (Z_prev - Z).abs().max().item()
             pbar.set_description(
@@ -484,21 +367,17 @@ class EmbeddingOptimizer:
         adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
 
-        def compute_loss():
-            X = Z * S
-            loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
-            if prior_x_mode == "exponential shared fixed":
-                loss += prior_x[0][0] * S.sum()
-            elif not prior_x_mode:
-                pass
-            else:
-                raise NotImplementedError
-
-            if Sigma_x_inv is not None:
-                loss += ((adjacency_matrix @ Z) @ Sigma_x_inv).mul(Z).sum() / 2
-            loss = loss.item()
-            # assert loss <= loss_prev, (loss_prev, loss)
-            return loss
+        compute_loss = compute_loss_wnbr_closure(
+            Z,
+            S,
+            MTM,
+            YM,
+            Ynorm,
+            prior_x_mode,
+            prior_x,
+            Sigma_x_inv,
+            adjacency_matrix,
+        )
 
         loss = compute_loss()
 
