@@ -114,3 +114,44 @@ class PopariDataset(ad.AnnData):
 
         biased_batch_effect = pd.DataFrame({"x": x, "y": y, f"Metagene {metagene_index}": embedding})
         sns.scatterplot(data=biased_batch_effect, x="x", y="y", hue=f"Metagene {metagene_index}", **scatterplot_kwargs)
+
+
+@ad.register_anndata_namespace("popari")
+class PopariNamespace:
+    def __init__(self, adata: ad.AnnData):
+        self._adata = adata
+
+    def name(self, batch_key: str = "batch"):
+        included_datasets = self._adata.obs[batch_key].unique()
+        if len(included_datasets) > 1:
+            raise ValueError("AnnData object has multiple represented datasets/batches; name cannot be inferred.")
+
+        return included_datasets[0]
+
+    def compute_spatial_neighbors(self, threshold: float = 94.5):
+        r"""Compute neighbor graph based on spatial coordinates.
+
+        Stores resulting graph in ``self.obs["adjacency_list"]``.
+
+        """
+
+        sq.gr.spatial_neighbors(self._adata, coord_type="generic", delaunay=True)
+        distance_matrix = self._adata.obsp["spatial_distances"]
+        distances = distance_matrix.data
+        cutoff = np.percentile(distances, threshold)
+
+        sq.gr.spatial_neighbors(
+            self._adata,
+            coord_type="generic",
+            delaunay=True,
+            radius=[0, cutoff],
+        )
+        self._adata.obsp["adjacency_matrix"] = self._adata.obsp["spatial_connectivities"]
+
+        num_cells, _ = self._adata.obsp["adjacency_matrix"].shape
+
+        adjacency_list = [[] for _ in range(num_cells)]
+        for x, y in zip(*self._adata.obsp["adjacency_matrix"].nonzero()):
+            adjacency_list[x].append(y)
+
+        self._adata.obsm["adjacency_list"] = ak.Array(adjacency_list)
