@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 
 import pytest
@@ -6,63 +5,46 @@ import pytest
 from popari.train import MLFlowTrainer, MLFlowTrainParameters, Trainer, TrainParameters
 
 
-@pytest.fixture(scope="module", autouse=True)
-def cleanup_mlflow(request):
-    try:
-        import mlflow
-    except:
-        return
-
-    def remove_mlflow_outputs():
-        shutil.rmtree("mlruns")
-        root = Path(".")
-        for path in root.glob("*.h5ad"):
-            path.unlink()
-
-        for path in root.glob("metagene_*_in_situ.png"):
-            path.unlink()
-
-        (root / "leiden.png").unlink()
-        (root / "Sigma_x_inv.png").unlink()
-        (root / "metagenes.png").unlink()
-
-    request.addfinalizer(remove_mlflow_outputs)
-
-
-def test_trainer(test_datapath, shared_model):
-    train_parameters = TrainParameters(
-        nmf_iterations=0,
-        iterations=1,
-        savepath=(test_datapath / f"trainer_test.h5ad"),
-    )
-
+def test_trainer_runs_and_saves(shared_model_factory, tmp_path):
+    model = shared_model_factory()
+    savepath = tmp_path / "trainer_test.h5ad"
     trainer = Trainer(
-        parameters=train_parameters,
-        model=shared_model,
-        verbose=True,
+        parameters=TrainParameters(
+            nmf_iterations=0,
+            iterations=1,
+            savepath=savepath,
+        ),
+        model=model,
+        verbose=False,
     )
 
     trainer.train()
+    trainer.save_results()
+
+    assert savepath.exists()
 
 
-def test_mlflow_trainer(test_datapath, shared_model):
+def test_mlflow_trainer_runs_if_available(shared_model_factory, tmp_path):
     try:
-        import mlflow
-    except ImportError as e:
-        pytest.skip("`[mlflow]` dependencyies must be installed for `MLFlowTrainer` test.")
+        import mlflow  # noqa: F401
+    except ImportError:
+        pytest.skip("mlflow is not installed in the current environment.")
 
-    train_parameters = MLFlowTrainParameters(
-        nmf_iterations=0,
-        spatial_preiterations=1,
-        iterations=1,
-        savepath=(test_datapath / f"mlflow_trainer_test.h5ad"),
-    )
-
+    model = shared_model_factory()
+    savepath = tmp_path / "mlflow_trainer_test.h5ad"
     trainer = MLFlowTrainer(
-        parameters=train_parameters,
-        model=shared_model,
-        verbose=True,
+        parameters=MLFlowTrainParameters(
+            nmf_iterations=0,
+            spatial_preiterations=1,
+            iterations=1,
+            savepath=savepath,
+            checkpoint_iterations=1,
+        ),
+        model=model,
+        verbose=False,
     )
 
     with trainer:
         trainer.train()
+
+    assert Path(savepath).exists()

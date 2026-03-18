@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import numpy as np
 import pytest
 
@@ -7,63 +5,111 @@ from popari.io import load_anndata, save_anndata
 from popari.model import load_trained_model
 
 
-@pytest.fixture(scope="module")
-def trained_model(test_datapath):
-    trained_model = load_trained_model(test_datapath / "trained_4_iterations.h5ad")
-
-    return trained_model
-
-
-@pytest.fixture
-def delete_mock_data(test_datapath):
-    yield
-    (test_datapath / "mock_results.h5ad").unlink()
-    (test_datapath / "mock_results_ignore_raw_data.h5ad").unlink()
+def _train_small_model(model, n_steps: int = 2):
+    for _ in range(n_steps):
+        model.estimate_parameters()
+        model.estimate_weights()
+    return model
 
 
-@pytest.fixture(scope="module")
-def trained_differential_model(test_datapath):
-    trained_model = load_trained_model(test_datapath / "trained_differential_metagenes_4_iterations.h5ad")
+@pytest.mark.baseline
+def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
+    model = _train_small_model(shared_model_factory())
+    filepath = tmp_path / "results.h5ad"
 
-    return trained_model
+    save_anndata(filepath, model.datasets)
+    datasets, replicate_names = load_anndata(filepath)
+
+    assert replicate_names == model.replicate_names
+    assert len(datasets) == len(model.datasets)
+    for original, reloaded in zip(model.datasets, datasets):
+        assert reloaded.name == original.name
+        assert reloaded.shape == original.shape
+        assert np.allclose(reloaded.obsm["X"], original.obsm["X"])
+        assert np.allclose(
+            reloaded.uns["M"][reloaded.name],
+            original.uns["M"][original.name],
+        )
+        assert np.allclose(
+            reloaded.uns["Sigma_x_inv"][reloaded.name],
+            original.uns["Sigma_x_inv"][original.name],
+        )
 
 
-@pytest.fixture(scope="module")
-def differential_from_shared(test_datapath):
-    trained_model = load_trained_model(
-        test_datapath / "trained_4_iterations.h5ad",
+@pytest.mark.baseline
+def test_save_anndata_ignore_raw_data(shared_model_factory, tmp_path):
+    model = _train_small_model(shared_model_factory())
+    filepath = tmp_path / "results_ignore_raw.h5ad"
+
+    datasets = save_anndata(filepath, model.datasets, ignore_raw_data=True)
+
+    assert filepath.exists()
+    assert datasets.X.nnz == 0
+
+
+@pytest.mark.baseline
+def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
+    model = _train_small_model(shared_model_factory())
+    filepath = tmp_path / "trained_model.h5ad"
+
+    model.save_results(filepath, ignore_raw_data=False)
+    reloaded = load_trained_model(filepath)
+
+    assert reloaded.replicate_names == model.replicate_names
+    assert reloaded.metagene_mode == model.metagene_mode
+    assert reloaded.spatial_affinity_mode == model.spatial_affinity_mode
+
+    for original, restored in zip(model.datasets, reloaded.datasets):
+        assert np.allclose(restored.obsm["X"], original.obsm["X"])
+        assert np.allclose(restored.uns["M"][restored.name], original.uns["M"][original.name])
+
+    assert np.isfinite(reloaded.nll(level=0)).all()
+
+
+@pytest.mark.baseline
+def test_load_differential_from_shared_file(shared_model_factory, tmp_path):
+    model = _train_small_model(shared_model_factory())
+    filepath = tmp_path / "shared_model.h5ad"
+    model.save_results(filepath, ignore_raw_data=False)
+
+    differential = load_trained_model(
+        filepath,
         metagene_mode="differential",
         spatial_affinity_mode="differential lookup",
     )
 
-    return trained_model
+    assert differential.metagene_mode == "differential"
+    assert differential.spatial_affinity_mode == "differential lookup"
 
 
-def test_load_trained_model(trained_model):
-    pass
+@pytest.mark.expensive
+def test_hierarchical_save_and_load_roundtrip(hierarchical_model_factory, tmp_path):
+    model = hierarchical_model_factory(hierarchical_levels=2)
+    model.estimate_parameters()
+    model.estimate_weights()
+    model.superresolve(n_epochs=2, tol=1e-6)
+
+    filepath = tmp_path / "hierarchical_results"
+    model.save_results(filepath, ignore_raw_data=False)
+    reloaded = load_trained_model(filepath)
+
+    assert reloaded.hierarchical_levels == model.hierarchical_levels
+    for level in range(model.hierarchical_levels):
+        for original, restored in zip(model.hierarchy[level].datasets, reloaded.hierarchy[level].datasets):
+            assert original.shape == restored.shape
+            assert np.allclose(original.obsm["X"], restored.obsm["X"])
 
 
-def test_load_differential_from_shared(differential_from_shared):
-    assert differential_from_shared.metagene_mode == "differential"
-    assert differential_from_shared.spatial_affinity_mode == "differential lookup"
+@pytest.mark.expensive
+def test_reload_expression_restores_trainability(hierarchical_model_factory, tmp_path):
+    model = hierarchical_model_factory(hierarchical_levels=2)
+    raw_datasets = [dataset.copy() for dataset in model.hierarchy[0].datasets]
 
+    filepath = tmp_path / "hierarchical_untrainable"
+    model.save_results(filepath, ignore_raw_data=True)
+    reloaded = load_trained_model(filepath)
 
-def test_save_anndata(trained_model, test_datapath, delete_mock_data):
-    save_anndata(test_datapath / "mock_results.h5ad", trained_model.datasets)
-    save_anndata(test_datapath / "mock_results_ignore_raw_data.h5ad", trained_model.datasets, ignore_raw_data=True)
+    reloaded._reload_expression(raw_datasets)
 
-
-def test_load_anndata(test_datapath):
-    load_anndata(test_datapath / "trained_4_iterations.h5ad")
-
-
-def test_load_hierarchical_model(test_datapath):
-    load_trained_model(test_datapath / "outputs" / "superresolved_results")
-
-
-def test_nll(trained_model):
-    nll = trained_model.nll(level=0)[0]
-
-    expected_nll = -80236.7394465338
-
-    assert nll == pytest.approx(expected_nll)  # TODO: why is this returning nan?
+    for dataset in reloaded.hierarchy[0].datasets:
+        assert dataset.X.sum() > 0

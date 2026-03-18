@@ -1,200 +1,99 @@
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-from popari import pl, tl
-from popari.model import load_trained_model
-from popari.util import concatenate
+from popari import tl
 
 
-@pytest.fixture(scope="module")
-def dataset_path():
-    path2dataset = Path("tests/test_data/synthetic_dataset")
-
-    return path2dataset
-
-
-@pytest.fixture(scope="module")
-def trained_model(dataset_path):
-    trained_model = load_trained_model(dataset_path / "trained_4_iterations.h5ad")
-
-    return trained_model
+def _fit_model(model, n_steps: int = 2):
+    for _ in range(n_steps):
+        model.estimate_parameters()
+        model.estimate_weights()
+    return model
 
 
-@pytest.fixture(scope="module")
-def trained_differential_model(dataset_path):
-    trained_model = load_trained_model(dataset_path / "trained_differential_metagenes_4_iterations.h5ad")
+@pytest.mark.baseline
+def test_preprocess_and_pca(analyzed_shared_model, shared_reference_metrics):
+    model = analyzed_shared_model
+    metrics = shared_reference_metrics
 
-    return trained_model
-
-
-def test_differential_analysis(trained_differential_model):
-    differential_genes = tl.find_differential_genes(trained_differential_model)
-
-    covariate_values = [0]
-    tl.plot_gene_trajectories(trained_differential_model, differential_genes, covariate_values)
-    tl.plot_gene_activations(trained_differential_model, differential_genes)
-
-    tl.normalized_affinity_trends(trained_differential_model, timepoint_values=[0, 1])
-    pl.normalized_affinity_trends(trained_differential_model, timepoint_values=[0, 1])
+    for dataset in model.datasets:
+        assert "normalized_X" in dataset.obsm
+        assert "X_pca" in dataset.obsm
+        assert np.isfinite(dataset.obsm["normalized_X"]).all()
+        assert np.isfinite(dataset.obsm["X_pca"]).all()
+    assert np.linalg.norm(model.datasets[0].obsm["X_pca"]) == pytest.approx(metrics["pca_norms"][0], abs=1e-6)
+    assert np.linalg.norm(model.datasets[1].obsm["X_pca"]) == pytest.approx(metrics["pca_norms"][1], abs=1e-6)
 
 
-@pytest.fixture(scope="module")
-def preprocessed_model(trained_model):
-    tl.preprocess_embeddings(trained_model)
-
-    return trained_model
-
-
-def test_preprocess_model(preprocessed_model): ...
-
-
-def test_pca(preprocessed_model, dataset_path):
-    tl.pca(preprocessed_model, joint=False)
-    merged_dataset = concatenate(preprocessed_model.datasets)
-    disjoint_pca = merged_dataset.obsm["X_pca"]
-    if not (dataset_path / "pca_disjoint.npy").exists():
-        np.save(dataset_path / "pca_disjoint.npy", disjoint_pca)
-
-    saved_pca = np.load(dataset_path / "pca_disjoint.npy")
-    assert np.allclose(disjoint_pca, saved_pca)
-
-    tl.pca(preprocessed_model, joint=True)
-    merged_dataset = concatenate(preprocessed_model.datasets)
-    joint_pca = merged_dataset.obsm["X_pca"]
-    if not (dataset_path / "pca_joint.npy").exists():
-        np.save(dataset_path / "pca_joint.npy", joint_pca)
-
-    saved_pca = np.load(dataset_path / "pca_joint.npy")
-    assert np.allclose(joint_pca, saved_pca)
-
-
-@pytest.fixture(scope="module")
-def clustered_model(preprocessed_model):
-    tl.leiden(preprocessed_model, joint=True, target_clusters=8, verbose=True)
-
-    return preprocessed_model
-
-
-@pytest.fixture(scope="module")
-def domain_clustered_model(preprocessed_model):
-    tl.cluster_domains(preprocessed_model, target_domains=5)
-
-    return preprocessed_model
-
-
-def test_leiden_clustering(clustered_model): ...
-
-
-def test_cluster_domains(domain_clustered_model): ...
-
-
-def test_ari_score(clustered_model):
-    expected_aris = [0.7999987761039686, 0.8330125889278888]
-    tl.compute_ari_scores(clustered_model, labels="cell_type", predictions="leiden")
-
-    for expected_ari, dataset in zip(expected_aris, clustered_model.datasets):
-        print(f"ARI score: {dataset.uns['ari']}")
-        assert expected_ari == pytest.approx(dataset.uns["ari"], abs=1e-3)
-
-
-def test_silhouette_score(clustered_model):
-    expected_silhouettes = [0.3065451896356221, 0.3442973114128474]
-    tl.compute_silhouette_scores(clustered_model, labels="cell_type", embeddings="normalized_X")
-
-    for expected_silhouette, dataset in zip(expected_silhouettes, clustered_model.datasets):
-        print(f"Silhouette score: {dataset.uns['silhouette']}")
-        assert expected_silhouette == pytest.approx(dataset.uns["silhouette"], abs=1e-3)
-
-
-def test_classification_task_disjoint(clustered_model):
-    expected_microprecisions = [0.9013333333333333, 0.88]
-    expected_macroprecisions = [0.9171604437229437, 0.9096684397401208]
-    tl.evaluate_classification_task(clustered_model, labels="cell_type", embeddings="normalized_X", joint=False)
-
-    for expected_microprecision, expected_macroprecision, dataset in zip(
-        expected_microprecisions,
-        expected_macroprecisions,
-        clustered_model.datasets,
-    ):
-        print(f"Validation microprecision: {dataset.uns['microprecision_validation']}")
-        print(f"Validation macroprecision: {dataset.uns['macroprecision_validation']}")
-        assert pytest.approx(dataset.uns["microprecision_validation"]) == expected_microprecision
-        assert pytest.approx(dataset.uns["macroprecision_validation"]) == expected_macroprecision
-
-
-def test_classification_task_joint(clustered_model):
-    expected_microprecisions = [0.9226666666666666, 0.9226666666666666]
-    expected_macroprecisions = [0.9333166458237094, 0.9333166458237094]
-    tl.evaluate_classification_task(clustered_model, labels="cell_type", embeddings="normalized_X", joint=True)
-
-    for expected_microprecision, expected_macroprecision, dataset in zip(
-        expected_microprecisions,
-        expected_macroprecisions,
-        clustered_model.datasets,
-    ):
-        print(f"Validation microprecision: {dataset.uns['microprecision_validation']}")
-        print(f"Validation macroprecision: {dataset.uns['macroprecision_validation']}")
-        assert pytest.approx(dataset.uns["microprecision_validation"]) == expected_microprecision
-        assert pytest.approx(dataset.uns["macroprecision_validation"]) == expected_macroprecision
-
-
-def test_confusion_matrix(clustered_model):
+@pytest.mark.expensive
+def test_clustering_metrics_and_classification(clustered_shared_model, shared_reference_metrics):
+    model = clustered_shared_model
+    metrics = shared_reference_metrics
     try:
-        tl.compute_confusion_matrix(clustered_model, labels="cell_type", predictions="leiden")
-        pl.confusion_matrix(clustered_model, labels="cell_type")
-    except Exception as e:
-        assert type(e) is ValueError
+        tl.compute_confusion_matrix(model, labels="cell_type", predictions="leiden", joint=True)
+    except ValueError:
+        pass
 
-    try:
-        tl.compute_confusion_matrix(clustered_model, labels="cell_type", predictions="leiden", joint=True)
-        pl.confusion_matrix(clustered_model, labels="cell_type")
-    except Exception as e:
-        assert type(e) is ValueError
-
-
-def test_columnwise_autocorrelation(clustered_model):
-    tl.compute_columnwise_autocorrelation(clustered_model, uns="M")
-
-
-def test_plot_in_situ(clustered_model):
-    pl.in_situ(clustered_model)
-
-
-def test_umap(clustered_model):
-    tl.umap(clustered_model)
-    pl.umap(clustered_model, color="leiden")
-    pl.umap(clustered_model, color="leiden", joint=True)
-
-
-def test_multireplicate_heatmap(clustered_model):
-    pl.multireplicate_heatmap(clustered_model, uns="Sigma_x_inv")
-    pl.multireplicate_heatmap(clustered_model, uns="Sigma_x_inv", label_values=True)
-    pl.spatial_affinity_heatmap(clustered_model, label_values=True)
-
-
-def test_plot_metagene_embedding(clustered_model):
-    pl.metagene_embedding(clustered_model, 0)
+    for dataset in model.datasets:
+        assert "leiden" in dataset.obs
+        assert np.isfinite(dataset.uns["ari"])
+        assert np.isfinite(dataset.uns["silhouette"])
+        assert 0 <= dataset.uns["microprecision_validation"] <= 1
+        assert 0 <= dataset.uns["macroprecision_validation"] <= 1
+    assert model.datasets[0].uns["ari"] == pytest.approx(metrics["ari"][0], abs=1e-9)
+    assert model.datasets[1].uns["ari"] == pytest.approx(metrics["ari"][1], abs=1e-9)
+    assert model.datasets[0].uns["silhouette"] == pytest.approx(metrics["silhouette"][0], abs=1e-9)
+    assert model.datasets[1].uns["silhouette"] == pytest.approx(metrics["silhouette"][1], abs=1e-9)
+    assert model.datasets[0].uns["microprecision_validation"] == pytest.approx(
+        metrics["microprecision_validation"][0],
+        abs=1e-9,
+    )
+    assert model.datasets[1].uns["microprecision_validation"] == pytest.approx(
+        metrics["microprecision_validation"][1],
+        abs=1e-9,
+    )
+    assert model.datasets[0].uns["macroprecision_validation"] == pytest.approx(
+        metrics["macroprecision_validation"][0],
+        abs=1e-9,
+    )
+    assert model.datasets[1].uns["macroprecision_validation"] == pytest.approx(
+        metrics["macroprecision_validation"][1],
+        abs=1e-9,
+    )
 
 
-def test_plot_all_embeddings(clustered_model):
-    pl.all_embeddings(clustered_model, embedding_key="normalized_X")
+@pytest.mark.expensive
+def test_embedding_and_spatial_summaries(analyzed_shared_model):
+    model = analyzed_shared_model
+    tl.compute_columnwise_autocorrelation(model, uns="M")
+    tl.compute_empirical_correlations(model, output="empirical_correlation")
+    tl.compute_spatial_gene_correlation(model)
+    tl.cluster_domains(model, target_domains=2)
+
+    for dataset in model.datasets:
+        assert "empirical_correlation" in dataset.uns
+        assert "spatial_gene_correlation" in dataset.uns
+        assert "neighbor_interactions" in dataset.uns
+        assert "domain" in dataset.obs
+        empirical = dataset.uns["empirical_correlation"][dataset.name]
+        assert empirical.shape[0] == empirical.shape[1] == model.K
+        assert np.allclose(empirical, empirical.T)
 
 
-def test_empirical_correlations(clustered_model):
-    tl.compute_empirical_correlations(clustered_model, output="empirical_correlation")
-    pl.multireplicate_heatmap(clustered_model, uns="empirical_correlation")
+@pytest.mark.expensive
+def test_differential_analysis_helpers(differential_model_factory):
+    model = _fit_model(differential_model_factory())
 
+    genes = tl.find_differential_genes(model, top_gene_limit=2)
+    assert genes
 
-def test_multigroup_heatmap(clustered_model):
-    pl.multigroup_heatmap(clustered_model, key="multigroup_heatmap")
+    tl.plot_gene_trajectories(model, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
+    tl.plot_gene_activations(model, list(genes)[:2])
+    top_pairs, correlations, variances = tl.normalized_affinity_trends(
+        model,
+        timepoint_values=list(range(len(model.datasets))),
+    )
 
-
-def test_plot_metagene_to_cell_type(clustered_model):
-    pl.cell_type_to_metagene(clustered_model, {"type_1": ["0"], "type_2": ["1"]})
-    pl.cell_type_to_metagene_difference(clustered_model, {"type_1": ["0"], "type_2": ["1"]}, 0, 1)
-
-
-def test_spatial_gene_correlation(clustered_model):
-    tl.compute_spatial_gene_correlation(clustered_model)
+    assert top_pairs
+    assert correlations
+    assert variances

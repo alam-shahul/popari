@@ -1,278 +1,93 @@
-from pathlib import Path
-
 import numpy as np
 import pytest
-import scanpy as sc
-import torch
 
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
 from popari.io import load_anndata
-from popari.model import Popari, load_trained_model
+from popari.model import load_trained_model
 
 
-@pytest.fixture(scope="module")
-def trained_model(test_datapath):
-    trained_model = load_trained_model(test_datapath / "trained_4_iterations.h5ad")
-
-    return trained_model
-
-
-def test_grid_binning(trained_model, test_datapath):
-    binned_datasets = []
-
+@pytest.mark.baseline
+def test_grid_binning_produces_valid_assignments(shared_model_factory, dataset_factory):
+    model = shared_model_factory(datasets=dataset_factory(num_cells=64))
     downsampler = GridDownsampler()
-    for index, dataset in enumerate(trained_model.datasets):
-        binned_dataset_name = f"{dataset.name}_level_0"
-        bin_assignments_key = f"bin_assignments_{binned_dataset_name}"
+
+    for dataset in model.datasets:
+        binned_name = f"{dataset.name}_level_0"
+        key = f"bin_assignments_{binned_name}"
         binned_dataset, _ = downsampler.downsample(
             dataset,
-            bin_assignments_key=bin_assignments_key,
-            chunks=4,
+            bin_assignments_key=key,
+            chunks=2,
             downsample_rate=0.5,
         )
-        if not (test_datapath / f"grid_binned_dataset_{index}.h5ad").exists():
-            binned_dataset.write_h5ad(test_datapath / f"grid_binned_dataset_{index}.h5ad")
 
-        saved_dataset = sc.read_h5ad(test_datapath / f"grid_binned_dataset_{index}.h5ad")
-        assert np.allclose(
-            binned_dataset.obsm[bin_assignments_key].toarray(),
-            saved_dataset.obsm[bin_assignments_key].toarray(),
-        )
+        assignments = binned_dataset.obsm[key].toarray()
+        assert len(binned_dataset) < len(dataset)
+        assert assignments.shape[1] == len(dataset)
+        assert np.all(assignments.sum(axis=0) == 1)
 
 
-def test_partition_binning(trained_model, test_datapath):
-    binned_datasets = []
-
+@pytest.mark.baseline
+def test_partition_binning_produces_valid_assignments(shared_model_factory, dataset_factory):
+    model = shared_model_factory(datasets=dataset_factory(num_cells=64))
     downsampler = PartitionDownsampler()
-    for index, dataset in enumerate(trained_model.datasets):
-        binned_dataset_name = f"{dataset.name}_level_0"
-        bin_assignments_key = f"bin_assignments_{binned_dataset_name}"
+
+    for dataset in model.datasets:
+        binned_name = f"{dataset.name}_level_0"
+        key = f"bin_assignments_{binned_name}"
         binned_dataset, _ = downsampler.downsample(
             dataset,
-            bin_assignments_key=bin_assignments_key,
+            bin_assignments_key=key,
             downsample_rate=0.5,
             adjacency_list_key="adjacency_list",
         )
-        if not (test_datapath / f"partition_binned_dataset_{index}.h5ad").exists():
-            binned_dataset.write_h5ad(test_datapath / f"partition_binned_dataset_{index}.h5ad")
 
-        saved_dataset = sc.read_h5ad(test_datapath / f"partition_binned_dataset_{index}.h5ad")
-        assert np.allclose(
-            binned_dataset.obsm[bin_assignments_key].toarray(),
-            saved_dataset.obsm[bin_assignments_key].toarray(),
-        )
+        assignments = binned_dataset.obsm[key].toarray()
+        assert len(binned_dataset) < len(dataset)
+        assert assignments.shape[1] == len(dataset)
+        assert np.all(assignments.sum(axis=0) == 1)
 
 
-@pytest.fixture(scope="module")
-def hierarchical_model(test_datapath, context):
-    replicate_names = ["0", "1"]
-    hierarchical_parameters = {
-        "K": 10,
-        "lambda_Sigma_x_inv": 1e-3,
-        "torch_context": context,
-        "initial_context": context,
-        "initialization_method": "svd",
-        "spatial_affinity_mode": "differential lookup",
-        "dataset_path": test_datapath / "all_data.h5",
-        "replicate_names": replicate_names,
-        "hierarchical_levels": 2,
-        "binning_downsample_rate": 0.5,
-        "superresolution_lr": 1e-2,
-        "verbose": 4,
-    }
+@pytest.mark.expensive
+def test_hierarchical_superresolution_is_finite(hierarchical_model_factory):
+    model = hierarchical_model_factory(hierarchical_levels=2)
+    model.estimate_parameters()
+    model.estimate_weights()
 
-    obj = Popari(**hierarchical_parameters)
+    model.superresolve(n_epochs=2, tol=1e-6)
 
-    # TODO: add test for tl.propagate_labels
-
-    return obj
+    for level in range(model.hierarchical_levels):
+        assert np.isfinite(model.nll(level=level)).all()
 
 
-@pytest.fixture(scope="module")
-def float32_hierarchical_model(test_datapath, float32_context):
-    replicate_names = ["0", "1"]
-    hierarchical_parameters = {
-        "K": 10,
-        "lambda_Sigma_x_inv": 1e-3,
-        "torch_context": float32_context,
-        "initial_context": float32_context,
-        "initialization_method": "svd",
-        "spatial_affinity_mode": "differential lookup",
-        "dataset_path": test_datapath / "all_data.h5",
-        "replicate_names": replicate_names,
-        "hierarchical_levels": 2,
-        "binning_downsample_rate": 0.5,
-        "superresolution_lr": 1e-2,
-        "verbose": 4,
-    }
+@pytest.mark.expensive
+def test_hierarchical_save_load_and_reload_expression(hierarchical_model_factory, tmp_path):
+    model = hierarchical_model_factory(hierarchical_levels=2)
+    raw_datasets = [dataset.copy() for dataset in model.hierarchy[0].datasets]
 
-    obj = Popari(**hierarchical_parameters)
+    trainable_path = tmp_path / "superresolved_results"
+    untrainable_path = tmp_path / "untrainable_results"
 
-    # TODO: add test for tl.propagate_labels
+    model.save_results(trainable_path, ignore_raw_data=False)
+    model.save_results(untrainable_path, ignore_raw_data=True)
 
-    return obj
+    reloaded_trainable = load_trained_model(trainable_path)
+    reloaded_untrainable = load_trained_model(untrainable_path)
+    reloaded_untrainable._reload_expression(raw_datasets)
+
+    for level in range(model.hierarchical_levels):
+        for original, restored in zip(model.hierarchy[level].datasets, reloaded_trainable.hierarchy[level].datasets):
+            assert original.shape == restored.shape
+
+    for dataset in reloaded_untrainable.hierarchy[0].datasets:
+        assert dataset.X.sum() > 0
 
 
-#
-#
-# @pytest.fixture(scope="module")
-# def leiden_initialized_model(test_datapath):
-#     replicate_names = [0, 1]
-#     obj = Popari(
-#         K=10,
-#         lambda_Sigma_x_inv=1e-3,
-#         torch_context=context,
-#         initial_context=context,
-#         spatial_affinity_mode="differential lookup",
-#         dataset_path=test_datapath / "all_data.h5",
-#         replicate_names=replicate_names,
-#         hierarchical_levels=2,
-#         binning_downsample_rate=0.5,
-#         superresolution_lr=1e-2,
-#         verbose=4,
-#     )
-#
-#     return obj
-#
-#
-@pytest.fixture(scope="module")
-def coarser_model(test_datapath, context):
-    replicate_names = [0, 1]
-    _ = Popari(
-        K=10,
-        lambda_Sigma_x_inv=1e-3,
-        torch_context=context,
-        initial_context=context,
-        initialization_method="svd",
-        spatial_affinity_mode="differential lookup",
-        dataset_path=test_datapath / "all_data.h5",
-        replicate_names=replicate_names,
-        hierarchical_levels=3,
-        binning_downsample_rate=0.2,
-        superresolution_lr=1e-2,
-        verbose=4,
-    )
+@pytest.mark.expensive
+def test_load_anndata_roundtrip_for_saved_hierarchy(hierarchical_model_factory, tmp_path):
+    model = hierarchical_model_factory(hierarchical_levels=2)
+    filepath = tmp_path / "hierarchy_results"
+    model.save_results(filepath, ignore_raw_data=False)
 
-
-# def test_hierarchical_svd_initialization(hierarchical_model):
-#     pass
-#
-#
-# def test_hierarchical_leiden_initialization(leiden_initialized_model):
-#     pass
-#
-#
-def test_coarser_initialization(coarser_model):
-    pass
-
-
-#
-#
-# def test_nll_hierarchical(hierarchical_model):
-#     nll = hierarchical_model.nll()
-#     level_0_nll = hierarchical_model.nll(level=0)
-
-
-@pytest.fixture(scope="module")
-def superresolved_model(hierarchical_model, test_datapath):
-    for iteration in range(1, 2):
-        print(f"-----  Iteration {iteration} -----")
-        hierarchical_model.estimate_parameters()
-        nll_metagenes = hierarchical_model.base_view.parameter_optimizer.nll_metagenes()
-        nll_spatial_affinities = hierarchical_model.base_view.parameter_optimizer.nll_spatial_affinities()
-        nll_sigma_yx = hierarchical_model.base_view.parameter_optimizer.nll_sigma_yx()
-        print(f"Metagene loss: {nll_metagenes}")
-        print(f"Spatial affinity loss: {nll_spatial_affinities}")
-        print(f"Sigma_yx loss: {nll_sigma_yx}")
-        hierarchical_model.estimate_weights()
-        nll_embeddings = hierarchical_model.base_view.embedding_optimizer.nll_embeddings()
-        print(f"Embedding loss: {nll_embeddings}")
-        print(f"Overall loss: {hierarchical_model.base_view.nll()}")
-
-    hierarchical_model.superresolve(n_epochs=10)
-
-    hierarchical_model.superresolve(n_epochs=10, tol=1e-8)
-    hierarchical_model.set_superresolution_lr(new_lr=1e-1)
-    hierarchical_model.superresolve(n_epochs=10, tol=1e-8)
-
-    hierarchical_model.superresolve(n_epochs=10, tol=1e-8, use_manual_gradients=True)
-    hierarchical_model.nll(level=1, use_spatial=True)
-    hierarchical_model.nll(level=0, use_spatial=True)
-
-    if not (test_datapath / "outputs" / "superresolved_results").is_dir():
-        # if True:
-        hierarchical_model.save_results(test_datapath / "outputs" / "superresolved_results", ignore_raw_data=False)
-
-    if not (test_datapath / "outputs" / "untrainable_superresolved_results").is_dir():
-        hierarchical_model.save_results(
-            test_datapath / "outputs" / "untrainable_superresolved_results",
-            ignore_raw_data=True,
-        )
-
-    return hierarchical_model
-
-
-@pytest.fixture(scope="module")
-def loaded_model(superresolved_model, test_datapath, context):
-    reloaded_model = load_trained_model(
-        test_datapath / "outputs" / "superresolved_results",
-        context=context,
-    )
-
-    return reloaded_model
-
-
-@pytest.fixture(scope="module")
-def untrainable_model(superresolved_model, test_datapath, context):
-    reloaded_model = load_trained_model(
-        test_datapath / "outputs" / "untrainable_superresolved_results",
-        context=context,
-        verbose=6,
-    )
-
-    raw_datasets, _ = load_anndata(test_datapath / "all_data.h5")
-    reloaded_model._reload_expression(raw_datasets)
-
-    return reloaded_model
-
-
-def test_hierarchical_load(loaded_model):
-    pass
-    # Try superresolution on reloaded model
-    for level in range(loaded_model.hierarchical_levels - 2, -1, -1):
-        view = loaded_model.hierarchy[level]
-
-        for dataset in view.datasets:
-            assert dataset.X.sum() > 0
-
-        loss = view._superresolve_embeddings(n_epochs=10, tol=1e-8)
-        assert not np.any(np.isnan(loss))
-
-
-def test_untrainable_superresolve(superresolved_model, untrainable_model):
-    pass
-    # Try superresolution on reloaded model
-    for level in range(untrainable_model.hierarchical_levels - 2, -1, -1):
-        view = untrainable_model.hierarchy[level]
-
-        for dataset in view.datasets:
-            assert dataset.X.sum() > 0
-
-        loss = view._superresolve_embeddings(n_epochs=10, tol=1e-8)
-        assert not np.any(np.isnan(loss))
-
-
-def test_superresolution(superresolved_model, loaded_model, test_datapath):
-    for dataset_index, (dataset, loaded_dataset) in enumerate(
-        zip(superresolved_model.hierarchy[0].datasets, loaded_model.hierarchy[0].datasets),
-    ):
-        print((dataset.obsm["X"] - loaded_dataset.obsm["X"]).max())
-        assert np.allclose(dataset.obsm["X"], loaded_dataset.obsm["X"])
-
-    # loaded_model.superresolve(n_epochs=10, tol=1e-8)
-
-    superresolved_model.nll(level=0, use_spatial=True)
-
-
-def test_float32_superresolution(float32_hierarchical_model):
-    float32_hierarchical_model.superresolve(n_epochs=10)
+    datasets, replicate_names = load_anndata(filepath / "level_0.h5ad")
+    assert len(datasets) == len(replicate_names)

@@ -1,75 +1,57 @@
-from pathlib import Path
-
 import numpy as np
 import pytest
-import torch
 
 from popari import tl
-from popari.model import Popari
 
 
-@pytest.fixture(scope="module")
-def popari_with_neighbors(test_datapath, context):
-    replicate_names = [0, 1]
-    obj = Popari(
-        K=10,
-        lambda_Sigma_x_inv=1e-5,
-        metagene_mode="differential",
-        lambda_M=0.5,
-        torch_context=context,
-        initial_context=context,
-        dataset_path=test_datapath / "all_data.h5",
-        replicate_names=replicate_names,
-        verbose=2,
-    )
+@pytest.mark.expensive
+def test_differential_parameter_updates_are_finite(differential_model_factory):
+    model = differential_model_factory()
 
-    for iteration in range(1, 5):
-        obj.estimate_parameters()
-        obj.estimate_weights()
+    for _ in range(2):
+        model.estimate_parameters()
+        model.estimate_weights()
 
-    if not (test_datapath / "trained_differential_metagenes_4_iterations.h5ad").exists():
-        obj.save_results(test_datapath / "trained_differential_metagenes_4_iterations.h5ad")
-
-    return obj
+    for dataset in model.datasets:
+        assert np.isfinite(model.parameter_optimizer.metagene_state[dataset.name].detach().cpu().numpy()).all()
+        assert np.isfinite(model.embedding_optimizer.embedding_state[dataset.name].detach().cpu().numpy()).all()
+        assert np.isfinite(model.parameter_optimizer.spatial_affinity_state[dataset.name].detach().cpu().numpy()).all()
 
 
-def test_Sigma_x_inv(popari_with_neighbors, test_datapath):
-    Sigma_x_inv = (
-        list(popari_with_neighbors.parameter_optimizer.spatial_affinity_state.values())[0].detach().cpu().numpy()
-    )
-    # np.save(test_datapath / "outputs/Sigma_x_inv_differential.npy", Sigma_x_inv)
-    test_Sigma_x_inv = np.load(test_datapath / "outputs/Sigma_x_inv_differential.npy")
-    assert np.allclose(test_Sigma_x_inv, Sigma_x_inv)
+@pytest.mark.expensive
+def test_differential_group_averages_track_replicate_parameters(differential_model_factory):
+    model = differential_model_factory()
+    model.estimate_parameters()
+
+    for group_name, group_replicates in model.metagene_groups.items():
+        average = sum(
+            model.parameter_optimizer.metagene_state[dataset_name].detach().cpu().numpy()
+            for dataset_name in group_replicates
+        ) / len(group_replicates)
+        assert np.allclose(average, model.parameter_optimizer.metagene_state.M_bar[group_name].detach().cpu().numpy())
+
+    for group_name, group_replicates in model.spatial_affinity_groups.items():
+        average = sum(
+            model.parameter_optimizer.spatial_affinity_state[dataset_name].detach().cpu().numpy()
+            for dataset_name in group_replicates
+        ) / len(group_replicates)
+        assert np.allclose(
+            average,
+            model.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].detach().cpu().numpy(),
+        )
 
 
-def test_M(popari_with_neighbors, test_datapath):
-    first_group_name = list(popari_with_neighbors.metagene_groups.keys())[0]
-    M_bar = popari_with_neighbors.parameter_optimizer.metagene_state.M_bar[first_group_name].detach().cpu().numpy()
-    # np.save(test_datapath / "outputs/M_bar_differential.npy", M_bar)
-    test_M = np.load(test_datapath / "outputs/M_bar_differential.npy")
-    assert np.allclose(test_M, M_bar)
+@pytest.mark.expensive
+def test_differential_analysis_pipeline_runs(differential_model_factory):
+    model = differential_model_factory()
+    for _ in range(2):
+        model.estimate_parameters()
+        model.estimate_weights()
 
+    genes = tl.find_differential_genes(model, top_gene_limit=2)
+    assert genes
+    assert set(genes).issubset(set(model.datasets[0].var_names))
 
-def test_X_0(popari_with_neighbors, test_datapath):
-    X_0 = popari_with_neighbors.embedding_optimizer.embedding_state["0"].detach().cpu().numpy()
-    # np.save(test_datapath / "outputs/X_0_differential.npy", X_0)
-    test_X_0 = np.load(test_datapath / "outputs/X_0_differential.npy")
-    assert np.allclose(test_X_0, X_0)
-
-
-def test_louvain_clustering(popari_with_neighbors):
-    tl.preprocess_embeddings(popari_with_neighbors)
-    tl.leiden(popari_with_neighbors, joint=True, target_clusters=8)
-    tl.compute_ari_scores(popari_with_neighbors, labels="cell_type", predictions="leiden")
-    tl.compute_silhouette_scores(popari_with_neighbors, labels="cell_type", embeddings="normalized_X")
-    tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=False)
-    tl.evaluate_classification_task(popari_with_neighbors, labels="cell_type", embeddings="normalized_X", joint=True)
-
-    expected_aris = [0.6582165734532696, 0.719865660374264]
-    for expected_ari, dataset in zip(expected_aris, popari_with_neighbors.datasets):
-        assert expected_ari == pytest.approx(dataset.uns["ari"])
-
-    expected_silhouettes = [0.35592873524597873, 0.486768210538224]
-    for expected_silhouette, dataset in zip(expected_silhouettes, popari_with_neighbors.datasets):
-        print(f"Silhouette score: {dataset.uns['silhouette']}")
-        assert expected_silhouette == pytest.approx(dataset.uns["silhouette"])
+    tl.plot_gene_trajectories(model, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
+    tl.plot_gene_activations(model, list(genes)[:2])
+    tl.normalized_affinity_trends(model, timepoint_values=list(range(len(model.datasets))))

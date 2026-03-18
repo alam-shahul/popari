@@ -107,6 +107,10 @@ line_length = 120
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "baseline: fast, default regression checks for core functionality",
+    "expensive: slower integration checks involving repeated training, analysis, hierarchy, or simulation",
+]
 
 # Dev requirements
 [dependency-groups]
@@ -117,4 +121,15 @@ dev = [
     "pre-commit",
     "pytest",
     "python-dotenv"
+]
+test = [
+    "ipdb",
+    "ipython",
+    "nox",
+    "pre-commit",
+    "pytest",
+    "python-dotenv",
+    "jupyterlab",
+    "ipycanvas",
+    "jupyterlab_execute_time",
 ]
