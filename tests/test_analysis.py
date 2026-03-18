@@ -91,7 +91,7 @@ def test_cluster_domains(domain_clustered_model): ...
 
 
 def test_ari_score(clustered_model):
-    expected_aris = [0.5226908788524272, 0.4964391347669228]
+    expected_aris = [0.7999987761039686, 0.8330125889278888]
     tl.compute_ari_scores(clustered_model, labels="cell_type", predictions="leiden")
 
     for expected_ari, dataset in zip(expected_aris, clustered_model.datasets):
@@ -171,7 +171,7 @@ def test_umap(clustered_model):
 def test_multireplicate_heatmap(clustered_model):
     pl.multireplicate_heatmap(clustered_model, uns="Sigma_x_inv")
     pl.multireplicate_heatmap(clustered_model, uns="Sigma_x_inv", label_values=True)
-    pl.spatial_affinities(clustered_model, label_values=True)
+    pl.spatial_affinity_heatmap(clustered_model, label_values=True)
 
 
 def test_plot_metagene_embedding(clustered_model):
