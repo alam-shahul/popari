@@ -1,7 +1,8 @@
 import pytest
 
+pytestmark = [pytest.mark.baseline, pytest.mark.cheap]
 
-@pytest.mark.baseline
+
 def test_popari_init(shared_mock_model, mock_datasets):
     assert len(shared_mock_model.datasets) == len(mock_datasets)
     assert shared_mock_model.base_view.level == 0
