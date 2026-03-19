@@ -4,6 +4,8 @@ import torch
 
 from popari.util import project_M
 
+pytestmark = [pytest.mark.baseline, pytest.mark.cheap]
+
 
 def _shared_group_and_mask(model):
     group_name, group_replicates = next(iter(model.metagene_groups.items()))
@@ -12,7 +14,6 @@ def _shared_group_and_mask(model):
     return group_name, group_replicates, replicate_mask, first_dataset_name
 
 
-@pytest.mark.baseline
 def test_sigma_yx_update_matches_manual_residual_sum(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -33,7 +34,6 @@ def test_sigma_yx_update_matches_manual_residual_sum(shared_model_factory):
     assert model.parameter_optimizer.nll_sigma_yx() == pytest.approx(manual_squared_loss, abs=1e-6)
 
 
-@pytest.mark.baseline
 def test_scale_metagenes_preserves_reconstruction_and_simplex_constraint(shared_model_factory):
     model = shared_model_factory()
     dataset = model.datasets[0]
@@ -57,7 +57,6 @@ def test_scale_metagenes_preserves_reconstruction_and_simplex_constraint(shared_
     assert torch.allclose(scaled_embedding, 3.0 * original_embedding, atol=1e-6)
 
 
-@pytest.mark.baseline
 def test_direct_estimate_m_reduces_group_loss(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -85,7 +84,6 @@ def test_direct_estimate_m_reduces_group_loss(shared_model_factory):
     )
 
 
-@pytest.mark.baseline
 def test_update_metagenes_shared_changes_values_and_preserves_simplex(shared_model_factory):
     model = shared_model_factory()
     before = model.parameter_optimizer.metagene_state.metagenes.clone()
@@ -103,7 +101,6 @@ def test_update_metagenes_shared_changes_values_and_preserves_simplex(shared_mod
     )
 
 
-@pytest.mark.baseline
 def test_nll_metagenes_matches_groupwise_sum(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -118,7 +115,6 @@ def test_nll_metagenes_matches_groupwise_sum(shared_model_factory):
     assert model.parameter_optimizer.nll_metagenes().item() == pytest.approx(manual_loss, abs=1e-6)
 
 
-@pytest.mark.baseline
 def test_direct_estimate_sigma_x_inv_reduces_group_loss(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -142,7 +138,6 @@ def test_direct_estimate_sigma_x_inv_reduces_group_loss(shared_model_factory):
     assert torch.allclose(updated_sigma_x_inv, updated_sigma_x_inv.T, atol=1e-6)
 
 
-@pytest.mark.baseline
 def test_reinitialize_spatial_affinities_rebuilds_optimizer_state(shared_model_factory):
     model = shared_model_factory()
 
@@ -152,7 +147,6 @@ def test_reinitialize_spatial_affinities_rebuilds_optimizer_state(shared_model_f
     assert set(model.parameter_optimizer.spatial_affinity_state.optimizers) == set(model.spatial_affinity_groups)
 
 
-@pytest.mark.baseline
 def test_nll_spatial_affinities_matches_groupwise_sum(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -167,7 +161,6 @@ def test_nll_spatial_affinities_matches_groupwise_sum(shared_model_factory):
     assert model.parameter_optimizer.nll_spatial_affinities().item() == pytest.approx(manual_loss, abs=1e-6)
 
 
-@pytest.mark.baseline
 def test_spatial_affinity_update_is_symmetric(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -178,7 +171,6 @@ def test_spatial_affinity_update_is_symmetric(shared_model_factory):
         assert np.allclose(affinity, affinity.T, atol=1e-6)
 
 
-@pytest.mark.baseline
 def test_update_spatial_affinity_differential_reaverages_group_bars(differential_model_factory):
     model = differential_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -196,7 +188,6 @@ def test_update_spatial_affinity_differential_reaverages_group_bars(differential
         )
 
 
-@pytest.mark.baseline
 def test_nll_embeddings_matches_sum_without_neighbors(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -219,7 +210,6 @@ def test_nll_embeddings_matches_sum_without_neighbors(shared_model_factory):
     )
 
 
-@pytest.mark.baseline
 def test_direct_estimate_weight_wonbr_reduces_loss(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -248,7 +238,6 @@ def test_direct_estimate_weight_wonbr_reduces_loss(shared_model_factory):
     assert torch.all(updated_x >= 0)
 
 
-@pytest.mark.baseline
 def test_update_embeddings_without_neighbors_changes_values(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -265,7 +254,6 @@ def test_update_embeddings_without_neighbors_changes_values(shared_model_factory
         assert torch.isfinite(after).all()
 
 
-@pytest.mark.baseline
 def test_nll_embeddings_matches_sum_with_neighbors(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -288,7 +276,6 @@ def test_nll_embeddings_matches_sum_with_neighbors(shared_model_factory):
     )
 
 
-@pytest.mark.baseline
 def test_direct_estimate_weight_wnbr_reduces_loss(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -318,7 +305,6 @@ def test_direct_estimate_weight_wnbr_reduces_loss(shared_model_factory):
     assert torch.all(updated_x >= 0)
 
 
-@pytest.mark.baseline
 def test_update_embeddings_with_neighbors_changes_values(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
@@ -335,7 +321,6 @@ def test_update_embeddings_with_neighbors_changes_values(shared_model_factory):
         assert torch.isfinite(after).all()
 
 
-@pytest.mark.baseline
 def test_differential_reaverage_updates_group_averages(differential_model_factory):
     model = differential_model_factory()
 
@@ -365,7 +350,6 @@ def test_differential_reaverage_updates_group_averages(differential_model_factor
         )
 
 
-@pytest.mark.baseline
 def test_update_metagenes_differential_reaverages_group_bars(differential_model_factory):
     model = differential_model_factory()
     model.parameter_optimizer.update_sigma_yx()
