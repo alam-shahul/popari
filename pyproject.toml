@@ -108,6 +108,7 @@ line_length = 120
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+    "cheap: lightweight smoke tests for quick validation during refactors",
     "baseline: fast, default regression checks for core functionality",
     "expensive: slower integration checks involving repeated training, analysis, hierarchy, or simulation",
 ]
