@@ -264,7 +264,7 @@ def _plot_metagene_embedding(
         ax.invert_yaxis()
         ax.set_xticks([], [])  # note you need two lists one for the positions and one for the labels
         ax.set_yticks([], [])  # same for y ticks
-        dataset.plot_metagene_embedding(
+        dataset.popari.plot_metagene_embedding(
             metagene_index,
             legend=legend,
             s=s,
@@ -411,6 +411,9 @@ def _plot_in_situ(dataset: Sequence[ad.AnnData], axes=None, fig=None, color="lei
         axes: A predefined set of matplotlib axes to plot on.
 
     """
+
+    if isinstance(dataset, Sequence) and not isinstance(dataset, ad.AnnData):
+        dataset = concatenate(dataset)
 
     sharex = False if "sharex" not in spatial_kwargs else spatial_kwargs.pop("sharex")
     sharey = False if "sharey" not in spatial_kwargs else spatial_kwargs.pop("sharey")
@@ -664,6 +667,8 @@ def _spatial_affinity_heatmap(
     fig.colorbar(im, ax=cax, orientation="vertical")
     cax.set_axis_off()
 
+    return fig
+
 
 def _multigroup_heatmap(
     datasets: Sequence[ad.AnnData],
@@ -910,6 +915,9 @@ def _plot_all_embeddings(
 
     """
 
+    if isinstance(dataset, Sequence) and not isinstance(dataset, ad.AnnData):
+        dataset = concatenate(dataset)
+
     _, K = dataset.obsm[f"{embedding_key}"].shape
     if column_names == None:
         # TODO: remove dependence on trained_model
@@ -924,7 +932,7 @@ def _plot_all_embeddings(
         size *= default_size
 
     axes = sq.pl.spatial_scatter(
-        sq.pl.extract(dataset.copy(), embedding_key, prefix=f"{embedding_key}"),
+        sq.pl.extract(dataset, embedding_key, prefix=f"{embedding_key}"),
         shape=None,
         color=column_names,
         edges_width=edges_width,
@@ -932,8 +940,20 @@ def _plot_all_embeddings(
         size=size,
         wspace=0.2,
         ncols=2,
+        return_ax=True,
         **spatial_kwargs,
     )
+
+    if isinstance(axes, np.ndarray):
+        return axes.flat[0].get_figure()
+
+    if isinstance(axes, list):
+        return axes[0].get_figure()
+
+    if axes is None:
+        return plt.gcf()
+
+    return axes.get_figure()
 
 
 @enable_joint(
