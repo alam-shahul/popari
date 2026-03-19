@@ -8,7 +8,6 @@ import torch
 from anndata import AnnData
 from scipy.sparse import csr_array, issparse
 
-from popari._popari_dataset import ensure_dataset_name, get_dataset_name
 from popari.util import concatenate, convert_adjacency_matrix_to_awkward_array, unconcatenate
 
 
@@ -29,7 +28,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
     datasets = unconcatenate(merged_dataset)
 
     for dataset in datasets:
-        replicate_string = get_dataset_name(dataset)
+        replicate_string = dataset.popari.name()
         if "Sigma_x_inv" in dataset.uns:
             # Keep only Sigma_x_inv corresponding to a particular replicate
             replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][replicate_string]
@@ -130,7 +129,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
         #     replicate_X = make_hdf5_compatible(dataset.obsm["X"])
         #     dataset.obsm["X"] = replicate_X
 
-    replicate_names = [get_dataset_name(dataset) for dataset in datasets]
+    replicate_names = [dataset.popari.name() for dataset in datasets]
     return datasets, replicate_names
 
 
@@ -140,10 +139,10 @@ def merge_anndata(datasets: Sequence[AnnData], ignore_raw_data: bool = False):
 
     dataset_copies = []
     for dataset in datasets:
-        replicate = get_dataset_name(dataset)
+        replicate = dataset.popari.name()
         replicate_string = f"{replicate}"
         dataset_copy = dataset.copy()
-        ensure_dataset_name(dataset_copy, replicate)
+        dataset_copy.popari.ensure_name(replicate)
         if ignore_raw_data:
             dataset_copy.X = csr_array(dataset_copy.X.shape)
         else:

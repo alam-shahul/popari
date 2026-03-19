@@ -1,6 +1,7 @@
 import itertools
 from typing import Sequence, Tuple
 
+import anndata as ad
 import numpy as np
 import torch
 from scipy import sparse as sp
@@ -8,12 +9,11 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA, TruncatedSVD
 
 from popari._dataset_utils import _cluster, _pca
-from popari._popari_dataset import PopariDataset
 from popari.util import concatenate
 
 
 def initialize_kmeans(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     K: int,
     context: dict,
     kwargs_kmeans: dict,
@@ -58,7 +58,7 @@ def initialize_kmeans(
 
 
 def initialize_leiden(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     K: int,
     context: dict,
     kwargs_leiden: dict,
@@ -139,7 +139,7 @@ def initialize_leiden(
 
 
 def initialize_svd(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     K: int,
     context: dict,
     M_nonneg: bool = True,
@@ -217,7 +217,7 @@ def initialize_svd(
 
 
 def initialize_dummy(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     K: int,
     context: dict,
 ) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:

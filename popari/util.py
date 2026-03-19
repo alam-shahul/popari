@@ -31,7 +31,6 @@ from sklearn.preprocessing import StandardScaler
 from tqdm.auto import tqdm, trange
 from umap import UMAP
 
-from popari._popari_dataset import PopariDataset
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 
 
@@ -61,14 +60,14 @@ def create_neighbor_groups(replicate_names, covariate_values, window_size=1):
     return groups
 
 
-def concatenate(datasets: Sequence[PopariDataset], join: str = "inner", batch_key: str = "batch"):
+def concatenate(datasets: Sequence[AnnData], join: str = "inner", batch_key: str = "batch"):
     """Merge datasets in a way that is compatible with Popari.
 
     Args:
-        datasets: list of PopariDataset.
+        datasets: list of AnnData.
 
     """
-    dataset_names = [dataset.name for dataset in datasets]
+    dataset_names = [dataset.popari.name() for dataset in datasets]
     merged_dataset = ad.concat(
         datasets,
         label=batch_key,
@@ -89,7 +88,9 @@ def unconcatenate(merged_dataset: ad.AnnData, batch_key: str = "batch"):
     datasets = [merged_dataset[index].copy() for index in indices]
 
     replicate_names = [dataset.obs[batch_key].unique()[0] for dataset in datasets]
-    unmerged_datasets = [PopariDataset(dataset, name) for dataset, name in zip(datasets, replicate_names)]
+    unmerged_datasets = [
+        dataset.popari.ensure_name(name, batch_key=batch_key) for dataset, name in zip(datasets, replicate_names)
+    ]
 
     return unmerged_datasets
 

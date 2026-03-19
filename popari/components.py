@@ -1,5 +1,5 @@
-from popari._popari_dataset import PopariDataset
-from popari._embedding_optimizer import EmbeddingOptimizer
-from popari._parameter_optimizer import ParameterOptimizer
+from anndata import AnnData
 
+from popari._embedding_optimizer import EmbeddingOptimizer
 from popari._hierarchical_view import HierarchicalView
+from popari._parameter_optimizer import ParameterOptimizer

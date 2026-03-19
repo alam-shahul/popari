@@ -9,44 +9,6 @@ from scipy.sparse import csr_matrix
 DATASET_NAME_KEY = "dataset_name"
 
 
-def get_dataset_name(dataset: ad.AnnData) -> str:
-    if DATASET_NAME_KEY in dataset.uns:
-        return str(dataset.uns[DATASET_NAME_KEY])
-
-    raise ValueError(f"Dataset name is not set in `uns[{DATASET_NAME_KEY!r}]`.")
-
-
-def set_dataset_name(dataset: ad.AnnData, replicate_name: str, batch_key: str = "batch") -> ad.AnnData:
-    dataset.uns[DATASET_NAME_KEY] = f"{replicate_name}"
-    if batch_key in dataset.obs:
-        dataset.obs[batch_key] = f"{replicate_name}"
-
-    return dataset
-
-
-def ensure_dataset_name(dataset: ad.AnnData, replicate_name: str | None = None, batch_key: str = "batch") -> ad.AnnData:
-    if replicate_name is not None:
-        return set_dataset_name(dataset, replicate_name, batch_key=batch_key)
-
-    if DATASET_NAME_KEY in dataset.uns:
-        dataset.uns[DATASET_NAME_KEY] = str(dataset.uns[DATASET_NAME_KEY])
-        return dataset
-
-    if batch_key not in dataset.obs:
-        raise ValueError(
-            f"Dataset name is missing from `uns[{DATASET_NAME_KEY!r}]`, and legacy batch column {batch_key!r} is absent.",
-        )
-
-    included_datasets = dataset.obs[batch_key].unique()
-    if len(included_datasets) != 1:
-        raise ValueError(
-            f"Dataset name is missing from `uns[{DATASET_NAME_KEY!r}]`, and `obs[{batch_key!r}]` is not unique.",
-        )
-
-    dataset.uns[DATASET_NAME_KEY] = str(included_datasets[0])
-    return dataset
-
-
 def remove_connectivity_artifacts(
     sparse_distance_matrix: csr_matrix,
     sparse_adjacency_matrix: csr_matrix,
@@ -86,13 +48,39 @@ class PopariNamespace:
         self._adata = adata
 
     def name(self) -> str:
-        return get_dataset_name(self._adata)
+        if DATASET_NAME_KEY in self._adata.uns:
+            return str(self._adata.uns[DATASET_NAME_KEY])
+
+        raise ValueError(f"Dataset name is not set in `uns[{DATASET_NAME_KEY!r}]`.")
 
     def set_name(self, replicate_name: str, batch_key: str = "batch") -> ad.AnnData:
-        return set_dataset_name(self._adata, replicate_name, batch_key=batch_key)
+        self._adata.uns[DATASET_NAME_KEY] = f"{replicate_name}"
+        if batch_key in self._adata.obs:
+            self._adata.obs[batch_key] = f"{replicate_name}"
+
+        return self._adata
 
     def ensure_name(self, replicate_name: str | None = None, batch_key: str = "batch") -> ad.AnnData:
-        return ensure_dataset_name(self._adata, replicate_name=replicate_name, batch_key=batch_key)
+        if replicate_name is not None:
+            return self.set_name(replicate_name, batch_key=batch_key)
+
+        if DATASET_NAME_KEY in self._adata.uns:
+            self._adata.uns[DATASET_NAME_KEY] = str(self._adata.uns[DATASET_NAME_KEY])
+            return self._adata
+
+        if batch_key not in self._adata.obs:
+            raise ValueError(
+                f"Dataset name is missing from `uns[{DATASET_NAME_KEY!r}]`, and legacy batch column {batch_key!r} is absent.",
+            )
+
+        included_datasets = self._adata.obs[batch_key].unique()
+        if len(included_datasets) != 1:
+            raise ValueError(
+                f"Dataset name is missing from `uns[{DATASET_NAME_KEY!r}]`, and `obs[{batch_key!r}]` is not unique.",
+            )
+
+        self._adata.uns[DATASET_NAME_KEY] = str(included_datasets[0])
+        return self._adata
 
     def compute_spatial_neighbors(self, threshold: float = 94.5):
         """Compute neighbor graph based on spatial coordinates."""
