@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import anndata as ad
 import matplotlib
 import numpy as np
@@ -196,18 +194,16 @@ def analyzed_shared_model(trained_shared_model):
 
 @pytest.fixture(scope="session")
 def clustered_shared_model(analyzed_shared_model):
-    model = analyzed_shared_model
-    tl.leiden(model, joint=True, target_clusters=3)
-    tl.compute_ari_scores(model, labels="cell_type", predictions="leiden")
-    tl.compute_silhouette_scores(model, labels="cell_type", embeddings="normalized_X")
-    tl.evaluate_classification_task(model, labels="cell_type", embeddings="normalized_X", joint=False)
-    tl.evaluate_classification_task(model, labels="cell_type", embeddings="normalized_X", joint=True)
-    return model
+    tl.leiden(analyzed_shared_model, joint=True, target_clusters=3)
+    tl.compute_ari_scores(analyzed_shared_model, labels="cell_type", predictions="leiden")
+    tl.compute_silhouette_scores(analyzed_shared_model, labels="cell_type", embeddings="normalized_X")
+    tl.evaluate_classification_task(analyzed_shared_model, labels="cell_type", embeddings="normalized_X", joint=False)
+    tl.evaluate_classification_task(analyzed_shared_model, labels="cell_type", embeddings="normalized_X", joint=True)
+    return analyzed_shared_model
 
 
 @pytest.fixture(scope="session")
 def shared_reference_metrics(clustered_shared_model):
-    model = clustered_shared_model
     return {
         "nll": -657.06558928,
         "sigma_yx": [0.14147329, 0.13269758],

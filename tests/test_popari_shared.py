@@ -7,15 +7,15 @@ from popari import tl
 @pytest.mark.baseline
 def test_shared_parameter_updates_are_finite(shared_model_factory):
     model = shared_model_factory()
-    initial_M = model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy().copy()
+    initial_m = model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy().copy()
     initial_sigma = model.parameter_optimizer.sigma_yxs.copy()
 
     model.estimate_parameters()
 
-    updated_M = model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
-    assert np.isfinite(updated_M).all()
+    updated_m = model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
+    assert np.isfinite(updated_m).all()
     assert np.isfinite(model.parameter_optimizer.sigma_yxs).all()
-    assert not np.allclose(initial_M, updated_M)
+    assert not np.allclose(initial_m, updated_m)
     assert not np.allclose(initial_sigma, model.parameter_optimizer.sigma_yxs)
 
 
@@ -23,15 +23,15 @@ def test_shared_parameter_updates_are_finite(shared_model_factory):
 def test_shared_embedding_updates_preserve_nonnegativity(shared_model_factory):
     model = shared_model_factory()
     name = model.datasets[0].name
-    initial_X = model.embedding_optimizer.embedding_state[name].detach().cpu().numpy().copy()
+    initial_x = model.embedding_optimizer.embedding_state[name].detach().cpu().numpy().copy()
 
     model.estimate_parameters()
     model.estimate_weights()
 
-    updated_X = model.embedding_optimizer.embedding_state[name].detach().cpu().numpy()
-    assert np.isfinite(updated_X).all()
-    assert np.all(updated_X >= 0)
-    assert not np.allclose(initial_X, updated_X)
+    updated_x = model.embedding_optimizer.embedding_state[name].detach().cpu().numpy()
+    assert np.isfinite(updated_x).all()
+    assert np.all(updated_x >= 0)
+    assert not np.allclose(initial_x, updated_x)
 
 
 @pytest.mark.baseline
