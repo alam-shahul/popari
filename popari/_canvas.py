@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from typing import Optional, Sequence, Tuple, Union
+from typing import Sequence, Tuple, Union
 
 import numpy as np
 from ipycanvas import Canvas, hold_canvas
@@ -160,7 +160,7 @@ class DomainCanvas:
         Click to add landmarks for the domain self.current_domain.
 
         """
-        display(self.out)
+        display(self.out)  # noqa: F821
         return self.canvas
 
     def annotate_domain(self, points: Sequence[Tuple[float, float]] = None):
