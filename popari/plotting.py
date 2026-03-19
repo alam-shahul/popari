@@ -63,7 +63,14 @@ def multigroup_heatmap(
     datasets = trained_model.hierarchy[level].datasets
 
     groups = trained_model.metagene_groups if group_type == "metagene" else trained_model.spatial_affinity_groups
-    _multigroup_heatmap(datasets, title_font_size=title_font_size, groups=groups, axes=axes, key=key, **heatmap_kwargs)
+    return _multigroup_heatmap(
+        datasets,
+        title_font_size=title_font_size,
+        groups=groups,
+        axes=axes,
+        key=key,
+        **heatmap_kwargs,
+    )
 
 
 def all_embeddings(
@@ -93,7 +100,7 @@ def all_embeddings(
     if column_names == None:
         column_names = [f"{embedding_key}_{index}" for index in range(K)]
 
-    _plot_all_embeddings(datasets, embedding_key=embedding_key, column_names=column_names, **spatial_kwargs)
+    return _plot_all_embeddings(datasets, embedding_key=embedding_key, column_names=column_names, **spatial_kwargs)
 
 
 def cell_type_to_metagene(trained_model: Popari, cell_type_de_genes: dict, level=0, **correspondence_kwargs):
@@ -147,6 +154,8 @@ def cell_type_to_metagene_difference(
         second_metagene,
         **correspondence_kwargs,
     )
+
+    return medians, fig
 
 
 def affinity_magnitude_vs_difference(
