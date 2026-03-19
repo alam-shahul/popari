@@ -1,4 +1,13 @@
 repos:
+  - repo: local
+    hooks:
+      - id: codex-coauthor
+        name: Add Codex coauthor trailer
+        entry: scripts/add_codex_coauthor.sh
+        language: system
+        stages: [commit-msg]
+        always_run: true
+
   - repo: https://github.com/adrienverge/yamllint.git
     rev: v1.35.1
     hooks:
