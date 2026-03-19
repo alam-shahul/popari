@@ -66,7 +66,7 @@ class DomainCanvas:
             "1: Delete the existing annotation and start from scratch\n"
         )
 
-        dimensions = self.points.ptp(axis=0)
+        dimensions = np.ptp(self.points, axis=0)
         lower_boundaries = self.points.min(axis=0)
         self.width, self.height = dimensions + lower_boundaries
 
