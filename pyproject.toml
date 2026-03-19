@@ -34,7 +34,7 @@ dependencies = [
 description = "Popari: a probabilistic graphical model for integrated spatial transcriptomics analysis"
 readme = "README.md"
 license = { file="LICENSE" }
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
