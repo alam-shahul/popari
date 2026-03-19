@@ -5,9 +5,9 @@ import anndata as ad
 import awkward as ak
 import numpy as np
 import torch
+from anndata import AnnData
 from scipy.sparse import csr_array, issparse
 
-from popari.components import PopariDataset
 from popari.util import concatenate, convert_adjacency_matrix_to_awkward_array, unconcatenate
 
 
@@ -28,7 +28,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
     datasets = unconcatenate(merged_dataset)
 
     for dataset in datasets:
-        replicate_string = f"{dataset.name}"
+        replicate_string = dataset.popari.name()
         if "Sigma_x_inv" in dataset.uns:
             # Keep only Sigma_x_inv corresponding to a particular replicate
             replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][replicate_string]
@@ -80,7 +80,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
                 dataset.uns["popari_hyperparameters"]["prior_x"] = prior_x
 
             if "spatial_affinity_groups" in dataset.uns["popari_hyperparameters"]:
-                name_parts = dataset.name.split("_level_")
+                name_parts = replicate_string.split("_level_")
                 if len(name_parts) > 1:
                     *_, level = name_parts
                     level = int(level)
@@ -103,7 +103,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
                 dataset.uns["popari_hyperparameters"]["spatial_affinity_groups"] = filtered_groups
 
             if "metagene_groups" in dataset.uns["popari_hyperparameters"]:
-                name_parts = dataset.name.split("_level_")
+                name_parts = replicate_string.split("_level_")
                 if len(name_parts) > 1:
                     *_, level = name_parts
                     level = int(level)
@@ -129,24 +129,24 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
         #     replicate_X = make_hdf5_compatible(dataset.obsm["X"])
         #     dataset.obsm["X"] = replicate_X
 
-    replicate_names = [dataset.name for dataset in datasets]
+    replicate_names = [dataset.popari.name() for dataset in datasets]
     return datasets, replicate_names
 
 
-def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = False):
-    """Merge multiple PopariDatasets into a single AnnData object (for
-    storage)."""
+def merge_anndata(datasets: Sequence[AnnData], ignore_raw_data: bool = False):
+    """Merge multiple AnnData objects into a single AnnData object for
+    storage."""
 
     dataset_copies = []
     for dataset in datasets:
-        replicate = dataset.name
+        replicate = dataset.popari.name()
         replicate_string = f"{replicate}"
+        dataset_copy = dataset.copy()
+        dataset_copy.popari.ensure_name(replicate)
         if ignore_raw_data:
-            dataset.X = csr_array(dataset.X.shape)
+            dataset_copy.X = csr_array(dataset_copy.X.shape)
         else:
-            dataset.X = csr_array(dataset.X)
-
-        dataset_copy = PopariDataset(dataset, dataset.name)
+            dataset_copy.X = csr_array(dataset_copy.X)
 
         # Hacks to store adjacency matrices efficiently
         if "adjacency_matrix" in dataset.obsp:
@@ -204,7 +204,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
                 dataset_copy.uns["popari_hyperparameters"]["prior_x"] = prior_x
 
         if "dataset_name" not in dataset_copy.uns:
-            dataset_copy.uns["dataset_name"] = dataset.name
+            dataset_copy.uns["dataset_name"] = replicate
 
         # if "X" in dataset_copy.obsm:
         #     replicate_X = make_hdf5_compatible(dataset_copy.obsm["X"])
@@ -218,7 +218,7 @@ def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = Fal
 
 def save_anndata(
     filepath: Union[str, Path],
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[AnnData],
     ignore_raw_data: bool = False,
 ):
     """Save Popari state as AnnData object."""

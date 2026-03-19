@@ -26,7 +26,6 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
 from popari._binning_utils import chunked_downsample_on_grid, filter_gridpoints
-from popari._popari_dataset import PopariDataset
 from popari.util import (
     compute_neighborhood_enrichment,
     concatenate,
@@ -201,7 +200,7 @@ def broadcast_plottable(function):
 
 
 def _preprocess_embeddings(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     input_key="X",
     normalized_key="normalized_X",
 ):
@@ -226,7 +225,7 @@ def _preprocess_embeddings(
 
 
 def _plot_metagene_embedding(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     metagene_index: int,
     axes: Optional[Sequence[Axes]] = None,
     **scatterplot_kwargs,
@@ -283,7 +282,7 @@ def _plot_metagene_embedding(
 # TODO: we need to copy `.uns` to keep all added info. But this is buggy, because copying `.uns` is not done correctly
 @enable_joint(annotations={"obs": None, "uns": ["leiden"], "obsp": None})
 def _leiden(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     resolution: float = 1.0,
     tolerance: float = 0.05,
     **kwargs,
@@ -312,7 +311,7 @@ def _leiden(
 
 @enable_joint(annotations={"obs": None, "uns": None, "obsp": None})
 def _cluster(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     use_rep="normalized_X",
     method: str = "leiden",
     n_neighbors: int = 20,
@@ -371,7 +370,7 @@ def _cluster(
 
 @enable_joint(annotations={"obsm": ["X_pca"], "varm": ["PCs"], "uns": ["pca"]})
 @broadcast
-def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
+def _pca(dataset: ad.AnnData, n_comps: int = 50, **pca_kwargs):
     r"""Compute PCA for all datasets.
 
     Args:
@@ -385,7 +384,7 @@ def _pca(dataset: PopariDataset, n_comps: int = 50, **pca_kwargs):
 
 @enable_joint(annotations={"obsm": ["X_umap"], "uns": ["umap"]})
 @broadcast
-def _umap(dataset: PopariDataset, use_rep: str = "X", compute_neighbors: bool = True, n_neighbors: int = 20):
+def _umap(dataset: ad.AnnData, use_rep: str = "X", compute_neighbors: bool = True, n_neighbors: int = 20):
     r"""Compute UMAP for all datasets.
 
     Args:
@@ -401,7 +400,7 @@ def _umap(dataset: PopariDataset, use_rep: str = "X", compute_neighbors: bool = 
 
 @enable_joint
 @broadcast
-def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="leiden", **spatial_kwargs):
+def _plot_in_situ(dataset: Sequence[ad.AnnData], axes=None, fig=None, color="leiden", **spatial_kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
@@ -468,7 +467,7 @@ def _plot_in_situ(dataset: Sequence[PopariDataset], axes=None, fig=None, color="
 
 @enable_joint
 @broadcast_plottable
-def _plot_umap(dataset: PopariDataset, color="leiden", ax=None, **kwargs):
+def _plot_umap(dataset: ad.AnnData, color="leiden", ax=None, **kwargs):
     r"""Plot a categorical label across all datasets in-situ.
 
     Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
@@ -503,7 +502,7 @@ def _plot_umap(dataset: PopariDataset, color="leiden", ax=None, **kwargs):
 
 
 def _multireplicate_heatmap(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     title_font_size: Optional[int] = None,
     axes: Optional[Sequence[Axes]] = None,
     obsm: Optional[str] = None,
@@ -590,7 +589,7 @@ def _multireplicate_heatmap(
 
 
 def _spatial_affinity_heatmap(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     spatial_affinity_key: Optional[str] = "Sigma_x_inv",
     axes: Optional[Sequence[Axes]] = None,
     metagene_order: Optional[Sequence[int]] = None,
@@ -667,7 +666,7 @@ def _spatial_affinity_heatmap(
 
 
 def _multigroup_heatmap(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     groups: dict,
     title_font_size: Optional[int] = None,
     axes: Optional[Sequence[Axes]] = None,
@@ -725,7 +724,7 @@ def _multigroup_heatmap(
 
 
 def _compute_empirical_correlations(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[ad.AnnData],
     scaling: float,
     feature: str = "X",
     output: str = "empirical_correlation",
@@ -776,7 +775,7 @@ def _compute_empirical_correlations(
 
 
 def _adjacency_permutation_test(
-    dataset: PopariDataset,
+    dataset: ad.AnnData,
     labels: str = "X",
     n_trials: int = 500,
     random_state: int = 0,
@@ -815,7 +814,7 @@ def _adjacency_permutation_test(
 
 
 def _adjacency_permutation_test(
-    dataset: PopariDataset,
+    dataset: ad.AnnData,
     labels: str = "X",
     n_trials: int = 100,
     random_state: int = 0,
@@ -855,7 +854,7 @@ def _adjacency_permutation_test(
 
 @enable_joint(annotations={"uns": ["ari"]})
 @broadcast
-def _compute_ari_score(dataset: PopariDataset, labels: str, predictions: str, ari_key: str = "ari"):
+def _compute_ari_score(dataset: ad.AnnData, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth
     labels and an unsupervised clustering.
 
@@ -875,7 +874,7 @@ def _compute_ari_score(dataset: PopariDataset, labels: str, predictions: str, ar
 
 @enable_joint(annotations={"uns": ["silhouette"]})
 @broadcast
-def _compute_silhouette_score(dataset: PopariDataset, labels: str, embeddings: str, silhouette_key: str = "silhouette"):
+def _compute_silhouette_score(dataset: ad.AnnData, labels: str, embeddings: str, silhouette_key: str = "silhouette"):
     r"""Compute silhouette score for a clustering based on Popari embeddings.
 
     Useful for assessing clustering validity. ARI score is computed per dataset.
@@ -894,7 +893,7 @@ def _compute_silhouette_score(dataset: PopariDataset, labels: str, embeddings: s
 
 @broadcast
 def _plot_all_embeddings(
-    dataset: PopariDataset,
+    dataset: ad.AnnData,
     embedding_key: str = "X",
     column_names: Optional[str] = None,
     **spatial_kwargs,
@@ -948,7 +947,7 @@ def _plot_all_embeddings(
     },
 )
 @broadcast
-def _evaluate_classification_task(dataset: PopariDataset, embeddings: str, labels: str):
+def _evaluate_classification_task(dataset: ad.AnnData, embeddings: str, labels: str):
     """"""
 
     le = LabelEncoder()
@@ -978,7 +977,7 @@ def _evaluate_classification_task(dataset: PopariDataset, embeddings: str, label
 @enable_joint(annotations={"obs": None, "uns": ["confusion_matrix"]})
 @broadcast
 def _compute_confusion_matrix(
-    dataset: PopariDataset,
+    dataset: ad.AnnData,
     labels: str,
     predictions: str,
     result_key: str = "confusion_matrix",
@@ -1052,7 +1051,7 @@ def get_optimal_permutation(confusion_output):
 @enable_joint(annotations={"uns": ["ground_truth_M_correlation"]})
 @broadcast
 def _compute_columnwise_autocorrelation(
-    dataset: PopariDataset,
+    dataset: ad.AnnData,
     uns: str = "ground_truth_M",
     result_key: str = "ground_truth_M_correlation",
 ):
@@ -1067,7 +1066,7 @@ def _compute_columnwise_autocorrelation(
 
 @broadcast_plottable
 def _plot_confusion_matrix(
-    dataset: PopariDataset,
+    dataset: ad.AnnData,
     labels: str,
     ax=None,
     confusion_matrix_key: str = "confusion_matrix",
@@ -1087,7 +1086,7 @@ def _plot_confusion_matrix(
 @enable_joint(annotations={"uns": ["spatial_gene_correlation", "neighbor_interactions"]})
 @broadcast
 def _compute_spatial_gene_correlation(
-    dataset: PopariDataset,
+    dataset: ad.AnnData,
     spatial_key: str = "Sigma_x_inv",
     metagene_key: str = "M",
     spatial_gene_correlation_key: str = "spatial_gene_correlation",
@@ -1105,7 +1104,7 @@ def _compute_spatial_gene_correlation(
     dataset.uns[neighbor_interactions_key] = neighbor_interactions
 
 
-def _metagene_neighbor_interactions(dataset: PopariDataset, interaction_key: str = "metagene_neighbor_interactions"):
+def _metagene_neighbor_interactions(dataset: ad.AnnData, interaction_key: str = "metagene_neighbor_interactions"):
     """Compute pairwise interactions between every cell in terms of learned
     metagene embeddings.
 
@@ -1849,7 +1848,7 @@ def _cluster_domains(
 
 
 def _metagene_gsea(
-    dataset: PopariDataset,
+    dataset: ad.AnnData,
     metagene_index: int,
     metagene_key: str = "M",
     sensitivity: float = 0.5,
