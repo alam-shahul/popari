@@ -10,8 +10,6 @@ from scipy.sparse import csr_array
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import OneHotEncoder
 
-from popari._popari_dataset import PopariDataset
-
 
 class Downsampler(ABC):
     """Abstraction for downsampling spots to bins."""
@@ -19,7 +17,7 @@ class Downsampler(ABC):
     @abstractmethod
     def generate_bin_assignments(
         self,
-        dataset: PopariDataset,
+        dataset: AnnData,
         bin_assignments_key: str,
         coordinates_key: str,
         downsample_rate: float,
@@ -35,7 +33,7 @@ class Downsampler(ABC):
         """
 
     @abstractmethod
-    def update_binning_kwargs(previous_dataset: PopariDataset, kwargs: dict):
+    def update_binning_kwargs(previous_dataset: AnnData, kwargs: dict):
         """Update kwargs for the next round of bin assignment (for hierarchical
         binning).
 
@@ -58,7 +56,7 @@ class Downsampler(ABC):
 
         return one_hot_encoding
 
-    def bin_expression(self, dataset: PopariDataset, bin_assignments_key: str):
+    def bin_expression(self, dataset: AnnData, bin_assignments_key: str):
 
         bin_assignments = dataset.obsm[bin_assignments_key].T
 
@@ -69,7 +67,7 @@ class Downsampler(ABC):
 
         return binned_expression
 
-    def bin_coordinates(self, dataset: PopariDataset, bin_assignments_key: str, coordinates_key: str):
+    def bin_coordinates(self, dataset: AnnData, bin_assignments_key: str, coordinates_key: str):
         coordinates = dataset.obsm[coordinates_key]
         bin_assignments = dataset.obsm[bin_assignments_key].T
 
@@ -82,7 +80,7 @@ class Downsampler(ABC):
 
     def downsample(
         self,
-        dataset: PopariDataset,
+        dataset: AnnData,
         coordinates_key: str = "spatial",
         bin_assignments_key: str = "bin_assignments",
         downsample_rate: float = 0.2,
@@ -115,7 +113,7 @@ class Downsampler(ABC):
 class GridDownsampler(Downsampler):
     """Overlay grids, and use these to downsample/bin a spatial dataset."""
 
-    def update_binning_kwargs(previous_dataset: PopariDataset, kwargs: dict):
+    def update_binning_kwargs(previous_dataset: AnnData, kwargs: dict):
         for key, kwarg in kwargs.items():
             kwargs[key] = previous_dataset.uns.get(key, kwarg)
 
@@ -123,7 +121,7 @@ class GridDownsampler(Downsampler):
 
     def generate_bin_assignments(
         self,
-        dataset: PopariDataset,
+        dataset: AnnData,
         coordinates_key: str,
         bin_assignments_key: str,
         downsample_rate: float,
@@ -159,12 +157,12 @@ class GridDownsampler(Downsampler):
 class PartitionDownsampler(Downsampler):
     """Use graph partitioning on the Delaunay triangulation to bin a dataset."""
 
-    def update_binning_kwargs(previous_dataset: PopariDataset, kwargs: dict):
+    def update_binning_kwargs(previous_dataset: AnnData, kwargs: dict):
         return kwargs
 
     def generate_bin_assignments(
         self,
-        dataset: PopariDataset,
+        dataset: AnnData,
         adjacency_list_key: str,
         coordinates_key: str,
         bin_assignments_key: str,

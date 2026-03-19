@@ -11,10 +11,10 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import torch
+from anndata import AnnData
 from tqdm import trange
 
 from popari._hierarchical_view import HierarchicalView, Hierarchy
-from popari._popari_dataset import PopariDataset
 from popari.io import load_anndata, merge_anndata, save_anndata, unmerge_anndata
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
@@ -182,10 +182,7 @@ class Popari:
         elif datasets:
             self.load_anndata_datasets(datasets, replicate_names)
 
-        if replicate_names is None:
-            self.replicate_names = [dataset.name for dataset in self.datasets]
-        else:
-            self.replicate_names = [f"{replicate_name}" for replicate_name in replicate_names]
+        self.replicate_names = [dataset.popari.name() for dataset in self.datasets]
 
         self.parameter_optimizer_hyperparameters = {
             "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
@@ -219,9 +216,12 @@ class Popari:
             replicate_names: names for all datasets/replicates
 
         """
-        self.datasets = [
-            PopariDataset(dataset, replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)
-        ]
+        if replicate_names is None:
+            self.datasets = [dataset.popari.ensure_name() for dataset in datasets]
+        else:
+            self.datasets = [
+                dataset.popari.ensure_name(replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)
+            ]
         self.num_replicates = len(self.datasets)
 
     def load_dataset(self, dataset_path: Union[str, Path]):
@@ -420,7 +420,7 @@ class Popari:
                 progress_bar.set_description(description)
 
             pretrained_embeddings = [
-                view.embedding_optimizer.embedding_state[dataset.name].clone() for dataset in view.datasets
+                view.embedding_optimizer.embedding_state[dataset.popari.name()].clone() for dataset in view.datasets
             ]
             view.parameter_optimizer.spatial_affinity_state.initialize(pretrained_embeddings)
 
@@ -494,7 +494,7 @@ class Popari:
 
                 save_anndata(path_without_extension / f"level_{level}.h5ad", datasets, ignore_raw_data=ignore_raw_data)
 
-    def _reload_expression(self, raw_datasets: Sequence[PopariDataset]):
+    def _reload_expression(self, raw_datasets: Sequence[AnnData]):
         """Can be used to recover expression values for training model if saved
         with `ignore_raw_data=True`"""
         high_resolution_view = self.hierarchy[0]
@@ -514,7 +514,8 @@ class Popari:
             for index, (dataset, binned_dataset, previous_Y) in enumerate(
                 zip(view.datasets, low_res_view.datasets, view.Ys),
             ):
-                bin_assignments = binned_dataset.obsm[f"bin_assignments_{binned_dataset.name}"]
+                binned_dataset_name = binned_dataset.popari.name()
+                bin_assignments = binned_dataset.obsm[f"bin_assignments_{binned_dataset_name}"]
                 binned_expression = bin_assignments @ dataset.X
                 binned_dataset.X = binned_expression
 
@@ -583,7 +584,7 @@ def load_trained_model(
         raise FileNotFoundError(f"No Popari model saved at {path_without_extension}.")
 
     datasets = reloaded_hierarchy[0]
-    replicate_names = [dataset.name for dataset in datasets]
+    replicate_names = [dataset.popari.name() for dataset in datasets]
 
     return load_pretrained(
         datasets,
@@ -595,7 +596,7 @@ def load_trained_model(
 
 
 def load_pretrained(
-    datasets: Sequence[PopariDataset],
+    datasets: Sequence[AnnData],
     replicate_names: Sequence[str] = None,
     context=dict(device="cpu", dtype=torch.float64),
     reloaded_hierarchy: Optional[dict] = None,
@@ -646,8 +647,8 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
     """Initialize Popari object from a SpiceMix pretrained model."""
 
     pretrained_datasets = pretrained_model.hierarchy[0].datasets
-    datasets = [PopariDataset(dataset, dataset.name) for dataset in pretrained_datasets]
-    replicate_names = [dataset.name for dataset in datasets]
+    datasets = [dataset.copy().popari.ensure_name(dataset.popari.name()) for dataset in pretrained_datasets]
+    replicate_names = [dataset.popari.name() for dataset in datasets]
 
     reloaded_hierarchy = None
 
@@ -655,7 +656,7 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
     for level in range(pretrained_model.hierarchical_levels):
         level_datasets = pretrained_model.hierarchy[level].datasets
         reloaded_hierarchy[level] = [
-            PopariDataset(level_dataset, level_dataset.name) for level_dataset in level_datasets
+            level_dataset.copy().popari.ensure_name(level_dataset.popari.name()) for level_dataset in level_datasets
         ]
 
     return load_pretrained(

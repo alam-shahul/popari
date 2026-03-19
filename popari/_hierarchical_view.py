@@ -1,17 +1,15 @@
-from __future__ import annotations
-
 from collections import defaultdict
 from typing import Optional, Sequence
 
 import numpy as np
 import torch
+from anndata import AnnData
 from scipy.sparse import csr_array
 from tqdm.auto import trange
 
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
 from popari._embedding_optimizer import EmbeddingOptimizer
 from popari._parameter_optimizer import ParameterOptimizer
-from popari._popari_dataset import PopariDataset
 from popari.initialization import initialize_dummy, initialize_kmeans, initialize_leiden, initialize_svd
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
@@ -27,7 +25,7 @@ class HierarchicalView:
 
     def __init__(
         self,
-        datasets: Sequence[PopariDataset],
+        datasets: Sequence[AnnData],
         betas: list,
         prior_x_modes: list,
         method: str,
@@ -324,7 +322,7 @@ class HierarchicalView:
         if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
             self.parameter_optimizer.spatial_affinity_state.reaverage()
 
-    def link(self, low_res_view: HierarchicalView):
+    def link(self, low_res_view: "HierarchicalView"):
         """Link a view to the resolution right below it in the hierarchy."""
         self.low_res_view = low_res_view
 
@@ -693,7 +691,7 @@ class Hierarchy:
 
     def __init__(
         self,
-        base_view: HierarchicalView,
+        base_view: "HierarchicalView",
         downsampling_method: str = "grid",
         **hierarchical_view_kwargs,
     ):
@@ -705,7 +703,7 @@ class Hierarchy:
 
         self.hierarchical_view_kwargs = hierarchical_view_kwargs
 
-    def __setitem__(self, index: int, view: HierarchicalView):
+    def __setitem__(self, index: int, view: "HierarchicalView"):
         self.view_container[index] = view
 
     def __getitem__(self, index: int):
@@ -734,8 +732,8 @@ class Hierarchy:
                     bin_assignments_key=bin_assignments_key,
                     **effective_kwargs,
                 )
-                binned_dataset = PopariDataset(binned_dataset, binned_dataset_name)
-                binned_dataset.compute_spatial_neighbors()
+                binned_dataset = binned_dataset.popari.ensure_name(binned_dataset_name)
+                binned_dataset.popari.compute_spatial_neighbors()
 
                 print(
                     f"{get_datetime()} Downsized dataset from {len(previous_dataset)} to {len(binned_dataset)} spots.",
@@ -768,7 +766,7 @@ class Hierarchy:
 
         context = hierarchical_view_kwargs["context"]
 
-        def reconstruct_level(level: int, datasets: Sequence[PopariDataset], previous_view: HierarchicalView | None):
+        def reconstruct_level(level: int, datasets: Sequence[AnnData], previous_view: "HierarchicalView | None"):
             print(f"{get_datetime()} Reloading level {level}")
             if previous_view is not None:
                 binned_Ys = []
