@@ -4,9 +4,9 @@ from typing import Sequence
 
 import numpy as np
 import torch
+from anndata import AnnData
 from tqdm.auto import tqdm, trange
 
-from popari._popari_dataset import PopariDataset
 from popari.util import (
     IndependentSet,
     NesterovGD,
@@ -513,7 +513,7 @@ class EmbeddingState(dict):
 
     """
 
-    def __init__(self, K: int, datasets: Sequence[PopariDataset], initial_context=None, context=None):
+    def __init__(self, K: int, datasets: Sequence[AnnData], initial_context=None, context=None):
         self.datasets = datasets
         self.K = K
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
