@@ -138,6 +138,84 @@ def initialize_leiden(
     return M, Xs
 
 
+def initialize_ground_truth(
+    datasets: Sequence[ad.AnnData],
+    K: int,
+    context: dict,
+    label_key: str = "cell_type",
+    random_state: int = 0,
+    eps: float = 1e-10,
+    absent_class_embedding_scale: float = 0.05,
+) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
+    """Initialize metagenes and hidden states from known labels.
+
+    This follows the same clustering-based initialization idea as Leiden, but
+    uses an existing ``.obs`` column as the cluster assignment. Factor order is
+    determined by categorical order when available, otherwise by sorted label
+    values.
+
+    """
+
+    for dataset in datasets:
+        if label_key not in dataset.obs:
+            raise KeyError(f"Ground-truth initialization requires dataset.obs[{label_key!r}].")
+
+    first_dataset = datasets[0]
+    first_labels = first_dataset.obs[label_key]
+    if (
+        "cell_type_definitions" in first_dataset.uns
+        and first_dataset.name in first_dataset.uns["cell_type_definitions"]
+    ):
+        labels = list(first_dataset.uns["cell_type_definitions"][first_dataset.name])
+    elif str(first_labels.dtype) == "category":
+        labels = list(first_labels.cat.categories)
+    else:
+        labels = sorted(set(np.concatenate([dataset.obs[label_key].dropna().unique() for dataset in datasets])))
+
+    if len(labels) != K:
+        raise ValueError(
+            f"Ground-truth initialization found {len(labels)} labels in obs[{label_key!r}], "
+            f"but Popari was configured with K={K}.",
+        )
+
+    label_to_index = {label: index for index, label in enumerate(labels)}
+    Ys = [dataset.X.toarray() if sp.issparse(dataset.X) else np.asarray(dataset.X) for dataset in datasets]
+    labels_cat = np.concatenate([dataset.obs[label_key].to_numpy() for dataset in datasets])
+    Y_cat = np.concatenate(Ys, axis=0)
+    rng = np.random.default_rng(random_state)
+    absent_label_indices = [label_to_index[label] for label in labels if not np.any(labels_cat == label)]
+
+    metagenes = []
+    for label in labels:
+        label_mask = labels_cat == label
+        if np.any(label_mask):
+            metagene = Y_cat[label_mask].mean(axis=0)
+        else:
+            metagene = rng.random(Y_cat.shape[1])
+        metagenes.append(metagene)
+
+    M = np.stack(metagenes).T
+
+    Xs = []
+    for dataset in datasets:
+        dataset_labels = dataset.obs[label_key].to_numpy()
+        unknown_labels = set(dataset_labels) - set(label_to_index)
+        if unknown_labels:
+            raise ValueError(f"Found labels not included in initialization order: {sorted(unknown_labels)}")
+
+        N = len(dataset_labels)
+        X = rng.random((N, K)) * eps
+        if absent_label_indices:
+            X[:, absent_label_indices] = rng.random((N, len(absent_label_indices))) * absent_class_embedding_scale
+        X[np.arange(N), [label_to_index[label] for label in dataset_labels]] = 1
+        Xs.append(X)
+
+    M = torch.tensor(M, **context)
+    Xs = [torch.tensor(X, **context) for X in Xs]
+
+    return M, Xs
+
+
 def initialize_svd(
     datasets: Sequence[ad.AnnData],
     K: int,

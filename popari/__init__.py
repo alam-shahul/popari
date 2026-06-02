@@ -71,7 +71,10 @@ def get_parser():
     parser.add_argument(
         "--initialization_method",
         type=str,
-        help="algorithm to use for initializing metagenes and embeddings. Default ``svd``",
+        help=(
+            "algorithm to use for initializing metagenes and embeddings. "
+            "Supports dummy, kmeans, svd, leiden, and ground_truth. Default ``svd``"
+        ),
     )
     parser.add_argument(
         "--hierarchical_levels",
