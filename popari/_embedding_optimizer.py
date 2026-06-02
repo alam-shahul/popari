@@ -526,7 +526,10 @@ class EmbeddingState(nn.Module):
         self._ordered_dataset_names = [dataset.name for dataset in datasets]
         self.embedding_dict = ParameterDict(prefix="dataset")
         for dataset in datasets:
-            self.embedding_dict[dataset.name] = torch.zeros((dataset.shape[0], K), **self.context)
+            self.embedding_dict[dataset.name] = nn.Parameter(
+                torch.zeros((dataset.shape[0], K), **self.context),
+                requires_grad=False,
+            )
         self.datasets = datasets
         self.K = K
 
