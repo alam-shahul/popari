@@ -7,6 +7,10 @@ from popari.util import project_M
 pytestmark = [pytest.mark.baseline, pytest.mark.cheap]
 
 
+def _sigma_yxs_numpy(model):
+    return model.parameter_optimizer.sigma_yxs.detach().cpu().numpy()
+
+
 def _shared_group_and_mask(model):
     group_name, group_replicates = next(iter(model.metagene_groups.items()))
     replicate_mask = np.array([dataset.name in group_replicates for dataset in model.datasets], dtype=bool)
@@ -28,9 +32,10 @@ def test_sigma_yx_update_matches_manual_residual_sum(shared_model_factory):
         )
         manual_squared_loss += torch.linalg.norm(residual, ord="fro").item() ** 2
 
-    assert model.parameter_optimizer.sigma_yxs.shape == (len(model.datasets),)
-    assert np.all(np.isfinite(model.parameter_optimizer.sigma_yxs))
-    assert np.all(model.parameter_optimizer.sigma_yxs > 0)
+    sigma_yxs = _sigma_yxs_numpy(model)
+    assert sigma_yxs.shape == (len(model.datasets),)
+    assert np.all(np.isfinite(sigma_yxs))
+    assert np.all(sigma_yxs > 0)
     assert model.parameter_optimizer.nll_sigma_yx() == pytest.approx(manual_squared_loss, abs=1e-6)
 
 
@@ -42,7 +47,8 @@ def test_scale_metagenes_preserves_reconstruction_and_simplex_constraint(shared_
     original_metagenes = model.parameter_optimizer.metagene_state[name].clone()
     original_embedding = model.embedding_optimizer.embedding_state[name].clone()
 
-    model.parameter_optimizer.metagene_state[name].mul_(3.0)
+    with torch.no_grad():
+        model.parameter_optimizer.metagene_state[name].mul_(3.0)
     model.parameter_optimizer.scale_metagenes()
 
     scaled_metagenes = model.parameter_optimizer.metagene_state[name]
@@ -120,12 +126,12 @@ def test_direct_estimate_sigma_x_inv_reduces_group_loss(shared_model_factory):
     model.parameter_optimizer.update_sigma_yx()
     group_name, group_replicates, replicate_mask, first_dataset_name = _shared_group_and_mask(model)
 
-    sigma_x_inv = model.parameter_optimizer.spatial_affinity_state[first_dataset_name].clone()
+    sigma_x_inv = model.parameter_optimizer.spatial_affinity[first_dataset_name]
     initial_loss = model.parameter_optimizer.nll_Sigma_x_inv(sigma_x_inv, replicate_mask)
     updated_sigma_x_inv, _ = model.parameter_optimizer.estimate_Sigma_x_inv(
-        sigma_x_inv.clone(),
+        sigma_x_inv,
         replicate_mask,
-        model.parameter_optimizer.spatial_affinity_state.optimizers[group_name],
+        model.parameter_optimizer.spatial_affinity.optimizers[group_name],
         n_epochs=100,
         check_frequency=10,
         tol=1e-4,
@@ -143,8 +149,8 @@ def test_reinitialize_spatial_affinities_rebuilds_optimizer_state(shared_model_f
 
     model.parameter_optimizer.reinitialize_spatial_affinities()
 
-    assert model.parameter_optimizer.spatial_affinity_state.optimizers
-    assert set(model.parameter_optimizer.spatial_affinity_state.optimizers) == set(model.spatial_affinity_groups)
+    assert model.parameter_optimizer.spatial_affinity.optimizers
+    assert set(model.parameter_optimizer.spatial_affinity.optimizers) == set(model.spatial_affinity_groups)
 
 
 def test_nll_spatial_affinities_matches_groupwise_sum(shared_model_factory):
@@ -155,7 +161,7 @@ def test_nll_spatial_affinities_matches_groupwise_sum(shared_model_factory):
     for _, group_replicates in model.spatial_affinity_groups.items():
         first_dataset_name = group_replicates[0]
         replicate_mask = np.array([dataset.name in group_replicates for dataset in model.datasets], dtype=bool)
-        sigma_x_inv = model.parameter_optimizer.spatial_affinity_state[first_dataset_name]
+        sigma_x_inv = model.parameter_optimizer.spatial_affinity[first_dataset_name]
         manual_loss += model.parameter_optimizer.nll_Sigma_x_inv(sigma_x_inv, replicate_mask).item()
 
     assert model.parameter_optimizer.nll_spatial_affinities().item() == pytest.approx(manual_loss, abs=1e-6)
@@ -167,7 +173,7 @@ def test_spatial_affinity_update_is_symmetric(shared_model_factory):
     model.parameter_optimizer.update_spatial_affinity()
 
     for dataset in model.datasets:
-        affinity = model.parameter_optimizer.spatial_affinity_state[dataset.name].detach().cpu().numpy()
+        affinity = model.parameter_optimizer.spatial_affinity[dataset.name].detach().cpu().numpy()
         assert np.allclose(affinity, affinity.T, atol=1e-6)
 
 
@@ -178,11 +184,11 @@ def test_update_spatial_affinity_differential_reaverages_group_bars(differential
     model.parameter_optimizer.update_spatial_affinity()
 
     for group_name, group_replicates in model.spatial_affinity_groups.items():
-        expected = sum(model.parameter_optimizer.spatial_affinity_state[name] for name in group_replicates) / len(
+        expected = sum(model.parameter_optimizer.spatial_affinity[name] for name in group_replicates) / len(
             group_replicates,
         )
         assert torch.allclose(
-            model.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name],
+            model.parameter_optimizer.spatial_affinity_bar[group_name],
             expected,
             atol=1e-6,
         )
@@ -198,7 +204,7 @@ def test_nll_embeddings_matches_sum_without_neighbors(shared_model_factory):
             model.Ys[dataset_index].to(model.embedding_optimizer.context["device"]),
             model.parameter_optimizer.metagene_state[dataset.name].to(model.embedding_optimizer.context["device"]),
             model.embedding_optimizer.embedding_state[dataset.name].to(model.embedding_optimizer.context["device"]),
-            model.parameter_optimizer.sigma_yxs[dataset_index],
+            model.parameter_optimizer.sigma_yxs[dataset_index].item(),
             model.parameter_optimizer.prior_x_modes[dataset_index],
             model.parameter_optimizer.prior_xs[dataset_index],
             dataset,
@@ -218,7 +224,7 @@ def test_direct_estimate_weight_wonbr_reduces_loss(shared_model_factory):
     y = model.Ys[dataset_index].to(model.embedding_optimizer.context["device"])
     m = model.parameter_optimizer.metagene_state[dataset.name].to(model.embedding_optimizer.context["device"])
     x = model.embedding_optimizer.embedding_state[dataset.name].clone().to(model.embedding_optimizer.context["device"])
-    sigma_yx = model.parameter_optimizer.sigma_yxs[dataset_index]
+    sigma_yx = model.parameter_optimizer.sigma_yxs[dataset_index].item()
     prior_x_mode = model.parameter_optimizer.prior_x_modes[dataset_index]
     prior_x = model.parameter_optimizer.prior_xs[dataset_index]
 
@@ -264,7 +270,7 @@ def test_nll_embeddings_matches_sum_with_neighbors(shared_model_factory):
             model.Ys[dataset_index].to(model.embedding_optimizer.context["device"]),
             model.parameter_optimizer.metagene_state[dataset.name].to(model.embedding_optimizer.context["device"]),
             model.embedding_optimizer.embedding_state[dataset.name].to(model.embedding_optimizer.context["device"]),
-            model.parameter_optimizer.sigma_yxs[dataset_index],
+            model.parameter_optimizer.sigma_yxs[dataset_index].item(),
             model.parameter_optimizer.prior_x_modes[dataset_index],
             model.parameter_optimizer.prior_xs[dataset_index],
             dataset,
@@ -284,7 +290,7 @@ def test_direct_estimate_weight_wnbr_reduces_loss(shared_model_factory):
     y = model.Ys[dataset_index].to(model.embedding_optimizer.context["device"])
     m = model.parameter_optimizer.metagene_state[dataset.name].to(model.embedding_optimizer.context["device"])
     x = model.embedding_optimizer.embedding_state[dataset.name].clone().to(model.embedding_optimizer.context["device"])
-    sigma_yx = model.parameter_optimizer.sigma_yxs[dataset_index]
+    sigma_yx = model.parameter_optimizer.sigma_yxs[dataset_index].item()
     prior_x_mode = model.parameter_optimizer.prior_x_modes[dataset_index]
     prior_x = model.parameter_optimizer.prior_xs[dataset_index]
 
@@ -326,11 +332,12 @@ def test_differential_reaverage_updates_group_averages(differential_model_factor
 
     dataset_names = [dataset.name for dataset in model.datasets]
     for offset, dataset_name in enumerate(dataset_names, start=1):
-        model.parameter_optimizer.metagene_state[dataset_name].fill_(float(offset))
-        model.parameter_optimizer.spatial_affinity_state[dataset_name].fill_(float(offset))
+        with torch.no_grad():
+            model.parameter_optimizer.metagene_state[dataset_name].fill_(float(offset))
+            model.parameter_optimizer.spatial_affinity[dataset_name].fill_(float(offset))
 
     model.parameter_optimizer.metagene_state.reaverage()
-    model.parameter_optimizer.spatial_affinity_state.reaverage()
+    model.parameter_optimizer.spatial_affinity.reaverage(model.parameter_optimizer.spatial_affinity_bar)
 
     for group_name, group_replicates in model.metagene_groups.items():
         average = sum(model.parameter_optimizer.metagene_state[name] for name in group_replicates) / len(
@@ -340,11 +347,11 @@ def test_differential_reaverage_updates_group_averages(differential_model_factor
         assert torch.allclose(model.parameter_optimizer.metagene_state.M_bar[group_name], expected, atol=1e-6)
 
     for group_name, group_replicates in model.spatial_affinity_groups.items():
-        expected = sum(model.parameter_optimizer.spatial_affinity_state[name] for name in group_replicates) / len(
+        expected = sum(model.parameter_optimizer.spatial_affinity[name] for name in group_replicates) / len(
             group_replicates,
         )
         assert torch.allclose(
-            model.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name],
+            model.parameter_optimizer.spatial_affinity_bar[group_name],
             expected,
             atol=1e-6,
         )

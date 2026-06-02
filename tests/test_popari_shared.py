@@ -8,15 +8,16 @@ from popari import tl
 def test_shared_parameter_updates_are_finite(shared_model_factory):
     model = shared_model_factory()
     initial_m = model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy().copy()
-    initial_sigma = model.parameter_optimizer.sigma_yxs.copy()
+    initial_sigma = model.parameter_optimizer.sigma_yxs.detach().cpu().numpy().copy()
 
     model.estimate_parameters()
 
     updated_m = model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
+    updated_sigma = model.parameter_optimizer.sigma_yxs.detach().cpu().numpy()
     assert np.isfinite(updated_m).all()
-    assert np.isfinite(model.parameter_optimizer.sigma_yxs).all()
+    assert np.isfinite(updated_sigma).all()
     assert not np.allclose(initial_m, updated_m)
-    assert not np.allclose(initial_sigma, model.parameter_optimizer.sigma_yxs)
+    assert not np.allclose(initial_sigma, updated_sigma)
 
 
 @pytest.mark.baseline
@@ -40,8 +41,8 @@ def test_shared_nll_components_are_numerically_stable(trained_shared_model, shar
     metrics = shared_reference_metrics
 
     assert model.nll(level=0)[0] == pytest.approx(metrics["nll"], abs=1e-6)
-    assert model.parameter_optimizer.sigma_yxs[0] == pytest.approx(metrics["sigma_yx"][0], abs=1e-6)
-    assert model.parameter_optimizer.sigma_yxs[1] == pytest.approx(metrics["sigma_yx"][1], abs=1e-6)
+    assert model.parameter_optimizer.sigma_yxs[0].item() == pytest.approx(metrics["sigma_yx"][0], abs=1e-6)
+    assert model.parameter_optimizer.sigma_yxs[1].item() == pytest.approx(metrics["sigma_yx"][1], abs=1e-6)
     assert model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy().sum() == pytest.approx(
         metrics["metagene_sum"],
     )
@@ -49,7 +50,7 @@ def test_shared_nll_components_are_numerically_stable(trained_shared_model, shar
         metrics["embedding_sum_0"],
         abs=1e-6,
     )
-    assert model.parameter_optimizer.spatial_affinity_state["0"].detach().cpu().numpy().sum() == pytest.approx(
+    assert model.parameter_optimizer.spatial_affinity["0"].detach().cpu().numpy().sum() == pytest.approx(
         metrics["spatial_affinity_sum_0"],
         abs=1e-6,
     )

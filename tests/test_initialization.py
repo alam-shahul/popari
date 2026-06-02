@@ -28,8 +28,8 @@ def test_shared_mode_reuses_group_parameters(shared_model_factory):
     assert model.parameter_optimizer.metagene_state[first_name].data_ptr() == (
         model.parameter_optimizer.metagene_state[second_name].data_ptr()
     )
-    assert model.parameter_optimizer.spatial_affinity_state[first_name].data_ptr() == (
-        model.parameter_optimizer.spatial_affinity_state[second_name].data_ptr()
+    assert model.parameter_optimizer.spatial_affinity[first_name].data_ptr() == (
+        model.parameter_optimizer.spatial_affinity[second_name].data_ptr()
     )
 
 
@@ -40,7 +40,7 @@ def test_differential_initialization_creates_group_averages(differential_model_f
     assert model.metagene_mode == "differential"
     assert model.spatial_affinity_mode == "differential lookup"
     assert model.parameter_optimizer.metagene_state.M_bar
-    assert model.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar
+    assert model.parameter_optimizer.spatial_affinity_bar.spatial_affinity_bar
 
     for group_name, group_replicates in model.metagene_groups.items():
         averaged = sum(

@@ -15,7 +15,7 @@ def test_differential_parameter_updates_are_finite(differential_model_factory):
     for dataset in model.datasets:
         assert np.isfinite(model.parameter_optimizer.metagene_state[dataset.name].detach().cpu().numpy()).all()
         assert np.isfinite(model.embedding_optimizer.embedding_state[dataset.name].detach().cpu().numpy()).all()
-        assert np.isfinite(model.parameter_optimizer.spatial_affinity_state[dataset.name].detach().cpu().numpy()).all()
+        assert np.isfinite(model.parameter_optimizer.spatial_affinity[dataset.name].detach().cpu().numpy()).all()
 
 
 @pytest.mark.expensive
@@ -28,16 +28,19 @@ def test_differential_group_averages_track_replicate_parameters(differential_mod
             model.parameter_optimizer.metagene_state[dataset_name].detach().cpu().numpy()
             for dataset_name in group_replicates
         ) / len(group_replicates)
-        assert np.allclose(average, model.parameter_optimizer.metagene_state.M_bar[group_name].detach().cpu().numpy())
+        assert np.allclose(
+            average,
+            model.parameter_optimizer.metagene_state.M_bar[group_name].detach().cpu().numpy(),
+        )
 
     for group_name, group_replicates in model.spatial_affinity_groups.items():
         average = sum(
-            model.parameter_optimizer.spatial_affinity_state[dataset_name].detach().cpu().numpy()
+            model.parameter_optimizer.spatial_affinity[dataset_name].detach().cpu().numpy()
             for dataset_name in group_replicates
         ) / len(group_replicates)
         assert np.allclose(
             average,
-            model.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].detach().cpu().numpy(),
+            model.parameter_optimizer.spatial_affinity_bar[group_name].detach().cpu().numpy(),
         )
 
 
