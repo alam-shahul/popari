@@ -4,3 +4,4 @@ __pycache__/
 data/
 notebooks/
 *.ipynb
+popari/genes_ncbi_mus_musculus_proteincoding.py
