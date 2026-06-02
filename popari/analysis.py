@@ -116,7 +116,7 @@ def compute_empirical_correlations(
 
     datasets = trained_model.hierarchy[level].datasets
 
-    scaling = trained_model.parameter_optimizer.spatial_affinity_state.scaling
+    scaling = trained_model.parameter_optimizer.spatial_affinity.scaling
 
     _compute_empirical_correlations(datasets, scaling, feature=feature, output=output)
 
@@ -171,8 +171,8 @@ def plot_gene_activations(trained_model: Popari, gene_subset: Sequence[str], lev
     gene_indices = trained_model.datasets[0].var_names.get_indexer(gene_subset)
     images = np.zeros((len(gene_indices), trained_model.K, len(trained_model.metagene_groups)))
     for group_index, group_name in enumerate(trained_model.metagene_groups):
-        M_bar_subset = trained_model.datasets[0].uns["M_bar"][group_name][gene_indices]
-        images[:, :, group_index] = M_bar_subset
+        M_bar_subset = trained_model.parameter_optimizer.metagene_state.M_bar[group_name][gene_indices]
+        images[:, :, group_index] = M_bar_subset.detach().cpu().numpy()
 
     fig, axes = setup_squarish_axes(len(gene_indices), figsize=(10, 10))
     for ax, image, gene in zip(axes.flat, images, gene_subset):
@@ -207,7 +207,7 @@ def plot_gene_trajectories(
     images = np.zeros((len(gene_indices), trained_model.K, len(trained_model.metagene_groups)))
     for group_index, group_name in enumerate(trained_model.metagene_groups):
         M_bar_subset = trained_model.parameter_optimizer.metagene_state.M_bar[group_name][gene_indices]
-        images[:, :, group_index] = M_bar_subset
+        images[:, :, group_index] = M_bar_subset.detach().cpu().numpy()
 
     summed_weights = images.sum(axis=1)
     fig, axes = setup_squarish_axes(len(gene_indices), figsize=(10, 10))
