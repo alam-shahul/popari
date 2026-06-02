@@ -5,3 +5,4 @@ data/
 notebooks/
 *.ipynb
 popari/genes_ncbi_mus_musculus_proteincoding.py
+*.h5ad
