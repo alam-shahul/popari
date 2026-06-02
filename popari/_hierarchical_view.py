@@ -11,7 +11,13 @@ from tqdm.auto import trange
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
 from popari._embedding_optimizer import EmbeddingOptimizer
 from popari._parameter_optimizer import ParameterOptimizer
-from popari.initialization import initialize_dummy, initialize_kmeans, initialize_leiden, initialize_svd
+from popari.initialization import (
+    initialize_dummy,
+    initialize_ground_truth,
+    initialize_kmeans,
+    initialize_leiden,
+    initialize_svd,
+)
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
@@ -239,6 +245,13 @@ class HierarchicalView(nn.Module):
                     self.initial_context,
                     kwargs_leiden=kwargs_leiden,
                     verbose=self.verbose,
+                )
+            elif method == "ground_truth":
+                self.M, self.Xs = initialize_ground_truth(
+                    self.datasets,
+                    self.K,
+                    self.initial_context,
+                    random_state=self.random_state,
                 )
             else:
                 raise NotImplementedError

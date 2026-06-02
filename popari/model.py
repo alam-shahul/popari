@@ -37,7 +37,8 @@ class Popari(nn.Module):
         reloaded_hierarchy: data from previous hierarchical run of Popari.
         lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: ``1e-4``
         pretrained: if set, attempts to load model state from input files. Default: ``False``
-        initialization_method: algorithm to use for initializing metagenes and embeddings. Default: ``leiden``
+        initialization_method: algorithm to use for initializing metagenes and embeddings.
+            Supports ``dummy``, ``kmeans``, ``svd``, ``leiden``, and ``ground_truth``. Default: ``leiden``
         hierarchical_levels: number of hierarchical levels to use. Default: ``1`` (non-hierarchical mode)
         metagene_groups: defines a grouping of replicates for the metagene optimization. If
             ``metagene_mode == "shared"``, then one set of metagenes will be created for each group;
