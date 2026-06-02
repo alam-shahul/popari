@@ -52,13 +52,17 @@ def test_hierarchical_notebook_generation_path_populates_expected_fields():
     (dataset,) = result.datasets
 
     assert result.replicate_names == ("layer_0",)
+    assert dataset.obs_names.is_unique
     assert dataset.X.shape == (36, 20)
     assert issparse(dataset.X)
     assert dataset.obsm["spatial"].shape == (36, 2)
     assert dataset.obsm["ground_truth_X"].shape == (36, 9)
     assert dataset.uns["ground_truth_M"][dataset.name].shape == (20, 9)
     assert "layer" in dataset.obs
+    assert dataset.obs["layer"].dtype.name == "category"
     assert "cell_type" in dataset.obs
+    assert dataset.obs["cell_type"].dtype.name == "category"
+    assert dataset.obs["batch"].dtype.name == "category"
     assert "adjacency_matrix" in dataset.obsp
     assert "adjacency_list" in dataset.obsm
 
@@ -177,7 +181,11 @@ def test_spatial_affinity_demo_datasets_have_three_disjoint_metagenes_and_grid_g
         metagene_support = np.where(ground_truth_M > 0, 1, 0)
 
         assert dataset.X.shape == (36, 20)
+        assert dataset.obs_names.is_unique
         assert issparse(dataset.X)
+        assert dataset.obs["scenario"].dtype.name == "category"
+        assert dataset.obs["cell_type"].dtype.name == "category"
+        assert dataset.obs["batch"].dtype.name == "category"
         assert ground_truth_M.shape == (20, 3)
         assert ground_truth_X.shape == (36, 3)
         assert np.all(metagene_support.sum(axis=1) == 1)

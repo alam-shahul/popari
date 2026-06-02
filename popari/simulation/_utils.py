@@ -305,10 +305,14 @@ def _create_spatial_affinity_demo_dataset(
     spatial = np.column_stack([column_indices.ravel(), row_indices.ravel()]).astype(float)
     dataset = AnnData(X=csr_array(expression))
     dataset.name = scenario_name
+    dataset.obs_names = [f"{scenario_name}_{index}" for index in range(dataset.n_obs)]
     dataset.obs["scenario"] = scenario_name
     dataset.obs["cell_type"] = labels
     dataset.obs["cell_type_encoded"] = [label_to_index[label] for label in labels]
     dataset.obs["batch"] = scenario_name
+    dataset.obs["scenario"] = dataset.obs["scenario"].astype("category")
+    dataset.obs["cell_type"] = dataset.obs["cell_type"].astype("category")
+    dataset.obs["batch"] = dataset.obs["batch"].astype("category")
     dataset.obsm["spatial"] = spatial
     dataset.obsm["ground_truth_X"] = ground_truth_X
     dataset.var_names = [f"gene_{index}" for index in range(config.num_genes)]
@@ -594,6 +598,11 @@ def generate_simulation(
 
     datasets = tuple(multireplicate)
     for dataset in datasets:
+        dataset.obs_names = [f"{dataset.name}_{index}" for index in range(dataset.n_obs)]
+        dataset.obs["batch"] = dataset.name
+        dataset.obs["batch"] = dataset.obs["batch"].astype("category")
+        dataset.obs["cell_type"] = dataset.obs["cell_type"].astype("category")
+        dataset.obs[recipe.domain_key] = dataset.obs[recipe.domain_key].astype("category")
         dataset.X = csr_array(dataset.X)
 
     if output_path is not None:
