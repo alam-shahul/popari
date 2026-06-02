@@ -1,5 +1,9 @@
 import numpy as np
 import pytest
+from scipy.sparse import issparse
+
+from popari.model import Popari
+from popari.simulation import SyntheticDataConfig, create_spatial_affinity_demo_datasets
 
 
 @pytest.mark.baseline
@@ -18,6 +22,49 @@ def test_random_state_controls_initialization(shared_model_factory):
 
         assert not np.allclose(dataset_0.uns["M"][dataset_0.name], dataset_2.uns["M"][dataset_2.name])
         assert not np.allclose(dataset_0.obsm["X"], dataset_2.obsm["X"])
+
+
+@pytest.mark.baseline
+def test_ground_truth_initialization_uses_cell_type_labels(shared_model_factory):
+    model = shared_model_factory(initialization_method="ground_truth")
+
+    for dataset in model.datasets:
+        label_indices = dataset.obs["cell_type"].str.removeprefix("type_").astype(int).to_numpy()
+        assert np.array_equal(dataset.obsm["X"].argmax(axis=1), label_indices)
+        active_values = dataset.obsm["X"][np.arange(dataset.n_obs), label_indices]
+        inactive_values = dataset.obsm["X"].copy()
+        inactive_values[np.arange(dataset.n_obs), label_indices] = -np.inf
+        assert np.all(active_values > inactive_values.max(axis=1))
+
+
+@pytest.mark.baseline
+def test_ground_truth_initialization_requires_k_to_match_labels(shared_model_factory):
+    with pytest.raises(ValueError, match="found 3 labels"):
+        shared_model_factory(initialization_method="ground_truth", K=2)
+
+
+@pytest.mark.baseline
+def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(context):
+    config = SyntheticDataConfig(num_genes=12, grid_size=4, sig_y_scale=0.5, random_state=0)
+    (dataset,) = create_spatial_affinity_demo_datasets(config, scenario_names=("only_type_a",))
+    assert issparse(dataset.X)
+
+    model = Popari(
+        K=3,
+        datasets=(dataset,),
+        replicate_names=(dataset.name,),
+        lambda_Sigma_x_inv=1e-4,
+        initialization_method="ground_truth",
+        torch_context=context,
+        initial_context=context,
+        random_state=0,
+        verbose=0,
+    )
+
+    initialized_dataset = model.datasets[0]
+    assert np.all(initialized_dataset.obsm["X"].argmax(axis=1) == 0)
+    assert np.all(np.isfinite(initialized_dataset.uns["M"][initialized_dataset.name]))
+    assert np.all(np.isfinite(initialized_dataset.uns["Sigma_x_inv"][initialized_dataset.name]))
 
 
 @pytest.mark.baseline
