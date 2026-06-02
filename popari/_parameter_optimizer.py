@@ -2,8 +2,10 @@ import awkward as ak
 import numpy as np
 import torch
 from anndata import AnnData
+from torch import nn
 from tqdm.auto import tqdm, trange
 
+from popari._named_state import BufferDict, ParameterDict
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import (
     IndependentSet,
@@ -18,7 +20,7 @@ from popari.util import (
 )
 
 
-class ParameterOptimizer:
+class ParameterOptimizer(nn.Module):
     """Optimizer and state for Popari parameters."""
 
     def __init__(
@@ -50,6 +52,7 @@ class ParameterOptimizer:
         use_inplace_ops=False,
         verbose=0,
     ):
+        super().__init__()
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
 
@@ -73,15 +76,20 @@ class ParameterOptimizer:
         self.metagene_mode = metagene_mode
         self.M_constraint = M_constraint
         self.prior_x_modes = prior_x_modes
-        self.betas = betas
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
+        self.register_buffer(
+            "betas",
+            torch.as_tensor(betas, dtype=self.context["dtype"], device=self.context["device"]),
+        )
         self.adjacency_lists = {dataset.name: dataset.obsm["adjacency_list"] for dataset in self.datasets}
-        self.adjacency_matrices = {
-            dataset.name: convert_numpy_to_pytorch_sparse_coo(dataset.obsp["adjacency_matrix"], self.context)
-            for dataset in self.datasets
-        }
+        self.adjacency_matrices = BufferDict(prefix="dataset")
+        for dataset in self.datasets:
+            self.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(
+                dataset.obsp["adjacency_matrix"],
+                self.context,
+            )
 
         if self.verbose:
             print(f"{get_datetime()} Initializing MetageneState")
@@ -100,12 +108,10 @@ class ParameterOptimizer:
         if self.verbose:
             print(f"{get_datetime()} Initializing SpatialAffinityState")
 
-        self.spatial_affinity_state = SpatialAffinityState(
+        self.spatial_affinity = SpatialAffinity(
             self.K,
-            self.metagene_state,
             self.datasets,
             self.spatial_affinity_groups,
-            self.spatial_affinity_tags,
             self.betas,
             scaling=self.spatial_affinity_scaling,
             mode=self.spatial_affinity_mode,
@@ -113,6 +119,14 @@ class ParameterOptimizer:
             lr=self.spatial_affinity_lr,
             context=self.context,
         )
+        self.spatial_affinity_bar = None
+        if self.spatial_affinity_mode == "differential lookup":
+            self.spatial_affinity_bar = SpatialAffinityBar(
+                self.K,
+                self.datasets,
+                self.spatial_affinity_groups,
+                context=self.context,
+            )
 
         if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
             self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
@@ -121,11 +135,11 @@ class ParameterOptimizer:
         else:
             raise NotImplementedError
 
-        self.sigma_yxs = np.zeros(len(self.datasets))
+        self.register_buffer("sigma_yxs", torch.zeros(len(self.datasets), **self.context))
 
     def link(self, embedding_optimizer):
         """Link to embedding_optimizer."""
-        self.embedding_optimizer = embedding_optimizer
+        object.__setattr__(self, "embedding_optimizer", embedding_optimizer)
 
     def scale_metagenes(self):
         norm_axis = 1
@@ -135,18 +149,19 @@ class ParameterOptimizer:
         elif self.M_constraint == "unit_sphere":
             scale_factor = torch.linalg.norm(self.metagene_state.metagenes, axis=norm_axis, ord=2, keepdim=True)
 
-        self.metagene_state.metagenes.div_(scale_factor)
-        for group_index, group_replicates in enumerate(self.metagene_groups.values()):
-            for dataset_index, dataset in enumerate(self.datasets):
-                if dataset.name not in group_replicates:
-                    continue
-                replicate_embedding = self.embedding_optimizer.embedding_state.embeddings[dataset_index]
-                if self.metagene_mode == "differential":
-                    replicate_scale_factor = scale_factor[dataset_index]
-                    replicate_embedding.mul_(replicate_scale_factor)
-                else:
-                    group_scale_factor = scale_factor[group_index]
-                    replicate_embedding.mul_(group_scale_factor)
+        with torch.no_grad():
+            self.metagene_state.metagenes.div_(scale_factor)
+            for group_index, group_replicates in enumerate(self.metagene_groups.values()):
+                for dataset_index, dataset in enumerate(self.datasets):
+                    if dataset.name not in group_replicates:
+                        continue
+                    replicate_embedding = self.embedding_optimizer.embedding_state.embeddings[dataset_index]
+                    if self.metagene_mode == "differential":
+                        replicate_scale_factor = scale_factor[dataset_index]
+                        replicate_embedding.mul_(replicate_scale_factor)
+                    else:
+                        group_scale_factor = scale_factor[group_index]
+                        replicate_embedding.mul_(group_scale_factor)
 
     def estimate_Sigma_x_inv(
         self,
@@ -171,10 +186,13 @@ class ParameterOptimizer:
 
         """
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
-        betas = [beta for (use_replicate, beta) in zip(replicate_mask, self.betas) if use_replicate]
-        betas = np.array(betas) / np.sum(betas)
+        betas = torch.as_tensor(
+            [beta for (use_replicate, beta) in zip(replicate_mask, self.betas) if use_replicate],
+            **self.context,
+        )
+        betas = betas / betas.sum()
 
-        Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
+        Xs = [self.embedding_optimizer.embedding_state[dataset.name].detach() for dataset in datasets]
         spatial_flags = ["adjacency_list" in dataset.obsm for dataset in datasets]
 
         num_edges_per_fov = [ak.count(dataset.obsm["adjacency_list"], axis=None) for dataset in datasets]
@@ -209,8 +227,6 @@ class ParameterOptimizer:
             )
 
         history = []
-        Sigma_x_inv.requires_grad_(True)
-
         loss_prev, loss = np.inf, np.nan
 
         verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format="{desc}{postfix}")
@@ -279,11 +295,11 @@ class ParameterOptimizer:
 
                 if self.spatial_affinity_constraint == "clamp":
                     Sigma_x_inv.clamp_(
-                        min=-self.spatial_affinity_state.scaling,
-                        max=self.spatial_affinity_state.scaling,
+                        min=-self.spatial_affinity.scaling,
+                        max=self.spatial_affinity.scaling,
                     )
                 elif self.spatial_affinity_constraint == "scale":
-                    Sigma_x_inv.mul_(self.spatial_affinity_state.scaling / Sigma_x_inv.abs().max())
+                    Sigma_x_inv.mul_(self.spatial_affinity.scaling / Sigma_x_inv.abs().max())
 
                 if epoch % check_frequency == 0:
                     loss = loss.item()
@@ -367,8 +383,11 @@ class ParameterOptimizer:
 
     def nll_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, Sigma_x_inv_bar=None):
         datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
-        betas = [beta for (use_replicate, beta) in zip(replicate_mask, self.betas) if use_replicate]
-        betas = np.array(betas) / np.sum(betas)
+        betas = torch.as_tensor(
+            [beta for (use_replicate, beta) in zip(replicate_mask, self.betas) if use_replicate],
+            **self.context,
+        )
+        betas = betas / betas.sum()
 
         Xs = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in datasets]
         spatial_flags = ["adjacency_list" in dataset.obsm for dataset in datasets]
@@ -440,8 +459,8 @@ class ParameterOptimizer:
             for group_name, group_replicates in self.spatial_affinity_groups.items():
                 replicate_mask = [dataset.name in group_replicates for dataset in self.datasets]
                 first_dataset_name = group_replicates[0]
-                Sigma_x_inv = self.spatial_affinity_state[first_dataset_name].to(self.context["device"])
-                optimizer = self.spatial_affinity_state.optimizers[group_name]
+                Sigma_x_inv = self.spatial_affinity[first_dataset_name].to(self.context["device"])
+                optimizer = self.spatial_affinity.optimizers[group_name]
                 Sigma_x_inv, loss = self.estimate_Sigma_x_inv(
                     Sigma_x_inv,
                     replicate_mask,
@@ -450,13 +469,13 @@ class ParameterOptimizer:
                     **optimization_kwargs,
                 )
                 with torch.no_grad():
-                    self.spatial_affinity_state[first_dataset_name][:] = Sigma_x_inv
+                    self.spatial_affinity[first_dataset_name] = Sigma_x_inv
 
         elif self.spatial_affinity_mode == "differential lookup":
             for dataset_index, dataset in enumerate(self.datasets):
                 if differentiate_spatial_affinities:
                     spatial_affinity_bars = [
-                        self.spatial_affinity_state.spatial_affinity_bar[group_name].detach()
+                        self.spatial_affinity_bar[group_name].detach()
                         for group_name in self.spatial_affinity_tags[dataset.name]
                     ]
                 else:
@@ -464,8 +483,8 @@ class ParameterOptimizer:
 
                 replicate_mask = [False] * len(self.datasets)
                 replicate_mask[dataset_index] = True
-                Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
-                optimizer = self.spatial_affinity_state.optimizers[dataset.name]
+                Sigma_x_inv = self.spatial_affinity[dataset.name].to(self.context["device"])
+                optimizer = self.spatial_affinity.optimizers[dataset.name]
                 Sigma_x_inv, loss = self.estimate_Sigma_x_inv(
                     Sigma_x_inv,
                     replicate_mask,
@@ -477,15 +496,15 @@ class ParameterOptimizer:
                 # K_options, group_options = np.meshgrid()
                 # runs =
                 with torch.no_grad():
-                    self.spatial_affinity_state[dataset.name][:] = Sigma_x_inv
+                    self.spatial_affinity[dataset.name] = Sigma_x_inv
 
-            self.spatial_affinity_state.reaverage()
+            self.spatial_affinity.reaverage(self.spatial_affinity_bar)
 
     def reinitialize_spatial_affinities(self):
         pretrained_embeddings = [
             self.embedding_optimizer.embedding_state[dataset.name].clone() for dataset in self.datasets
         ]
-        self.spatial_affinity_state.initialize(pretrained_embeddings)
+        self.spatial_affinity.initialize(pretrained_embeddings, self.spatial_affinity_bar)
 
         # TODO: add code to synchronize new spatial affinities after reinitialization update here
 
@@ -496,20 +515,20 @@ class ParameterOptimizer:
                 for group_name, group_replicates in self.spatial_affinity_groups.items():
                     replicate_mask = [dataset.name in group_replicates for dataset in self.datasets]
                     first_dataset_name = group_replicates[0]
-                    Sigma_x_inv = self.spatial_affinity_state[first_dataset_name].to(self.context["device"])
+                    Sigma_x_inv = self.spatial_affinity[first_dataset_name].to(self.context["device"])
                     loss_Sigma_x_inv = self.nll_Sigma_x_inv(Sigma_x_inv, replicate_mask)
                     loss_spatial_affinities += loss_Sigma_x_inv
 
             elif self.spatial_affinity_mode == "differential lookup":
                 for dataset_index, dataset in enumerate(self.datasets):
                     spatial_affinity_bars = [
-                        self.spatial_affinity_state.spatial_affinity_bar[group_name].detach()
+                        self.spatial_affinity_bar[group_name].detach()
                         for group_name in self.spatial_affinity_tags[dataset.name]
                     ]
 
                     replicate_mask = [False] * len(self.datasets)
                     replicate_mask[dataset_index] = True
-                    Sigma_x_inv = self.spatial_affinity_state[dataset.name].to(self.context["device"])
+                    Sigma_x_inv = self.spatial_affinity[dataset.name].to(self.context["device"])
                     loss_Sigma_x_inv = self.nll_Sigma_x_inv(
                         Sigma_x_inv,
                         replicate_mask,
@@ -527,7 +546,7 @@ class ParameterOptimizer:
                 M = self.metagene_state[first_dataset_name]
                 updated_M = self.estimate_M(M, replicate_mask, simplex_projection_mode=simplex_projection_mode)
                 for dataset_name in group_replicates:
-                    self.metagene_state[dataset_name][:] = updated_M
+                    self.metagene_state[dataset_name] = updated_M
 
         elif self.metagene_mode == "differential":
             for dataset_index, dataset in enumerate(self.datasets):
@@ -539,7 +558,7 @@ class ParameterOptimizer:
                 M = self.metagene_state[dataset.name]
                 replicate_mask = [False] * len(self.datasets)
                 replicate_mask[dataset_index] = True
-                self.metagene_state[dataset.name][:] = self.estimate_M(
+                self.metagene_state[dataset.name] = self.estimate_M(
                     M,
                     replicate_mask,
                     M_bar=M_bars,
@@ -587,17 +606,12 @@ class ParameterOptimizer:
         scaled_betas = betas / (sigma_yxs**2)
 
         # ||Y||_2^2
-        constant_magnitude = np.array([torch.square(Y).sum().cpu() for Y in Ys]).sum()
+        constant_magnitude = sum(torch.square(Y).sum().item() for Y in Ys)
 
-        constant = (
-            np.array(
-                [
-                    torch.linalg.norm(self.embedding_optimizer.embedding_state[dataset.name]).item() ** 2
-                    for dataset in datasets
-                ],
-            )
-            * scaled_betas
-        ).sum()
+        constant = sum(
+            (torch.linalg.norm(self.embedding_optimizer.embedding_state[dataset.name]).item() ** 2) * scaled_beta.item()
+            for dataset, scaled_beta in zip(datasets, scaled_betas)
+        )
 
         regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
         for dataset, X, Y, sigma_yx, scaled_beta in zip(datasets, Xs, Ys, sigma_yxs, scaled_betas):
@@ -693,9 +707,7 @@ class ParameterOptimizer:
         scaled_betas = betas / (sigma_yxs**2)
 
         # ||Y||_2^2
-        constant = np.array(
-            [torch.square(Y).sum().cpu() / (sigma_yx**2) for Y, sigma_yx in zip(Ys, sigma_yxs)],
-        ).sum()
+        constant = sum((torch.square(Y).sum() / (sigma_yx**2)).item() for Y, sigma_yx in zip(Ys, sigma_yxs))
         # constant_magnitude = np.array([torch.linalg.norm(Y).item()**2 for Y in Ys]).sum()
 
         # constant = (np.array([torch.linalg.norm(self.embedding_optimizer.embedding_state[dataset.name]).item()**2 for dataset in datasets]) * scaled_betas).sum()
@@ -924,16 +936,17 @@ class ParameterOptimizer:
             )
             for Y, dataset in zip(self.Ys, self.datasets)
         ]
-        squared_loss = np.array(
+        squared_loss = torch.as_tensor(
             [torch.linalg.norm(squared_term, ord="fro").item() ** 2 for squared_term in squared_terms],
+            **self.context,
         )
         num_replicates = len(self.datasets)
-        sizes = np.array([Y.numel() for Y in self.Ys])
+        sizes = torch.as_tensor([Y.numel() for Y in self.Ys], **self.context)
         if self.sigma_yx_inv_mode == "separate":
-            self.sigma_yxs[:] = np.sqrt(squared_loss / sizes)
+            self.sigma_yxs[:] = torch.sqrt(squared_loss / sizes)
         elif self.sigma_yx_inv_mode == "average":
-            sigma_yx = np.sqrt(np.dot(self.betas, squared_loss) / np.dot(self.betas, sizes))
-            self.sigma_yxs[:] = np.full(num_replicates, float(sigma_yx))
+            sigma_yx = torch.sqrt(torch.dot(self.betas, squared_loss) / torch.dot(self.betas, sizes))
+            self.sigma_yxs[:] = torch.full((num_replicates,), float(sigma_yx), **self.context)
         else:
             raise NotImplementedError
 
@@ -955,7 +968,7 @@ class ParameterOptimizer:
         return squared_loss.sum()
 
 
-class MetageneState(dict):
+class MetageneState(nn.Module):
     """State to store metagene parameters during Popari optimization.
 
     Metagene state can be shared across replicates or maintained separately for each replicate.
@@ -978,50 +991,91 @@ class MetageneState(dict):
         initial_context=None,
         context=None,
     ):
+        super().__init__()
+        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
+        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
+        self._ordered_dataset_names = [dataset.name for dataset in datasets]
+        self._ordered_group_names = list(groups)
+        num_genes = datasets[0].shape[1]
         self.datasets = datasets
         self.groups = groups
         self.tags = tags
-        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
-        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
         self.M_constraint = M_constraint
+        self.mode = mode
+        self._dataset_indices = {}
+        self._group_indices = {group_name: group_index for group_index, group_name in enumerate(self.groups)}
         if mode == "shared":
-            _, num_genes = self.datasets[0].shape
-            self.metagenes = torch.zeros((len(self.groups), num_genes, K), **self.context)
-            for (group_name, group_replicates), group_metagenes in zip(self.groups.items(), self.metagenes):
+            self.metagenes = nn.Parameter(torch.zeros((len(self.groups), num_genes, K), **self.context))
+            for group_index, (_, group_replicates) in enumerate(self.groups.items()):
                 for dataset_name in group_replicates:
-                    self.__setitem__(dataset_name, group_metagenes)
+                    self._dataset_indices[dataset_name] = group_index
 
         elif mode == "differential":
-            _, num_genes = self.datasets[0].shape
-            self.metagenes = torch.zeros((len(self.datasets), num_genes, K), **self.context)
-            for dataset, replicate_metagenes in zip(self.datasets, self.metagenes):
-                self.__setitem__(dataset.name, replicate_metagenes)
+            self.metagenes = nn.Parameter(torch.zeros((len(self.datasets), num_genes, K), **self.context))
+            for dataset_index, dataset in enumerate(self.datasets):
+                self._dataset_indices[dataset.name] = dataset_index
+            self.M_bar = ParameterDict(prefix="M_bar")
+            for group_name in groups:
+                self.M_bar[group_name] = nn.Parameter(torch.zeros((num_genes, K), **self.context), requires_grad=False)
 
-            self.M_bar = {}
             for group_name, group_replicates in self.groups.items():
-                self.M_bar[group_name] = torch.zeros((num_genes, K), **self.context)
                 for dataset_name in group_replicates:
-                    self.M_bar[group_name] += self.__getitem__(dataset_name)
+                    self.M_bar[group_name].add_(self[dataset_name])
                 self.M_bar[group_name].div_(len(group_replicates))
+
+    def __getitem__(self, dataset_name: str):
+        return self.metagenes[self._dataset_indices[dataset_name]]
+
+    def __setitem__(self, dataset_name: str, value):
+        with torch.no_grad():
+            self[dataset_name].copy_(value)
+
+    def copy_from_tensor(self, metagenes: torch.Tensor):
+        with torch.no_grad():
+            self.metagenes.copy_(metagenes)
 
     def reaverage(self):
         # Set M_bar to average of self.Ms (memory efficient)
         for group_name, group_replicates in self.groups.items():
             self.M_bar[group_name].zero_()
             for dataset_name in group_replicates:
-                self.M_bar[group_name].add_(self.__getitem__(dataset_name))
+                self.M_bar[group_name].add_(self[dataset_name])
             self.M_bar[group_name].div_(len(group_replicates))
-            self.M_bar[group_name][:] = project_M(self.M_bar[group_name], self.M_constraint)
+            self.M_bar[group_name][:] = project_M(
+                self.M_bar[group_name],
+                self.M_constraint,
+            )
+
+    def get_extra_state(self):
+        return {
+            "dataset_names": tuple(self._ordered_dataset_names),
+            "group_names": tuple(self._ordered_group_names),
+            "mode": self.mode,
+        }
+
+    def set_extra_state(self, state):
+        expected_datasets = tuple(self._ordered_dataset_names)
+        loaded_datasets = tuple(state["dataset_names"])
+        if loaded_datasets != expected_datasets:
+            raise RuntimeError(
+                f"{self.__class__.__name__} checkpoint datasets {loaded_datasets} do not match current datasets {expected_datasets}.",
+            )
+        expected_groups = tuple(self._ordered_group_names)
+        loaded_groups = tuple(state["group_names"])
+        if loaded_groups != expected_groups:
+            raise RuntimeError(
+                f"{self.__class__.__name__} checkpoint groups {loaded_groups} do not match current groups {expected_groups}.",
+            )
+        if state.get("mode") != self.mode:
+            raise RuntimeError(f"{self.__class__.__name__} checkpoint grouping is incompatible with the current model.")
 
 
-class SpatialAffinityState(dict):
+class SpatialAffinity(nn.Module):
     def __init__(
         self,
         K,
-        metagene_state,
         datasets,
         groups,
-        tags,
         betas,
         scaling=10,
         lr=1e-3,
@@ -1029,43 +1083,39 @@ class SpatialAffinityState(dict):
         initial_context=None,
         context=None,
     ):
-        self.datasets = datasets
-        self.groups = groups
-        self.tags = tags
-        self.metagene_state = metagene_state
-        self.K = K
-        self.mode = mode
+        super().__init__()
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
+        self._ordered_dataset_names = [dataset.name for dataset in datasets]
+        self._ordered_group_names = list(groups)
+        self._dataset_group = {}
+        for group_name, group_replicates in groups.items():
+            for dataset_name in group_replicates:
+                self._dataset_group[dataset_name] = group_name
+        if mode == "shared lookup":
+            self.spatial_affinity_dict = ParameterDict(prefix="group")
+            for group_name in groups:
+                self.spatial_affinity_dict[group_name] = torch.zeros((K, K), **self.initial_context)
+        elif mode == "differential lookup":
+            self.spatial_affinity_dict = ParameterDict(prefix="dataset")
+            for dataset in datasets:
+                self.spatial_affinity_dict[dataset.name] = torch.zeros((K, K), **self.initial_context)
+        self.datasets = datasets
+        self.groups = groups
+        self.K = K
+        self.mode = mode
         self.betas = betas
         self.scaling = scaling
         self.lr = lr
         self.optimizers = {}
-        super().__init__()
-
-        num_replicates = len(self.datasets)
-        if mode == "shared lookup":
-            metagene_affinities = torch.zeros((K, K), **self.initial_context)
-            for dataset in self.datasets:
-                self.__setitem__(dataset.name, metagene_affinities)
-
-        elif mode == "differential lookup":
-            for dataset_index, dataset in enumerate(self.datasets):
-                metagene_affinity = torch.zeros((K, K), **self.initial_context)
-                self.__setitem__(dataset.name, metagene_affinity)
-
-            self.spatial_affinity_bar = {}
-            for group_name in self.groups:
-                self.spatial_affinity_bar[group_name] = torch.zeros((self.K, self.K), **self.context)
-
-        elif mode == "attention":
+        if mode == "attention":
             metagene_affinities = 0  # attention mechanism here
             for dataset_index, dataset in enumerate(self.datasets):
                 self.__setitem__(dataset.name, metagene_affinities[dataset_index])
-        else:
+        elif mode not in {"shared lookup", "differential lookup"}:
             raise NotImplementedError(f"{mode=} is not implemented.")
 
-    def initialize(self, initial_embeddings):
+    def initialize(self, initial_embeddings, spatial_affinity_bar=None):
         use_spatial_info = ["adjacency_list" in dataset.obsm for dataset in self.datasets]
 
         if not any(use_spatial_info):
@@ -1098,20 +1148,17 @@ class SpatialAffinityState(dict):
         Sigma_x_invs -= Sigma_x_invs.mean(dim=(1, 2), keepdims=True)
         Sigma_x_invs *= self.scaling
 
-        self.initialize_optimizers(Sigma_x_invs)
+        self.initialize_optimizers(Sigma_x_invs, spatial_affinity_bar)
 
-    def initialize_optimizers(self, Sigma_x_invs):
+    def initialize_optimizers(self, Sigma_x_invs, spatial_affinity_bar=None):
         if self.mode == "shared lookup":
             for group_name, group_replicates in self.groups.items():
-                first_dataset = self.datasets[0]
-                shared_affinity = torch.zeros([self.K, self.K], **self.initial_context)
-                for dataset_index, (beta, dataset) in enumerate(zip(self.betas, self.datasets)):
-                    if dataset.name in group_replicates:
-                        shared_affinity += beta * Sigma_x_invs[dataset_index]
-
-                for dataset_index, dataset in enumerate(self.datasets):
-                    if dataset.name in group_replicates:
-                        self.__setitem__(dataset.name, shared_affinity)
+                shared_affinity = self.spatial_affinity_dict[group_name]
+                with torch.no_grad():
+                    shared_affinity.zero_()
+                    for dataset_index, (beta, dataset) in enumerate(zip(self.betas, self.datasets)):
+                        if dataset.name in group_replicates:
+                            shared_affinity.add_(beta * Sigma_x_invs[dataset_index])
 
                 optimizer = torch.optim.Adam(
                     [shared_affinity],
@@ -1122,15 +1169,17 @@ class SpatialAffinityState(dict):
 
         elif self.mode == "differential lookup":
             for group_name, group_replicates in self.groups.items():
+                spatial_affinity_bar[group_name].zero_()
                 for dataset_index, dataset in enumerate(self.datasets):
                     if dataset.name in group_replicates:
-                        self.spatial_affinity_bar[group_name] += Sigma_x_invs[dataset_index]
+                        spatial_affinity_bar[group_name].add_(Sigma_x_invs[dataset_index])
 
-                self.spatial_affinity_bar[group_name].div_(len(group_replicates))
+                spatial_affinity_bar[group_name].div_(len(group_replicates))
 
             for dataset_index, dataset in enumerate(self.datasets):
-                differential_affinity = Sigma_x_invs[dataset_index]
-                self.__setitem__(dataset.name, differential_affinity)
+                differential_affinity = self[dataset.name]
+                with torch.no_grad():
+                    differential_affinity.copy_(Sigma_x_invs[dataset_index])
                 optimizer = torch.optim.Adam(
                     [differential_affinity],
                     lr=self.lr,
@@ -1142,10 +1191,80 @@ class SpatialAffinityState(dict):
             # TODO: initialize with gradient descent
             raise NotImplementedError()
 
-    def reaverage(self):
+    def reaverage(self, spatial_affinity_bar):
         # Set spatial_affinity_bar to average of self.spatial_affinitys (memory efficient)
         for group_name, group_replicates in self.groups.items():
-            self.spatial_affinity_bar[group_name].zero_()
+            spatial_affinity_bar[group_name].zero_()
             for dataset_name in group_replicates:
-                self.spatial_affinity_bar[group_name].add_(self.__getitem__(dataset_name))
-            self.spatial_affinity_bar[group_name].div_(len(group_replicates))
+                spatial_affinity_bar[group_name].add_(self[dataset_name])
+            spatial_affinity_bar[group_name].div_(len(group_replicates))
+
+    def __getitem__(self, dataset_name: str):
+        if self.mode == "shared lookup":
+            return self.spatial_affinity_dict[self._dataset_group[dataset_name]]
+        return self.spatial_affinity_dict[dataset_name]
+
+    def __setitem__(self, dataset_name: str, value):
+        with torch.no_grad():
+            self[dataset_name].copy_(value)
+
+    def get_extra_state(self):
+        return {
+            "dataset_names": tuple(self._ordered_dataset_names),
+            "group_names": tuple(self._ordered_group_names),
+            "mode": self.mode,
+        }
+
+    def set_extra_state(self, state):
+        expected_datasets = tuple(self._ordered_dataset_names)
+        loaded_datasets = tuple(state["dataset_names"])
+        if loaded_datasets != expected_datasets:
+            raise RuntimeError(
+                f"{self.__class__.__name__} checkpoint datasets {loaded_datasets} do not match current datasets {expected_datasets}.",
+            )
+        expected_groups = tuple(self._ordered_group_names)
+        loaded_groups = tuple(state["group_names"])
+        if loaded_groups != expected_groups:
+            raise RuntimeError(
+                f"{self.__class__.__name__} checkpoint groups {loaded_groups} do not match current groups {expected_groups}.",
+            )
+        if state.get("mode") != self.mode:
+            raise RuntimeError(f"{self.__class__.__name__} checkpoint grouping is incompatible with the current model.")
+
+
+class SpatialAffinityBar(nn.Module):
+    def __init__(self, K, datasets, groups, context=None):
+        super().__init__()
+        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
+        self._ordered_dataset_names = [dataset.name for dataset in datasets]
+        self._ordered_group_names = list(groups)
+        self.groups = groups
+        self.spatial_affinity_bar = ParameterDict(prefix="spatial_affinity_bar")
+        for group_name in groups:
+            self.spatial_affinity_bar[group_name] = nn.Parameter(
+                torch.zeros((K, K), **self.context),
+                requires_grad=False,
+            )
+
+    def __getitem__(self, group_name: str):
+        return self.spatial_affinity_bar[group_name]
+
+    def get_extra_state(self):
+        return {
+            "dataset_names": tuple(self._ordered_dataset_names),
+            "group_names": tuple(self._ordered_group_names),
+        }
+
+    def set_extra_state(self, state):
+        expected_datasets = tuple(self._ordered_dataset_names)
+        loaded_datasets = tuple(state["dataset_names"])
+        if loaded_datasets != expected_datasets:
+            raise RuntimeError(
+                f"{self.__class__.__name__} checkpoint datasets {loaded_datasets} do not match current datasets {expected_datasets}.",
+            )
+        expected_groups = tuple(self._ordered_group_names)
+        loaded_groups = tuple(state["group_names"])
+        if loaded_groups != expected_groups:
+            raise RuntimeError(
+                f"{self.__class__.__name__} checkpoint groups {loaded_groups} do not match current groups {expected_groups}.",
+            )

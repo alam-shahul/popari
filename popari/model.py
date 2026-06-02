@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from anndata import AnnData
+from torch import nn
 from tqdm import trange
 
 from popari._hierarchical_view import HierarchicalView, Hierarchy
@@ -19,7 +20,7 @@ from popari.io import load_anndata, merge_anndata, save_anndata, unmerge_anndata
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
 
-class Popari:
+class Popari(nn.Module):
     r"""Popari optimization model.
 
     Models spatial biological data using the NMF-HMRF formulation. Supports multiple
@@ -124,6 +125,7 @@ class Popari:
         random_state: int = 0,
         verbose: int = 0,
     ):
+        super().__init__()
 
         self.use_inplace_ops = use_inplace_ops
         self.verbose = verbose
@@ -163,8 +165,8 @@ class Popari:
 
         self.metagene_mode = metagene_mode
         self.lambda_M = lambda_M
-        self.metagene_groups = metagene_groups
-        self.spatial_affinity_groups = spatial_affinity_groups
+        self._configured_metagene_groups = metagene_groups
+        self._configured_spatial_affinity_groups = spatial_affinity_groups
 
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
         self.embedding_mini_iterations = embedding_mini_iterations
@@ -208,6 +210,52 @@ class Popari:
 
         self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
 
+    @property
+    def base_view(self):
+        return self.views[self.hierarchical_levels - 1]
+
+    @property
+    def datasets(self):
+        if hasattr(self, "views"):
+            return self.base_view.datasets
+        return self._datasets
+
+    @property
+    def Ys(self):
+        return self.base_view.Ys
+
+    @property
+    def betas(self):
+        return self.base_view.betas
+
+    @property
+    def parameter_optimizer(self):
+        return self.base_view.parameter_optimizer
+
+    @property
+    def embedding_optimizer(self):
+        return self.base_view.embedding_optimizer
+
+    @property
+    def metagene_groups(self):
+        if hasattr(self, "views"):
+            return self.base_view.metagene_groups
+        return self._configured_metagene_groups
+
+    @property
+    def metagene_tags(self):
+        return self.base_view.metagene_tags
+
+    @property
+    def spatial_affinity_groups(self):
+        if hasattr(self, "views"):
+            return self.base_view.spatial_affinity_groups
+        return self._configured_spatial_affinity_groups
+
+    @property
+    def spatial_affinity_tags(self):
+        return self.base_view.spatial_affinity_tags
+
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
         """Load Popari data directly from AnnData objects.
 
@@ -217,9 +265,9 @@ class Popari:
 
         """
         if replicate_names is None:
-            self.datasets = [dataset.popari.ensure_name() for dataset in datasets]
+            self._datasets = [dataset.popari.ensure_name() for dataset in datasets]
         else:
-            self.datasets = [
+            self._datasets = [
                 dataset.popari.ensure_name(replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)
             ]
         self.num_replicates = len(self.datasets)
@@ -278,7 +326,7 @@ class Popari:
         elif self.downsampling_method == "partition":
             bin_assignment_kwargs["adjacency_list_key"] = "adjacency_list"
 
-        self.base_view = HierarchicalView(self.datasets, level=0, **hierarchical_view_kwargs)
+        base_view = HierarchicalView(self.datasets, level=0, **hierarchical_view_kwargs)
 
         if self.pretrained:
             self.hierarchy = Hierarchy.reconstruct(
@@ -288,7 +336,7 @@ class Popari:
         else:
             self.hierarchy = Hierarchy(
                 downsampling_method=self.downsampling_method,
-                base_view=self.base_view,
+                base_view=base_view,
                 **hierarchical_view_kwargs,
             )
 
@@ -298,19 +346,7 @@ class Popari:
                 **bin_assignment_kwargs,
             )
 
-        self.base_view = self.hierarchy[self.hierarchical_levels - 1]
-
-        self.active_view = self.base_view
-
-        self.datasets = self.active_view.datasets
-        self.Ys = self.active_view.Ys
-        self.betas = self.active_view.betas
-        self.parameter_optimizer = self.active_view.parameter_optimizer
-        self.embedding_optimizer = self.active_view.embedding_optimizer
-        self.metagene_groups = self.active_view.metagene_groups
-        self.metagene_tags = self.active_view.metagene_tags
-        self.spatial_affinity_groups = self.active_view.spatial_affinity_groups
-        self.spatial_affinity_tags = self.active_view.spatial_affinity_tags
+        self.views = nn.ModuleList([self.hierarchy[level] for level in range(self.hierarchical_levels)])
 
         self.synchronize_datasets()
 
@@ -422,7 +458,10 @@ class Popari:
             pretrained_embeddings = [
                 view.embedding_optimizer.embedding_state[dataset.popari.name()].clone() for dataset in view.datasets
             ]
-            view.parameter_optimizer.spatial_affinity_state.initialize(pretrained_embeddings)
+            view.parameter_optimizer.spatial_affinity.initialize(
+                pretrained_embeddings,
+                view.parameter_optimizer.spatial_affinity_bar,
+            )
 
             if update_spatial_affinities:
                 view.parameter_optimizer.update_spatial_affinity(
@@ -435,8 +474,14 @@ class Popari:
     def nll(self, level: int = 0, use_spatial: bool = False):
         """Compute the nll for the current configuration of model parameters."""
 
+        with torch.no_grad():
+            return self.forward(level=level, use_spatial=use_spatial).reshape(1).cpu().numpy()
+
+    def forward(self, level: int = 0, use_spatial: bool = False):
+        """Compute the current objective for a hierarchy level."""
+
         view = self.hierarchy[level]
-        return view.nll(use_spatial=use_spatial)
+        return view(use_spatial=use_spatial)
 
     def set_superresolution_lr(self, new_lr: float, target_level: Optional[int] = None):
         """Change learning rate for superresolution optimization.
@@ -663,6 +708,8 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
         datasets,
         replicate_names,
         reloaded_hierarchy=reloaded_hierarchy,
+        hierarchical_levels=pretrained_model.hierarchical_levels,
+        metagene_mode="differential",
         spatial_affinity_mode="differential lookup",
         context=popari_context,
         lambda_Sigma_bar=lambda_Sigma_bar,

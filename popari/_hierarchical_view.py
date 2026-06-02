@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from anndata import AnnData
 from scipy.sparse import csr_array
+from torch import nn
 from tqdm.auto import trange
 
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
@@ -15,7 +16,7 @@ from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
 
-class HierarchicalView:
+class HierarchicalView(nn.Module):
     """View of SRT multisample dataset at a set resolution.
 
     Includes the scaled (i.e. binned data) as well as the learnable Popari
@@ -45,6 +46,7 @@ class HierarchicalView:
         level: int = 0,
         hierarchical_levels: int | None = 1,
     ):
+        super().__init__()
 
         self.datasets = datasets
         self.replicate_names = [dataset.name for dataset in datasets]
@@ -80,7 +82,7 @@ class HierarchicalView:
             for group, group_replicates in groups.items():
                 for replicate in group_replicates:
                     if are_exclusive and len(tags[replicate]) > 0:
-                        ValueError("If in shared mode, each replicate can only appear in one group.")
+                        raise ValueError("If in shared mode, each replicate can only appear in one group.")
                     tags[replicate].append(group)
 
             return groups, tags
@@ -130,9 +132,11 @@ class HierarchicalView:
             self.Ys = binned_Ys
 
         if betas is None:
-            self.betas = np.full(self.num_replicates, 1 / self.num_replicates)
+            betas_tensor = torch.full((self.num_replicates,), 1 / self.num_replicates, **self.context)
         else:
-            self.betas = np.array(betas, copy=False) / sum(betas)
+            betas_tensor = torch.as_tensor(betas, **self.context)
+            betas_tensor = betas_tensor / betas_tensor.sum()
+        self.register_buffer("betas", betas_tensor)
 
         if prior_x_modes is None:
             prior_x_modes = [None] * self.num_replicates
@@ -176,10 +180,10 @@ class HierarchicalView:
             #     self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar = {group_name: first_dataset.uns["M_bar"][group_name].to(**self.initial_context) for group_name in self.spatial_affinity_groups}
             spatial_affinity_copy = torch.zeros((len(self.datasets), self.K, self.K), **self.context)
             for dataset_index, dataset in enumerate(self.datasets):
-                self.parameter_optimizer.metagene_state[dataset.name][:] = torch.from_numpy(
+                self.parameter_optimizer.metagene_state[dataset.name] = torch.from_numpy(
                     dataset.uns["M"][dataset.name],
                 ).to(**self.initial_context)
-                self.embedding_optimizer.embedding_state[dataset.name][:] = torch.from_numpy(dataset.obsm["X"]).to(
+                self.embedding_optimizer.embedding_state[dataset.name] = torch.from_numpy(dataset.obsm["X"]).to(
                     **self.initial_context,
                 )
                 self.embedding_optimizer.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(
@@ -191,13 +195,16 @@ class HierarchicalView:
                     self.initial_context,
                 )
 
-                self.parameter_optimizer.spatial_affinity_state[dataset.name] = torch.from_numpy(
+                self.parameter_optimizer.spatial_affinity[dataset.name] = torch.from_numpy(
                     dataset.uns["Sigma_x_inv"][dataset.name],
                 ).to(**self.initial_context)
-                spatial_affinity_copy[dataset_index] = self.parameter_optimizer.spatial_affinity_state[dataset.name]
+                spatial_affinity_copy[dataset_index] = self.parameter_optimizer.spatial_affinity[dataset.name]
 
             self.parameter_optimizer.update_sigma_yx()
-            self.parameter_optimizer.spatial_affinity_state.initialize_optimizers(spatial_affinity_copy)
+            self.parameter_optimizer.spatial_affinity.initialize_optimizers(
+                spatial_affinity_copy,
+                self.parameter_optimizer.spatial_affinity_bar,
+            )
         else:
             if self.level < self.hierarchical_levels - 1:
                 method = "dummy"
@@ -237,8 +244,8 @@ class HierarchicalView:
                 raise NotImplementedError
 
             for dataset_index, dataset in enumerate(self.datasets):
-                self.parameter_optimizer.metagene_state[dataset.name][:] = self.M
-                self.embedding_optimizer.embedding_state[dataset.name][:] = self.Xs[dataset_index]
+                self.parameter_optimizer.metagene_state[dataset.name] = self.M
+                self.embedding_optimizer.embedding_state[dataset.name] = self.Xs[dataset_index]
 
             self.parameter_optimizer.scale_metagenes()
 
@@ -260,7 +267,10 @@ class HierarchicalView:
             # Initializing spatial affinities
             if self.verbose:
                 print(f"{get_datetime()} Initializing Sigma_x_inv with empirical correlations")
-            self.parameter_optimizer.spatial_affinity_state.initialize(initial_embeddings)
+            self.parameter_optimizer.spatial_affinity.initialize(
+                initial_embeddings,
+                self.parameter_optimizer.spatial_affinity_bar,
+            )
 
             for dataset_index, dataset in enumerate(self.datasets):
                 metagene_state = self.parameter_optimizer.metagene_state[dataset.name].cpu().detach().numpy()
@@ -269,7 +279,7 @@ class HierarchicalView:
                 X = self.embedding_optimizer.embedding_state[dataset.name].cpu().detach().numpy()
                 dataset.obsm["X"] = X
 
-                Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
+                Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.name].cpu().detach().numpy()
                 dataset.uns["Sigma_x_inv"] = {dataset.name: Sigma_x_inv}
 
                 dataset.uns["popari_hyperparameters"] = {
@@ -298,10 +308,7 @@ class HierarchicalView:
 
             if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
                 spatial_affinity_bar = {
-                    group_name: self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name]
-                    .cpu()
-                    .detach()
-                    .numpy()
+                    group_name: self.parameter_optimizer.spatial_affinity_bar[group_name].cpu().detach().numpy()
                     for group_name in self.parameter_optimizer.spatial_affinity_groups
                 }
                 for dataset in self.datasets:
@@ -320,7 +327,7 @@ class HierarchicalView:
         if self.parameter_optimizer.metagene_mode == "differential":
             self.parameter_optimizer.metagene_state.reaverage()
         if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
-            self.parameter_optimizer.spatial_affinity_state.reaverage()
+            self.parameter_optimizer.spatial_affinity.reaverage(self.parameter_optimizer.spatial_affinity_bar)
 
     def link(self, low_res_view: "HierarchicalView"):
         """Link a view to the resolution right below it in the hierarchy."""
@@ -330,7 +337,7 @@ class HierarchicalView:
         """Use parameters from low-resolution to initialize higher-
         resolution."""
         low_res_metagenes = self.low_res_view.parameter_optimizer.metagene_state.metagenes
-        self.parameter_optimizer.metagene_state.metagenes[:] = low_res_metagenes
+        self.parameter_optimizer.metagene_state.copy_from_tensor(low_res_metagenes)
 
         self.synchronize_datasets()
 
@@ -465,7 +472,7 @@ class HierarchicalView:
                     break
 
             progress_bar.close()
-            self.embedding_optimizer.embedding_state[dataset.name][:] = X.clone().detach()
+            self.embedding_optimizer.embedding_state[dataset.name] = X.clone().detach()
 
             final_losses[dataset_index] = loss.cpu().detach().numpy()
 
@@ -495,16 +502,16 @@ class HierarchicalView:
 
         """
         for dataset_index, dataset in enumerate(self.datasets):
-            self.parameter_optimizer.metagene_state[dataset.name][:] = torch.from_numpy(
+            self.parameter_optimizer.metagene_state[dataset.name] = torch.from_numpy(
                 dataset.uns["M"][dataset.name],
             ).to(**self.initial_context)
-            self.embedding_optimizer.embedding_state[dataset.name][:] = torch.from_numpy(dataset.obsm["X"]).to(
+            self.embedding_optimizer.embedding_state[dataset.name] = torch.from_numpy(dataset.obsm["X"]).to(
                 **self.initial_context,
             )
             # self.parameter_optimizer.sigma_yxs[dataset_index] = dataset.uns["sigma_yx"] TODO: sigma_yx doesn't seem to be saved correctly due to issues with `merge_anndata`
 
             with torch.no_grad():
-                self.parameter_optimizer.spatial_affinity_state[dataset.name][:] = torch.from_numpy(
+                self.parameter_optimizer.spatial_affinity[dataset.name] = torch.from_numpy(
                     dataset.uns["Sigma_x_inv"][dataset.name],
                 ).to(**self.initial_context)
 
@@ -512,7 +519,7 @@ class HierarchicalView:
             self.parameter_optimizer.metagene_state.reaverage()
 
         if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
-            self.parameter_optimizer.spatial_affinity_state.reaverage()
+            self.parameter_optimizer.spatial_affinity.reaverage(self.parameter_optimizer.spatial_affinity_bar)
 
         self.parameter_optimizer.update_sigma_yx()  # TODO: sigma_yx doesn't seem to be saved correctly due to issues with `merge_anndata`; try that instead of this
 
@@ -526,7 +533,7 @@ class HierarchicalView:
             dataset.uns["sigma_yx"] = self.parameter_optimizer.sigma_yxs[dataset_index]
             with torch.no_grad():
                 dataset.uns["Sigma_x_inv"][dataset.name][:] = (
-                    self.parameter_optimizer.spatial_affinity_state[dataset.name].cpu().detach().numpy()
+                    self.parameter_optimizer.spatial_affinity[dataset.name].cpu().detach().numpy()
                 )
 
             # dataset.uns["losses"]["nll_embeddings"].append(self.embedding_optimizer.nll_embeddings())
@@ -545,145 +552,142 @@ class HierarchicalView:
 
         if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
             spatial_affinity_bar = {
-                group_name: self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name]
-                .cpu()
-                .detach()
-                .numpy()
+                group_name: self.parameter_optimizer.spatial_affinity_bar[group_name].cpu().detach().numpy()
                 for group_name in self.parameter_optimizer.spatial_affinity_groups
             }
             for dataset in self.datasets:
                 dataset.uns["spatial_affinity_bar"] = spatial_affinity_bar
+
+    def forward(self, use_spatial: bool = False):
+        """Compute overall negative log-likelihood for the current model
+        parameters."""
+
+        total_loss = torch.zeros((), **self.context)
+        if use_spatial:
+            weighted_total_cells = 0
+            for dataset in self.datasets:
+                E_adjacency_list = self.embedding_optimizer.adjacency_lists[dataset.name]
+                weighted_total_cells += sum(map(len, E_adjacency_list))
+
+        for dataset_index, dataset in enumerate(self.datasets):
+            sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
+            Y = self.Ys[dataset_index].to(self.context["device"])
+            X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
+            M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+            prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
+            prior_x = self.parameter_optimizer.prior_xs[dataset_index]
+
+            MTM = M.T @ M / (sigma_yx**2)
+            YM = Y.to(M.device) @ M / (sigma_yx**2)
+            Ynorm = torch.square(Y).sum() / (sigma_yx**2)
+            S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
+
+            Z = X / S
+            N, G = Y.shape
+
+            loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
+
+            logZ_i_Y = torch.ones((N,), **self.context) * (G / 2 * torch.log(2 * np.pi * sigma_yx**2))
+            if not use_spatial:
+                logZ_i_X = torch.full((N,), 0, **self.context)
+                if (prior_x[0] != 0).all():
+                    logZ_i_X += torch.full((N,), self.K * torch.log(prior_x[0]).item(), **self.context)
+                log_partition_function = (logZ_i_Y + logZ_i_X).sum()
+            else:
+                adjacency_matrix = self.embedding_optimizer.adjacency_matrices[dataset.name].to(
+                    self.context["device"],
+                )
+                Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.name].to(
+                    self.context["device"],
+                )
+                nu = adjacency_matrix @ Z
+                eta = nu @ Sigma_x_inv
+                logZ_i_s = torch.full((N,), 0, **self.context)
+                if (prior_x[0] != 0).all():
+                    logZ_i_s = torch.full(
+                        (N,),
+                        -self.K * torch.log(prior_x[0]).item() + torch.log(factorial(self.K - 1, exact=True)).item(),
+                        **self.context,
+                    )
+
+                logZ_i_z = integrate_of_exponential_over_simplex(eta)
+                log_partition_function = (logZ_i_Y + logZ_i_z + logZ_i_s).sum()
+
+                if prior_x_mode == "exponential shared fixed":
+                    loss += prior_x[0][0] * S.sum()
+                elif not prior_x_mode:
+                    pass
+                else:
+                    raise NotImplementedError
+
+                if Sigma_x_inv is not None:
+                    loss += (eta).mul(Z).sum() / 2
+
+                spatial_affinity_bars = None
+                if self.parameter_optimizer.spatial_affinity.mode == "differential lookup":
+                    spatial_affinity_bars = [
+                        self.parameter_optimizer.spatial_affinity_bar[group_name]
+                        for group_name in self.parameter_optimizer.spatial_affinity_tags[dataset.name]
+                    ]
+
+                regularization = torch.zeros((), **self.context)
+                if spatial_affinity_bars is not None:
+                    group_weighting = 1 / len(spatial_affinity_bars)
+                    for group_Sigma_x_inv_bar in spatial_affinity_bars:
+                        regularization += (
+                            group_weighting
+                            * self.parameter_optimizer.lambda_Sigma_bar
+                            * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum()
+                            / 2
+                        )
+
+                regularization += self.parameter_optimizer.lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() / 2
+                regularization *= weighted_total_cells
+                loss += regularization
+
+            loss += log_partition_function
+
+            differential_regularization_term = torch.zeros((), **self.context)
+            M_bar = None
+            if self.parameter_optimizer.metagene_mode == "differential":
+                M_bar = [
+                    self.parameter_optimizer.metagene_state.M_bar[group_name]
+                    for group_name in self.parameter_optimizer.metagene_tags[dataset.name]
+                ]
+
+            if self.parameter_optimizer.lambda_M > 0 and M_bar is not None:
+                differential_regularization_quadratic_factor = self.parameter_optimizer.lambda_M * torch.eye(
+                    self.K,
+                    **self.context,
+                )
+
+                differential_regularization_linear_term = torch.zeros_like(M, **self.context)
+                group_weighting = 1 / len(M_bar)
+                for group_M_bar in M_bar:
+                    differential_regularization_linear_term += (
+                        group_weighting * self.parameter_optimizer.lambda_M * group_M_bar
+                    )
+
+                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (
+                    differential_regularization_linear_term * M
+                ).sum()
+                group_weighting = 1 / len(M_bar)
+                for group_M_bar in M_bar:
+                    differential_regularization_term += (
+                        group_weighting * self.parameter_optimizer.lambda_M * (group_M_bar * group_M_bar).sum()
+                    )
+
+            loss += differential_regularization_term
+            total_loss += loss
+
+        return total_loss
 
     def nll(self, use_spatial=False):
         """Compute overall negative log-likelihood for current model
         parameters."""
 
         with torch.no_grad():
-            total_loss = torch.zeros(1, **self.context)
-            if use_spatial:
-                weighted_total_cells = 0
-                for dataset in self.datasets:
-                    E_adjacency_list = self.embedding_optimizer.adjacency_lists[dataset.name]
-                    weighted_total_cells += sum(map(len, E_adjacency_list))
-
-            for dataset_index, dataset in enumerate(self.datasets):
-                sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
-                Y = self.Ys[dataset_index].to(self.context["device"])
-                X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
-                M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
-                prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
-                beta = self.betas[dataset_index]
-                prior_x = self.parameter_optimizer.prior_xs[dataset_index]
-
-                # Precomputing quantities
-                MTM = M.T @ M / (sigma_yx**2)
-                YM = Y.to(M.device) @ M / (sigma_yx**2)
-                Ynorm = torch.square(Y).sum() / (sigma_yx**2)
-                S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
-
-                Z = X / S
-                N, G = Y.shape
-
-                loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
-
-                logZ_i_Y = torch.full((N,), G / 2 * np.log(2 * np.pi * sigma_yx**2), **self.context)
-                if not use_spatial:
-                    logZ_i_X = torch.full((N,), 0, **self.context)
-                    if (prior_x[0] != 0).all():
-                        logZ_i_X += torch.full((N,), self.K * torch.log(prior_x[0]).item(), **self.context)
-                    log_partition_function = (logZ_i_Y + logZ_i_X).sum()
-                else:
-                    adjacency_matrix = self.embedding_optimizer.adjacency_matrices[dataset.name].to(
-                        self.context["device"],
-                    )
-                    Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(
-                        self.context["device"],
-                    )
-                    nu = adjacency_matrix @ Z
-                    eta = nu @ Sigma_x_inv
-                    logZ_i_s = torch.full((N,), 0, **self.context)
-                    if (prior_x[0] != 0).all():
-                        logZ_i_s = torch.full(
-                            (N,),
-                            -self.K * torch.log(prior_x[0]).item()
-                            + torch.log(factorial(self.K - 1, exact=True)).item(),
-                            **self.context,
-                        )
-
-                    logZ_i_z = integrate_of_exponential_over_simplex(eta)
-                    log_partition_function = (logZ_i_Y + logZ_i_z + logZ_i_s).sum()
-
-                    if prior_x_mode == "exponential shared fixed":
-                        loss += prior_x[0][0] * S.sum()
-                    elif not prior_x_mode:
-                        pass
-                    else:
-                        raise NotImplementedError
-
-                    if Sigma_x_inv is not None:
-                        loss += (eta).mul(Z).sum() / 2
-
-                    spatial_affinity_bars = None
-                    if self.parameter_optimizer.spatial_affinity_state.mode == "differential lookup":
-                        spatial_affinity_bars = [
-                            self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar[group_name].detach()
-                            for group_name in self.parameter_optimizer.spatial_affinity_tags[dataset.name]
-                        ]
-
-                    regularization = torch.zeros(1, **self.context)
-                    if spatial_affinity_bars is not None:
-                        group_weighting = 1 / len(spatial_affinity_bars)
-                        for group_Sigma_x_inv_bar in spatial_affinity_bars:
-                            regularization += (
-                                group_weighting
-                                * self.parameter_optimizer.lambda_Sigma_bar
-                                * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum()
-                                / 2
-                            )
-
-                    regularization += self.parameter_optimizer.lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() / 2
-
-                    regularization *= weighted_total_cells
-
-                    loss += regularization.item()
-
-                loss += log_partition_function
-
-                differential_regularization_term = torch.zeros(1, **self.context)
-                M_bar = None
-                if self.parameter_optimizer.metagene_mode == "differential":
-                    M_bar = [
-                        self.parameter_optimizer.metagene_state.M_bar[group_name]
-                        for group_name in self.parameter_optimizer.metagene_tags[dataset.name]
-                    ]
-
-                if self.parameter_optimizer.lambda_M > 0 and M_bar is not None:
-                    differential_regularization_quadratic_factor = self.parameter_optimizer.lambda_M * torch.eye(
-                        self.K,
-                        **self.context,
-                    )
-
-                    differential_regularization_linear_term = torch.zeros_like(M, **self.context)
-                    group_weighting = 1 / len(M_bar)
-                    for group_M_bar in M_bar:
-                        differential_regularization_linear_term += (
-                            group_weighting * self.parameter_optimizer.lambda_M * group_M_bar
-                        )
-
-                    differential_regularization_term = (
-                        M @ differential_regularization_quadratic_factor * M
-                    ).sum() - 2 * (differential_regularization_linear_term * M).sum()
-                    group_weighting = 1 / len(M_bar)
-                    for group_M_bar in M_bar:
-                        differential_regularization_term += (
-                            group_weighting * self.parameter_optimizer.lambda_M * (group_M_bar * group_M_bar).sum()
-                        )
-
-                loss += differential_regularization_term.item()
-
-                total_loss += loss
-
-        return total_loss.cpu().numpy()
+            return self.forward(use_spatial=use_spatial).reshape(1).cpu().numpy()
 
 
 class Hierarchy:
