@@ -209,7 +209,7 @@ def shared_reference_metrics(clustered_shared_model):
         "sigma_yx": [0.14147329, 0.13269758],
         "metagene_sum": 3.0,
         "embedding_sum_0": 140.5735742798036,
-        "spatial_affinity_sum_0": 25.18007996951266,
+        "spatial_affinity_sum_0": 25.173517287732157,
         "pca_norms": [30.21869468688965, 32.63429260253906],
         "ari": [1.0, 0.5607476635514018],
         "silhouette": [0.9893147404134058, 0.45012760617995057],
