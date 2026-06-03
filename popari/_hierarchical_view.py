@@ -587,7 +587,7 @@ class HierarchicalView(nn.Module):
 
             loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
 
-            logZ_i_Y = torch.full((N,), G / 2 * np.log(2 * np.pi * sigma_yx**2), **self.context)
+            logZ_i_Y = torch.ones((N,), **self.context) * (G / 2 * torch.log(2 * np.pi * sigma_yx**2))
             if not use_spatial:
                 logZ_i_X = torch.full((N,), 0, **self.context)
                 if (prior_x[0] != 0).all():
