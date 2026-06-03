@@ -10,26 +10,26 @@ authors = [
   { name="Shahul Alam", email="alam.shahul@gmail.com" },
 ]
 dependencies = [
-    "numpy<2.0",
-    "scipy>=1.10.1",
-    "scanorama>=1.7.4",
-    "scikit-learn>=0.24.1",
-    "pandas>=1.5.2",
-    "anndata>=0.11.0",
-    "torch>=1.13.0",
-    "tqdm>=4.60.0",
-    "umap-learn>=0.5.1",
-    "scanpy<=1.9.3",
-    "seaborn>=0.11.1",
-    "matplotlib>=3.7.0",
-    "squidpy>=1.6.2",
-    "gseapy>=1.1.3",
-    "kneed>=0.8.5",
-    "louvain>=0.8.0",
-    "leidenalg>=0.9.0",
-    "pymetis>=2023.1.1",
-    "awkward>=2.6.8",
-    "ortools<=9.4.1874",
+    "numpy",
+    "scipy",
+    "scanorama",
+    "scikit-learn",
+    "pandas",
+    "anndata",
+    "torch",
+    "tqdm",
+    "umap-learn",
+    "scanpy",
+    "seaborn",
+    "matplotlib",
+    "squidpy",
+    "gseapy",
+    "kneed",
+    "louvain",
+    "leidenalg",
+    "pymetis",
+    "awkward",
+    "ortools",
 ]
 description = "Popari: a probabilistic graphical model for integrated spatial transcriptomics analysis"
 readme = "README.md"
@@ -75,10 +75,6 @@ mlflow = [
 benchmark = [
   "multiprocess>=0.70.15"
 ]
-test = [
-  "pytest",
-  "pytest-xdist",
-]
 
 [tool]
 
@@ -111,3 +107,29 @@ line_length = 120
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "baseline: fast, default regression checks for core functionality",
+    "expensive: slower integration checks involving repeated training, analysis, hierarchy, or simulation",
+]
+
+# Dev requirements
+[dependency-groups]
+dev = [
+    "ipdb",
+    "ipython",
+    "nox",
+    "pre-commit",
+    "pytest",
+    "python-dotenv"
+]
+test = [
+    "ipdb",
+    "ipython",
+    "nox",
+    "pre-commit",
+    "pytest",
+    "python-dotenv",
+    "jupyterlab",
+    "ipycanvas",
+    "jupyterlab_execute_time",
+]

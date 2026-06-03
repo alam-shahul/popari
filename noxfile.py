@@ -16,7 +16,15 @@ def flake8(session):
         "flake8-use-fstring",
         "pep8-naming",
     )
-    session.run("flake8", "--filename", "*.py", "--exclude", "popari/genes_ncbi_mus_musculus_proteincoding.py")
+    targets = session.posargs or ["popari", "tests"]
+    session.run(
+        "flake8",
+        *targets,
+        "--filename",
+        "*.py",
+        "--exclude",
+        "popari/genes_ncbi_mus_musculus_proteincoding.py",
+    )
 
 
 @nox.session
@@ -29,7 +37,15 @@ def lint(session):
 
 @nox.session
 def unittests(session):
-    session.install(".[test]")
+    session.run_install(
+        "uv",
+        "sync",
+        "--group",
+        "test",
+        "--group",
+        "dev",
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
     session.run("pytest")
 
 
