@@ -37,7 +37,15 @@ def lint(session):
 
 @nox.session
 def unittests(session):
-    session.install(".[test]")
+    session.run_install(
+        "uv",
+        "sync",
+        "--group",
+        "test",
+        "--group",
+        "dev",
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
     session.run("pytest")
 
 
