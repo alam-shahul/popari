@@ -27,9 +27,9 @@ def spatial_wasserstein(
 
     # the pairwise distances, a.k.a., weights are linearly scaled so that the minimum weight is equal to weight_scaling_factor
     pairwise_dist = squareform(pdist(spatial_coordinates))
-    np.fill_diagonal(pairwise_dist, np.inf)
-    pairwise_dist_min = pairwise_dist.min()
-    pairwise_dist = (pairwise_dist / pairwise_dist.min() * weight_scaling_factor).astype(int)
+    positive_pairwise_dist = pairwise_dist[pairwise_dist > 0]
+    pairwise_dist_min = positive_pairwise_dist.min()
+    pairwise_dist = (pairwise_dist / pairwise_dist_min * weight_scaling_factor).astype(int)
     weight_scaling_factor_full = weight_scaling_factor / pairwise_dist_min
 
     # # the demands are linearly scaled so that the maximum weight is equal to demand_scaling_factor
