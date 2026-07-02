@@ -1,7 +1,8 @@
+import anndata as ad
 import numpy as np
 import pytest
 
-from popari.io import load_anndata, save_anndata
+from popari.io import load_anndata, save_anndata, unmerge_anndata
 from popari.model import load_trained_model
 
 
@@ -10,6 +11,22 @@ def _train_small_model(model, n_steps: int = 2):
         model.estimate_parameters()
         model.estimate_weights()
     return model
+
+
+def test_unmerge_anndata_allows_missing_adjacency_matrix():
+    merged_dataset = ad.concat(
+        [ad.AnnData(X=np.ones((2, 2))), ad.AnnData(X=np.ones((3, 2)))],
+        label="batch",
+        keys=["replicate_0", "replicate_1"],
+    )
+
+    datasets, replicate_names = unmerge_anndata(merged_dataset)
+
+    assert replicate_names == ["replicate_0", "replicate_1"]
+    assert [dataset.name for dataset in datasets] == replicate_names
+    for dataset in datasets:
+        assert "adjacency_matrix" not in dataset.obsp
+        assert "adjacency_list" not in dataset.obsm
 
 
 @pytest.mark.baseline

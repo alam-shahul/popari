@@ -75,6 +75,11 @@ mlflow = [
 benchmark = [
   "multiprocess>=0.70.15"
 ]
+migration = [
+  "mlflow>=2.5.0",
+  "tenacity",
+  "wandb>=0.17.9,<0.18",
+]
 
 [tool]
 
@@ -90,14 +95,12 @@ torch = [
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "popari/*.py",
-  "popari/mlflow/*.py",
+  "popari/**/*.py",
 ]
 
 [tool.hatch.build.targets.wheel]
 include = [
-  "popari/*.py",
-  "popari/mlflow/*.py",
+  "popari/**/*.py",
 ]
 
 [tool.flake8]

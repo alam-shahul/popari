@@ -55,9 +55,8 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
                 dataset.uns["adjacency_matrix"][replicate_string],
             )
 
-        adjacency_matrix = dataset.obsp["adjacency_matrix"].tocoo()
-
-        if "adjacency_list" not in dataset.obsm:
+        if "adjacency_matrix" in dataset.obsp and "adjacency_list" not in dataset.obsm:
+            adjacency_matrix = dataset.obsp["adjacency_matrix"].tocoo()
             dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(adjacency_matrix)
 
         if "M" in dataset.uns:

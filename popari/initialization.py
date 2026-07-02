@@ -149,12 +149,34 @@ def initialize_ground_truth(
 ) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
     """Initialize metagenes and hidden states from known labels.
 
+    Simulated datasets that contain ``ground_truth_M`` and ``ground_truth_X``
+    are initialized directly from those arrays. Other datasets fall back to a
+    label-based initialization that mirrors Leiden initialization with known
+    labels.
+
     This follows the same clustering-based initialization idea as Leiden, but
     uses an existing ``.obs`` column as the cluster assignment. Factor order is
     determined by categorical order when available, otherwise by sorted label
     values.
 
     """
+
+    if all("ground_truth_X" in dataset.obsm and "ground_truth_M" in dataset.uns for dataset in datasets):
+        first_dataset = datasets[0]
+        first_name = first_dataset.name
+        M = np.asarray(first_dataset.uns["ground_truth_M"][first_name])
+        Xs = [np.asarray(dataset.obsm["ground_truth_X"]) for dataset in datasets]
+
+        if M.shape[1] != K:
+            raise ValueError(f"ground_truth_M has {M.shape[1]} factors, but Popari was configured with K={K}.")
+        for dataset, X in zip(datasets, Xs):
+            if X.shape[1] != K:
+                raise ValueError(
+                    f"{dataset.name} ground_truth_X has {X.shape[1]} factors, "
+                    f"but Popari was configured with K={K}.",
+                )
+
+        return torch.tensor(M, **context), [torch.tensor(X, **context) for X in Xs]
 
     for dataset in datasets:
         if label_key not in dataset.obs:
