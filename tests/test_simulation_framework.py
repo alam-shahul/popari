@@ -81,7 +81,7 @@ def test_synthetic_dataset_simulation_is_self_consistent():
     assert dataset.obsm["ground_truth_X"].shape[1] == (
         dataset.params.num_real_metagenes + dataset.params.num_noise_metagenes
     )
-    assert dataset.uns["ground_truth_M"][dataset.name].shape == (
+    assert dataset.uns["ground_truth_M"][dataset.popari.name].shape == (
         dataset.params.num_genes,
         dataset.params.num_real_metagenes + dataset.params.num_noise_metagenes,
     )
@@ -99,7 +99,10 @@ def test_synthetic_dataset_is_deterministic_for_fixed_seed():
 
     assert np.allclose(dataset_0.X, dataset_1.X)
     assert np.allclose(dataset_0.obsm["ground_truth_X"], dataset_1.obsm["ground_truth_X"])
-    assert np.allclose(dataset_0.uns["ground_truth_M"][dataset_0.name], dataset_1.uns["ground_truth_M"][dataset_1.name])
+    assert np.allclose(
+        dataset_0.uns["ground_truth_M"][dataset_0.popari.name],
+        dataset_1.uns["ground_truth_M"][dataset_1.popari.name],
+    )
 
 
 @pytest.mark.expensive
@@ -119,7 +122,7 @@ def test_multireplicate_synthetic_dataset_shares_metagenes_and_varies_embeddings
 
     original, shifted = list(multireplicate)
     assert np.allclose(
-        original.uns["ground_truth_M"][original.name],
-        shifted.uns["ground_truth_M"][shifted.name],
+        original.uns["ground_truth_M"][original.popari.name],
+        shifted.uns["ground_truth_M"][shifted.popari.name],
     )
     assert not np.allclose(original.obsm["ground_truth_X"], shifted.obsm["ground_truth_X"])

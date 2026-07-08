@@ -13,9 +13,9 @@ def test_differential_parameter_updates_are_finite(differential_model_factory):
         model.estimate_weights()
 
     for dataset in model.datasets:
-        assert np.isfinite(model.parameter_optimizer.metagene_state[dataset.name].detach().cpu().numpy()).all()
-        assert np.isfinite(model.embedding_optimizer.embedding_state[dataset.name].detach().cpu().numpy()).all()
-        assert np.isfinite(model.parameter_optimizer.spatial_affinity[dataset.name].detach().cpu().numpy()).all()
+        assert np.isfinite(model.parameter_optimizer.metagene_state[dataset.popari.name].detach().cpu().numpy()).all()
+        assert np.isfinite(model.embedding_optimizer.embedding_state[dataset.popari.name].detach().cpu().numpy()).all()
+        assert np.isfinite(model.parameter_optimizer.spatial_affinity[dataset.popari.name].detach().cpu().numpy()).all()
 
 
 @pytest.mark.expensive

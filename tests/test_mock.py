@@ -49,7 +49,7 @@ def test_popari_registers_parameters_and_state_dict_roundtrip(shared_model_facto
 
 def test_module_to_updates_adjacency_parameters(shared_model_factory):
     model = shared_model_factory()
-    dataset_name = model.datasets[0].popari.name()
+    dataset_name = model.datasets[0].popari.name
     adjacency_before = model.parameter_optimizer.adjacency_matrices[dataset_name]
     assert isinstance(adjacency_before, nn.Parameter)
     assert not adjacency_before.requires_grad
@@ -65,15 +65,15 @@ def test_module_to_updates_adjacency_parameters(shared_model_factory):
 def test_load_pretrained_preserves_adjacency_parameters(shared_model_factory, context):
     trained_model = shared_model_factory(torch_context=context, initial_context=context)
     trained_model.synchronize_datasets()
-    datasets = [dataset.copy().popari.ensure_name(dataset.popari.name()) for dataset in trained_model.datasets]
+    datasets = [dataset.copy().popari.ensure_name(dataset.popari.name) for dataset in trained_model.datasets]
     reloaded_model = load_pretrained(
         datasets,
-        [dataset.popari.name() for dataset in datasets],
+        [dataset.popari.name for dataset in datasets],
         context=context,
         reloaded_hierarchy={0: datasets},
     )
 
-    dataset_name = reloaded_model.datasets[0].popari.name()
+    dataset_name = reloaded_model.datasets[0].popari.name
     adjacency_matrix = reloaded_model.parameter_optimizer.adjacency_matrices[dataset_name]
     assert isinstance(adjacency_matrix, nn.Parameter)
     assert not adjacency_matrix.requires_grad

@@ -85,7 +85,7 @@ def test_evaluation_cache_save_writes_scores_and_completed_run_ids(tmp_path):
 def test_anndata_evaluation_records_scores_for_all_levels(monkeypatch):
     def make_dataset(name):
         dataset = ad.AnnData(X=np.ones((2, 2)))
-        dataset.name = name
+        dataset.popari.name = name
         dataset.obs["batch"] = name
         dataset.obsm["X"] = np.ones((2, 1))
         dataset.obsm["ground_truth_X"] = np.ones((2, 1))
@@ -176,7 +176,7 @@ def test_find_run_for_score_index_raises_for_missing_match():
 
 def test_simulation_evaluation_from_anndata_records_scores(monkeypatch):
     dataset = ad.AnnData(X=np.ones((2, 2)))
-    dataset.name = "nsf"
+    dataset.popari.name = "nsf"
     dataset.obs["batch"] = "nsf"
     dataset.obsm["X"] = np.ones((2, 1))
     dataset.obsm["ground_truth_X"] = np.ones((2, 1))
@@ -199,7 +199,7 @@ def test_simulation_evaluation_from_anndata_records_scores(monkeypatch):
 
 def test_simulation_evaluation_from_models_records_scores(monkeypatch):
     dataset = ad.AnnData(X=np.ones((2, 2)))
-    dataset.name = "model_dataset"
+    dataset.popari.name = "model_dataset"
     model = FakeModel({0: FakeView((dataset,))})
 
     def evaluate_model(model, metagene_indices, is_spatial):

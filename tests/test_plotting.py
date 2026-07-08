@@ -1,6 +1,10 @@
+import anndata as ad
+import numpy as np
+import pandas as pd
 import pytest
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
+from scipy.sparse import csr_matrix
 
 from popari import pl, tl
 
@@ -12,6 +16,68 @@ def _close_figures(*figures):
             continue
         if isinstance(figure, Figure):
             plt.close(figure)
+
+
+def test_affinity_difference_plot_returns_figure():
+    dataset = ad.AnnData(X=np.ones((2, 3)))
+    dataset.uns["Sigma_x_inv"] = {
+        "dataset_1": np.array([[1.0, 2.0], [3.0, 4.0]]),
+        "dataset_2": np.array([[5.0, 7.0], [11.0, 13.0]]),
+    }
+
+    figure = pl.affinity_difference(dataset, "dataset_2", "dataset_1")
+
+    try:
+        assert isinstance(figure, Figure)
+        assert figure.axes
+        plotted_values = figure.axes[0].images[0].get_array()
+        assert plotted_values[0, 0] == 4.0
+        assert plotted_values[1, 0] == 8.0
+        assert np.ma.is_masked(plotted_values[0, 1])
+    finally:
+        _close_figures(figure)
+
+
+def _edge_interaction_dataset():
+    dataset = ad.AnnData(X=np.ones((3, 2)))
+    dataset.obsm["spatial"] = np.array(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+        ],
+    )
+    dataset.obsm["X"] = np.array(
+        [
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+        ],
+    )
+    dataset.obs["cell_type"] = pd.Categorical(["A", "B", "A"])
+    dataset.obsp["adjacency_matrix"] = csr_matrix(
+        [
+            [0, 1, 0],
+            [0, 0, 1],
+            [1, 0, 0],
+        ],
+    )
+    dataset.uns["Sigma_x_inv"] = {"replicate_0": np.diag([2.0, 3.0])}
+    return dataset
+
+
+def test_edge_interactions_plot_returns_figure():
+    dataset = _edge_interaction_dataset()
+
+    affinity_figure = pl.edge_interactions(dataset, 1, 1, mode="affinity", size=20)
+    cooccurrence_figure = pl.edge_interactions(dataset, 1, 1, mode="cooccurrence", color=None, size=20)
+
+    try:
+        for figure in [affinity_figure, cooccurrence_figure]:
+            assert isinstance(figure, Figure)
+            assert figure.axes
+    finally:
+        _close_figures(affinity_figure, cooccurrence_figure)
 
 
 @pytest.mark.expensive

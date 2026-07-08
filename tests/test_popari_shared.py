@@ -23,7 +23,7 @@ def test_shared_parameter_updates_are_finite(shared_model_factory):
 @pytest.mark.baseline
 def test_shared_embedding_updates_preserve_nonnegativity(shared_model_factory):
     model = shared_model_factory()
-    name = model.datasets[0].name
+    name = model.datasets[0].popari.name
     initial_x = model.embedding_optimizer.embedding_state[name].detach().cpu().numpy().copy()
 
     model.estimate_parameters()

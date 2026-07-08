@@ -12,7 +12,7 @@ def test_grid_binning_produces_valid_assignments(shared_model_factory, dataset_f
     downsampler = GridDownsampler()
 
     for dataset in model.datasets:
-        binned_name = f"{dataset.name}_level_0"
+        binned_name = f"{dataset.popari.name}_level_0"
         key = f"bin_assignments_{binned_name}"
         binned_dataset, _ = downsampler.downsample(
             dataset,
@@ -33,7 +33,7 @@ def test_partition_binning_produces_valid_assignments(shared_model_factory, data
     downsampler = PartitionDownsampler()
 
     for dataset in model.datasets:
-        binned_name = f"{dataset.name}_level_0"
+        binned_name = f"{dataset.popari.name}_level_0"
         key = f"bin_assignments_{binned_name}"
         binned_dataset, _ = downsampler.downsample(
             dataset,

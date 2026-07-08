@@ -13,14 +13,14 @@ def test_random_state_controls_initialization(shared_model_factory):
     model_2 = shared_model_factory(random_state=1, initialization_method="dummy")
 
     for dataset_0, dataset_1, dataset_2 in zip(model_0.datasets, model_1.datasets, model_2.datasets):
-        assert np.allclose(dataset_0.uns["M"][dataset_0.name], dataset_1.uns["M"][dataset_1.name])
+        assert np.allclose(dataset_0.uns["M"][dataset_0.popari.name], dataset_1.uns["M"][dataset_1.popari.name])
         assert np.allclose(dataset_0.obsm["X"], dataset_1.obsm["X"])
         assert np.allclose(
-            dataset_0.uns["Sigma_x_inv"][dataset_0.name],
-            dataset_1.uns["Sigma_x_inv"][dataset_1.name],
+            dataset_0.uns["Sigma_x_inv"][dataset_0.popari.name],
+            dataset_1.uns["Sigma_x_inv"][dataset_1.popari.name],
         )
 
-        assert not np.allclose(dataset_0.uns["M"][dataset_0.name], dataset_2.uns["M"][dataset_2.name])
+        assert not np.allclose(dataset_0.uns["M"][dataset_0.popari.name], dataset_2.uns["M"][dataset_2.popari.name])
         assert not np.allclose(dataset_0.obsm["X"], dataset_2.obsm["X"])
 
 
@@ -46,13 +46,13 @@ def test_ground_truth_initialization_requires_k_to_match_labels(shared_model_fac
 @pytest.mark.baseline
 def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(context):
     config = SyntheticDataConfig(num_genes=12, grid_size=4, sig_y_scale=0.5, random_state=0)
-    (dataset,) = create_spatial_affinity_demo_datasets(config, scenario_names=("only_type_a",))
+    (dataset,) = create_spatial_affinity_demo_datasets(config, scenario_names=("Monotype",))
     assert issparse(dataset.X)
 
     model = Popari(
         K=3,
         datasets=(dataset,),
-        replicate_names=(dataset.name,),
+        replicate_names=(dataset.popari.name,),
         lambda_Sigma_x_inv=1e-4,
         initialization_method="ground_truth",
         torch_context=context,
@@ -63,14 +63,14 @@ def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(
 
     initialized_dataset = model.datasets[0]
     assert np.all(initialized_dataset.obsm["X"].argmax(axis=1) == 0)
-    assert np.all(np.isfinite(initialized_dataset.uns["M"][initialized_dataset.name]))
-    assert np.all(np.isfinite(initialized_dataset.uns["Sigma_x_inv"][initialized_dataset.name]))
+    assert np.all(np.isfinite(initialized_dataset.uns["M"][initialized_dataset.popari.name]))
+    assert np.all(np.isfinite(initialized_dataset.uns["Sigma_x_inv"][initialized_dataset.popari.name]))
 
 
 @pytest.mark.baseline
 def test_shared_mode_reuses_group_parameters(shared_model_factory):
     model = shared_model_factory()
-    first_name, second_name = (dataset.name for dataset in model.datasets)
+    first_name, second_name = (dataset.popari.name for dataset in model.datasets)
 
     assert model.parameter_optimizer.metagene_state[first_name].data_ptr() == (
         model.parameter_optimizer.metagene_state[second_name].data_ptr()

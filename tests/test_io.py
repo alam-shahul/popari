@@ -23,7 +23,7 @@ def test_unmerge_anndata_allows_missing_adjacency_matrix():
     datasets, replicate_names = unmerge_anndata(merged_dataset)
 
     assert replicate_names == ["replicate_0", "replicate_1"]
-    assert [dataset.name for dataset in datasets] == replicate_names
+    assert [dataset.popari.name for dataset in datasets] == replicate_names
     for dataset in datasets:
         assert "adjacency_matrix" not in dataset.obsp
         assert "adjacency_list" not in dataset.obsm
@@ -40,16 +40,16 @@ def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
     assert replicate_names == model.replicate_names
     assert len(datasets) == len(model.datasets)
     for original, reloaded in zip(model.datasets, datasets):
-        assert reloaded.name == original.name
+        assert reloaded.popari.name == original.popari.name
         assert reloaded.shape == original.shape
         assert np.allclose(reloaded.obsm["X"], original.obsm["X"])
         assert np.allclose(
-            reloaded.uns["M"][reloaded.name],
-            original.uns["M"][original.name],
+            reloaded.uns["M"][reloaded.popari.name],
+            original.uns["M"][original.popari.name],
         )
         assert np.allclose(
-            reloaded.uns["Sigma_x_inv"][reloaded.name],
-            original.uns["Sigma_x_inv"][original.name],
+            reloaded.uns["Sigma_x_inv"][reloaded.popari.name],
+            original.uns["Sigma_x_inv"][original.popari.name],
         )
 
 
@@ -78,7 +78,7 @@ def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
 
     for original, restored in zip(model.datasets, reloaded.datasets):
         assert np.allclose(restored.obsm["X"], original.obsm["X"])
-        assert np.allclose(restored.uns["M"][restored.name], original.uns["M"][original.name])
+        assert np.allclose(restored.uns["M"][restored.popari.name], original.uns["M"][original.popari.name])
 
     assert np.isfinite(reloaded.nll(level=0)).all()
 

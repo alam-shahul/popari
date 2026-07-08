@@ -58,7 +58,7 @@ def test_hierarchical_notebook_generation_path_populates_expected_fields():
     assert issparse(dataset.X)
     assert dataset.obsm["spatial"].shape == (36, 2)
     assert dataset.obsm["ground_truth_X"].shape == (36, 9)
-    assert dataset.uns["ground_truth_M"][dataset.name].shape == (20, 9)
+    assert dataset.uns["ground_truth_M"][dataset.popari.name].shape == (20, 9)
     assert "layer" in dataset.obs
     assert dataset.obs["layer"].dtype.name == "category"
     assert "cell_type" in dataset.obs
@@ -83,7 +83,10 @@ def test_hierarchical_notebook_generation_is_deterministic_for_fixed_seed():
 
     assert np.allclose(dataset_0.X.toarray(), dataset_1.X.toarray())
     assert np.allclose(dataset_0.obsm["ground_truth_X"], dataset_1.obsm["ground_truth_X"])
-    assert np.allclose(dataset_0.uns["ground_truth_M"][dataset_0.name], dataset_1.uns["ground_truth_M"][dataset_1.name])
+    assert np.allclose(
+        dataset_0.uns["ground_truth_M"][dataset_0.popari.name],
+        dataset_1.uns["ground_truth_M"][dataset_1.popari.name],
+    )
 
 
 def test_minimal_notebook_recipe_has_one_dataset_per_ratio():
@@ -128,11 +131,11 @@ def test_minimal_notebook_generation_keeps_exact_metagenes_and_support_restricte
         calculate_grid_neighbors(multireplicate)
         dataset = next(iter(multireplicate))
         ground_truth_X = dataset.obsm["ground_truth_X"]
-        clean_expression = ground_truth_X @ dataset.uns["ground_truth_M"][dataset.name].T
+        clean_expression = ground_truth_X @ dataset.uns["ground_truth_M"][dataset.popari.name].T
 
         counts_by_ratio[ratio_name] = dataset.obs["cell_type"].value_counts().to_dict()
         assert set(dataset.obs["region"]) == {ratio_name}
-        assert np.allclose(dataset.uns["ground_truth_M"][dataset.name], metagenes)
+        assert np.allclose(dataset.uns["ground_truth_M"][dataset.popari.name], metagenes)
         assert np.allclose(ground_truth_X[dataset.obs["cell_type"] == "Type A"], [1, 0])
         assert np.allclose(ground_truth_X[dataset.obs["cell_type"] == "Type B"], [0, 1])
         assert np.all(dataset.X[dataset.obs["cell_type"] == "Type A", config.num_genes // 2 :] == 0)
@@ -148,10 +151,10 @@ def test_minimal_notebook_generation_keeps_exact_metagenes_and_support_restricte
 
 
 def test_spatial_affinity_demo_label_grids_match_requested_patterns():
-    alternating = spatial_affinity_demo_label_grid("alternating_columns", grid_size=6)
-    checker = spatial_affinity_demo_label_grid("checker_diagonals", grid_size=6)
-    only_a = spatial_affinity_demo_label_grid("only_type_a", grid_size=6)
-    thirds = spatial_affinity_demo_label_grid("vertical_thirds", grid_size=6)
+    alternating, checker, only_a, thirds = (
+        spatial_affinity_demo_label_grid(scenario_name, grid_size=6)
+        for scenario_name in spatial_affinity_demo_scenario_names()
+    )
 
     assert np.all(alternating[:, 0::2] == "Type A")
     assert np.all(alternating[:, 1::2] == "Type B")
@@ -176,9 +179,10 @@ def test_spatial_affinity_demo_datasets_have_three_disjoint_metagenes_and_grid_g
     config = _small_config()
     datasets = create_spatial_affinity_demo_datasets(config)
 
-    assert tuple(dataset.name for dataset in datasets) == spatial_affinity_demo_scenario_names()
     for dataset in datasets:
-        ground_truth_M = dataset.uns["ground_truth_M"][dataset.name]
+        assert dataset.uns["dataset_name"] == dataset.popari.name
+        assert dataset.uns["domain_names"] == [dataset.popari.name]
+        ground_truth_M = dataset.uns["ground_truth_M"][dataset.popari.name]
         ground_truth_X = dataset.obsm["ground_truth_X"]
         clean_expression = ground_truth_X @ ground_truth_M.T
         metagene_support = np.where(ground_truth_M > 0, 1, 0)

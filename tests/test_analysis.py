@@ -75,7 +75,7 @@ def test_embedding_and_spatial_summaries(analyzed_shared_model):
         assert "spatial_gene_correlation" in dataset.uns
         assert "neighbor_interactions" in dataset.uns
         assert "domain" in dataset.obs
-        empirical = dataset.uns["empirical_correlation"][dataset.name]
+        empirical = dataset.uns["empirical_correlation"][dataset.popari.name]
         assert empirical.shape[0] == empirical.shape[1] == model.K
         assert np.allclose(empirical, empirical.T)
 
