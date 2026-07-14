@@ -67,7 +67,7 @@ def concatenate(datasets: Sequence[AnnData], join: str = "inner", batch_key: str
         datasets: list of AnnData.
 
     """
-    dataset_names = [dataset.popari.name() for dataset in datasets]
+    dataset_names = [dataset.popari.name for dataset in datasets]
     merged_dataset = ad.concat(
         datasets,
         label=batch_key,

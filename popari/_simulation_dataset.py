@@ -26,11 +26,11 @@ class MetageneSimulationNamespace:
     def ground_truth_M(self):
         """Ground-truth gene-by-metagene matrix for this dataset."""
 
-        return self._adata.uns["ground_truth_M"][self._adata.popari.name()]
+        return self._adata.uns["ground_truth_M"][self._adata.popari.name]
 
     @ground_truth_M.setter
     def ground_truth_M(self, value) -> None:
-        dataset_name = self._adata.popari.name()
+        dataset_name = self._adata.popari.name
         self._adata.uns.setdefault("ground_truth_M", {})
         self._adata.uns["ground_truth_M"][dataset_name] = value
 
@@ -48,11 +48,11 @@ class MetageneSimulationNamespace:
     def learned_M(self):
         """Learned gene-by-metagene matrix for this dataset."""
 
-        return self._adata.uns["M"][self._adata.popari.name()]
+        return self._adata.uns["M"][self._adata.popari.name]
 
     @learned_M.setter
     def learned_M(self, value) -> None:
-        dataset_name = self._adata.popari.name()
+        dataset_name = self._adata.popari.name
         self._adata.uns.setdefault("M", {})
         self._adata.uns["M"][dataset_name] = value
 

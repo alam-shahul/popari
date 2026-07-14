@@ -28,7 +28,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
     datasets = unconcatenate(merged_dataset)
 
     for dataset in datasets:
-        replicate_string = dataset.popari.name()
+        replicate_string = dataset.popari.name
         if "Sigma_x_inv" in dataset.uns:
             # Keep only Sigma_x_inv corresponding to a particular replicate
             replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][replicate_string]
@@ -128,7 +128,7 @@ def unmerge_anndata(merged_dataset: ad.AnnData):
         #     replicate_X = make_hdf5_compatible(dataset.obsm["X"])
         #     dataset.obsm["X"] = replicate_X
 
-    replicate_names = [dataset.popari.name() for dataset in datasets]
+    replicate_names = [dataset.popari.name for dataset in datasets]
     return datasets, replicate_names
 
 
@@ -138,7 +138,7 @@ def merge_anndata(datasets: Sequence[AnnData], ignore_raw_data: bool = False):
 
     dataset_copies = []
     for dataset in datasets:
-        replicate = dataset.popari.name()
+        replicate = dataset.popari.name
         replicate_string = f"{replicate}"
         dataset_copy = dataset.copy()
         dataset_copy.popari.ensure_name(replicate)

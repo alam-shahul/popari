@@ -163,18 +163,23 @@ def initialize_ground_truth(
 
     if all("ground_truth_X" in dataset.obsm and "ground_truth_M" in dataset.uns for dataset in datasets):
         first_dataset = datasets[0]
-        first_name = first_dataset.name
+        first_name = first_dataset.popari.name
         M = np.asarray(first_dataset.uns["ground_truth_M"][first_name])
-        Xs = [np.asarray(dataset.obsm["ground_truth_X"]) for dataset in datasets]
+        Xs = [np.asarray(dataset.obsm["ground_truth_X"]).copy() for dataset in datasets]
 
         if M.shape[1] != K:
             raise ValueError(f"ground_truth_M has {M.shape[1]} factors, but Popari was configured with K={K}.")
+
+        rng = np.random.default_rng(random_state)
         for dataset, X in zip(datasets, Xs):
             if X.shape[1] != K:
                 raise ValueError(
-                    f"{dataset.name} ground_truth_X has {X.shape[1]} factors, "
+                    f"{dataset.popari.name} ground_truth_X has {X.shape[1]} factors, "
                     f"but Popari was configured with K={K}.",
                 )
+            absent_indices = np.flatnonzero(np.isclose(X.sum(axis=0), 0))
+            if len(absent_indices):
+                X[:, absent_indices] = rng.random((X.shape[0], len(absent_indices))) * absent_class_embedding_scale
 
         return torch.tensor(M, **context), [torch.tensor(X, **context) for X in Xs]
 
@@ -186,9 +191,9 @@ def initialize_ground_truth(
     first_labels = first_dataset.obs[label_key]
     if (
         "cell_type_definitions" in first_dataset.uns
-        and first_dataset.name in first_dataset.uns["cell_type_definitions"]
+        and first_dataset.popari.name in first_dataset.uns["cell_type_definitions"]
     ):
-        labels = list(first_dataset.uns["cell_type_definitions"][first_dataset.name])
+        labels = list(first_dataset.uns["cell_type_definitions"][first_dataset.popari.name])
     elif str(first_labels.dtype) == "category":
         labels = list(first_labels.cat.categories)
     else:

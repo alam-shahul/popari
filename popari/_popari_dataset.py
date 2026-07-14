@@ -47,22 +47,25 @@ class PopariNamespace:
     def __init__(self, adata: ad.AnnData):
         self._adata = adata
 
+    @property
     def name(self) -> str:
         if DATASET_NAME_KEY in self._adata.uns:
             return str(self._adata.uns[DATASET_NAME_KEY])
 
         raise ValueError(f"Dataset name is not set in `uns[{DATASET_NAME_KEY!r}]`.")
 
-    def set_name(self, replicate_name: str, batch_key: str = "batch") -> ad.AnnData:
+    @name.setter
+    def name(self, replicate_name: str) -> None:
         self._adata.uns[DATASET_NAME_KEY] = f"{replicate_name}"
-        if batch_key in self._adata.obs:
-            self._adata.obs[batch_key] = f"{replicate_name}"
-
-        return self._adata
+        if "batch" in self._adata.obs:
+            self._adata.obs["batch"] = f"{replicate_name}"
 
     def ensure_name(self, replicate_name: str | None = None, batch_key: str = "batch") -> ad.AnnData:
         if replicate_name is not None:
-            return self.set_name(replicate_name, batch_key=batch_key)
+            self._adata.uns[DATASET_NAME_KEY] = f"{replicate_name}"
+            if batch_key in self._adata.obs:
+                self._adata.obs[batch_key] = f"{replicate_name}"
+            return self._adata
 
         if DATASET_NAME_KEY in self._adata.uns:
             self._adata.uns[DATASET_NAME_KEY] = str(self._adata.uns[DATASET_NAME_KEY])
@@ -106,6 +109,37 @@ class PopariNamespace:
 
         self._adata.obsm["adjacency_list"] = ak.Array(adjacency_list)
 
+    def affinity_difference(
+        self,
+        numerator: str,
+        denominator: str,
+        spatial_affinity_key: str = "Sigma_x_inv",
+    ) -> np.ndarray:
+        """Return the difference between two named spatial affinity matrices.
+
+        Args:
+            numerator: Name of the dataset whose affinity matrix is subtracted from.
+            denominator: Name of the dataset whose affinity matrix is subtracted.
+            spatial_affinity_key: Key in ``.uns`` containing named affinity matrices.
+
+        Returns:
+            ``uns[spatial_affinity_key][numerator] - uns[spatial_affinity_key][denominator]``.
+
+        """
+
+        if spatial_affinity_key not in self._adata.uns:
+            raise KeyError(f"Missing spatial affinity key in `.uns`: {spatial_affinity_key!r}.")
+
+        spatial_affinities = self._adata.uns[spatial_affinity_key]
+        missing_names = [name for name in (numerator, denominator) if name not in spatial_affinities]
+        if missing_names:
+            raise KeyError(
+                f"Missing spatial affinity matrix/matrices under `.uns[{spatial_affinity_key!r}]`: "
+                f"{missing_names}.",
+            )
+
+        return np.asarray(spatial_affinities[numerator]) - np.asarray(spatial_affinities[denominator])
+
     def plot_metagene_embedding(self, metagene_index: int, embedding_key: str = "X", **scatterplot_kwargs):
         return plot_metagene_embedding(
             self._adata,
@@ -128,10 +162,3 @@ class PopariNamespace:
 
 
 PopariDataset = ad.AnnData
-
-
-if not isinstance(getattr(ad.AnnData, "name", None), property):
-    ad.AnnData.name = property(
-        fget=lambda dataset: dataset.popari.name(),
-        fset=lambda dataset, replicate_name: dataset.popari.set_name(replicate_name),
-    )
