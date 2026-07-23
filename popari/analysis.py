@@ -145,8 +145,8 @@ def find_differential_genes(trained_model: Popari, level=0, top_gene_limit: int 
 
     genes_of_interest = set()
     for dataset in datasets:
-        for group_name in trained_model.metagene_tags[dataset.name]:
-            image = dataset.uns["M"][dataset.name] - dataset.uns["M_bar"][group_name]
+        for group_name in trained_model.metagene_tags[dataset.popari.name]:
+            image = dataset.uns["M"][dataset.popari.name] - dataset.uns["M_bar"][group_name]
             top_genes_per_metagene = np.argpartition(np.abs(image), -top_gene_limit, axis=0)[-top_gene_limit:]
             dataset_top_genes = dataset.var_names[top_genes_per_metagene.flatten()]
             genes_of_interest.update(dataset_top_genes)
@@ -240,7 +240,7 @@ def normalized_affinity_trends(
     """
 
     datasets = trained_model.hierarchy[level].datasets
-    all_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.name] for dataset in datasets])
+    all_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.popari.name] for dataset in datasets])
 
     if normalize:
         for index in range(len(datasets), axes.size):
@@ -305,7 +305,7 @@ def propagate_labels(trained_model, label_key: str, starting_level: Optional[int
         next_datasets = trained_model.hierarchy[level - 1].datasets
         for dataset, next_dataset in zip(datasets, next_datasets):
             labels = dataset.obs[label_key]
-            bin_assignments = dataset.obsm[f"bin_assignments_{dataset.name}"]
+            bin_assignments = dataset.obsm[f"bin_assignments_{dataset.popari.name}"]
 
             reduced_assignment_index = np.array(bin_assignments.argmax(axis=0)).squeeze()
             propagated_labels = labels.values[reduced_assignment_index]

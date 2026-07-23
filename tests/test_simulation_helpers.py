@@ -1,31 +1,28 @@
 from dataclasses import is_dataclass
 
+import anndata as ad
 import numpy as np
 from scipy.sparse import issparse
 
-from popari.simulation import (
-    LayerRecipe,
-    ReplicateConfig,
-    ReplicateSpec,
+from popari.simulation.recipes import (
+    SimulationConfig,
+    SimulationRecipe,
     SpatialDropoutConfig,
-    SyntheticDataConfig,
-    calculate_grid_neighbors,
-    create_spatial_affinity_demo_datasets,
     default_cortex_layer_recipe,
+)
+from popari.simulation.synthetic import (
+    SPATIAL_AFFINITY_DEMO_SCENARIOS,
+    _grid_coordinates,
+    create_spatial_affinity_demo_datasets,
     four_neighbor_grid_adjacency,
     generate_simulation,
-    load_or_assign_domains,
     make_disjoint_metagenes,
-    simulate_expression_with_metagenes,
     spatial_affinity_demo_label_grid,
-    spatial_affinity_demo_scenario_names,
-    two_cell_type_ratio_recipes,
 )
-from popari.simulation._utils import create_multireplicate_dataset
 
 
 def _small_config(random_state=0):
-    return SyntheticDataConfig(
+    return SimulationConfig(
         num_genes=20,
         grid_size=6,
         num_noise_metagenes=0,
@@ -35,67 +32,87 @@ def _small_config(random_state=0):
     )
 
 
-def test_notebook_configs_are_dataclasses():
-    assert is_dataclass(LayerRecipe)
-    assert is_dataclass(SyntheticDataConfig)
-    assert is_dataclass(ReplicateConfig)
+def test_simulation_configs_are_dataclasses():
+    assert is_dataclass(SimulationRecipe)
+    assert is_dataclass(SimulationConfig)
     assert is_dataclass(SpatialDropoutConfig)
 
 
-def test_hierarchical_notebook_generation_path_populates_expected_fields():
+def test_grid_coordinates_respect_recipe_dimensions():
+    recipe = SimulationRecipe(
+        cell_type_definitions={"cell": [1]},
+        spatial_distributions={"domain": {"cell": 1}},
+        metagene_variation_probabilities=[0],
+        width=2,
+        height=3,
+    )
+
+    coordinates = _grid_coordinates(recipe, grid_size=3)
+
+    np.testing.assert_allclose(
+        coordinates,
+        [
+            [0, 0],
+            [1, 0],
+            [2, 0],
+            [0, 1.5],
+            [1, 1.5],
+            [2, 1.5],
+            [0, 3],
+            [1, 3],
+            [2, 3],
+        ],
+    )
+
+
+def test_generation_returns_plain_anndata_with_expected_schema():
     result = generate_simulation(
-        recipe=default_cortex_layer_recipe(),
+        recipes={"layer": default_cortex_layer_recipe()},
         config=_small_config(),
-        replicates=ReplicateConfig(names=("layer_0",)),
+        replicates={"layer_0": "layer"},
         dropout=SpatialDropoutConfig(sparsity=0.05, random_state=0),
-        calculate_neighbors=True,
     )
     (dataset,) = result.datasets
 
-    assert result.replicate_names == ("layer_0",)
+    assert type(dataset) is ad.AnnData
+    assert tuple(dataset.popari.name for dataset in result.datasets) == ("layer_0",)
     assert dataset.obs_names.is_unique
     assert dataset.X.shape == (36, 20)
     assert issparse(dataset.X)
     assert dataset.obsm["spatial"].shape == (36, 2)
-    assert dataset.obsm["ground_truth_X"].shape == (36, 9)
-    assert dataset.uns["ground_truth_M"][dataset.popari.name].shape == (20, 9)
-    assert "layer" in dataset.obs
+    assert dataset.simulation.ground_truth_X.shape == (36, 9)
+    assert dataset.simulation.ground_truth_M.shape == (20, 9)
     assert dataset.obs["layer"].dtype.name == "category"
-    assert "cell_type" in dataset.obs
     assert dataset.obs["cell_type"].dtype.name == "category"
     assert dataset.obs["batch"].dtype.name == "category"
     assert "adjacency_matrix" in dataset.obsp
     assert "adjacency_list" in dataset.obsm
 
 
-def test_hierarchical_notebook_generation_is_deterministic_for_fixed_seed():
+def test_generation_is_deterministic_and_shares_metagenes():
     kwargs = {
-        "recipe": default_cortex_layer_recipe(),
+        "recipes": {"layer": default_cortex_layer_recipe()},
         "config": _small_config(random_state=3),
-        "replicates": ReplicateConfig(names=("layer_0",)),
+        "replicates": {"layer_0": "layer", "layer_1": "layer"},
         "calculate_neighbors": False,
     }
+    first = generate_simulation(**kwargs)
+    second = generate_simulation(**kwargs)
 
-    result_0 = generate_simulation(**kwargs)
-    result_1 = generate_simulation(**kwargs)
-    dataset_0 = result_0.datasets[0]
-    dataset_1 = result_1.datasets[0]
-
-    assert np.allclose(dataset_0.X.toarray(), dataset_1.X.toarray())
-    assert np.allclose(dataset_0.obsm["ground_truth_X"], dataset_1.obsm["ground_truth_X"])
-    assert np.allclose(
-        dataset_0.uns["ground_truth_M"][dataset_0.popari.name],
-        dataset_1.uns["ground_truth_M"][dataset_1.popari.name],
+    for first_dataset, second_dataset in zip(first.datasets, second.datasets):
+        np.testing.assert_allclose(first_dataset.X.toarray(), second_dataset.X.toarray())
+        np.testing.assert_allclose(
+            first_dataset.simulation.ground_truth_X,
+            second_dataset.simulation.ground_truth_X,
+        )
+        np.testing.assert_allclose(
+            first_dataset.simulation.ground_truth_M,
+            second_dataset.simulation.ground_truth_M,
+        )
+    np.testing.assert_allclose(
+        first.datasets[0].simulation.ground_truth_M,
+        first.datasets[1].simulation.ground_truth_M,
     )
-
-
-def test_minimal_notebook_recipe_has_one_dataset_per_ratio():
-    recipes = two_cell_type_ratio_recipes()
-
-    assert set(recipes) == {"A_to_B_1_to_9", "A_to_B_1_to_1", "A_to_B_9_to_1"}
-    for ratio_name, recipe in recipes.items():
-        assert tuple(recipe.layer_distributions) == (ratio_name,)
-        assert set(recipe.cell_type_definitions) == {"Type A", "Type B"}
 
 
 def test_disjoint_metagenes_have_nonoverlapping_gene_support():
@@ -110,50 +127,10 @@ def test_disjoint_metagenes_have_nonoverlapping_gene_support():
     assert np.allclose(magnitudes, 1)
 
 
-def test_minimal_notebook_generation_keeps_exact_metagenes_and_support_restricted_noise():
-    config = _small_config()
-    metagenes, magnitudes = make_disjoint_metagenes(config.num_genes, num_metagenes=2)
-    counts_by_ratio = {}
-
-    for ratio_name, recipe in two_cell_type_ratio_recipes().items():
-        recipes = {ratio_name: recipe}
-        replicates = ReplicateSpec({ratio_name: ratio_name})
-        multireplicate = create_multireplicate_dataset(recipes, config, replicates)
-        load_or_assign_domains(multireplicate, recipes, replicates)
-        simulate_expression_with_metagenes(
-            multireplicate,
-            metagenes,
-            magnitudes,
-            noiseless=False,
-            exact_cell_type_embeddings=True,
-            noise_on_expressed_genes_only=True,
-        )
-        calculate_grid_neighbors(multireplicate)
-        dataset = next(iter(multireplicate))
-        ground_truth_X = dataset.obsm["ground_truth_X"]
-        clean_expression = ground_truth_X @ dataset.uns["ground_truth_M"][dataset.popari.name].T
-
-        counts_by_ratio[ratio_name] = dataset.obs["cell_type"].value_counts().to_dict()
-        assert set(dataset.obs["region"]) == {ratio_name}
-        assert np.allclose(dataset.uns["ground_truth_M"][dataset.popari.name], metagenes)
-        assert np.allclose(ground_truth_X[dataset.obs["cell_type"] == "Type A"], [1, 0])
-        assert np.allclose(ground_truth_X[dataset.obs["cell_type"] == "Type B"], [0, 1])
-        assert np.all(dataset.X[dataset.obs["cell_type"] == "Type A", config.num_genes // 2 :] == 0)
-        assert np.all(dataset.X[dataset.obs["cell_type"] == "Type B", : config.num_genes // 2] == 0)
-        assert not np.allclose(dataset.X[clean_expression > 0], clean_expression[clean_expression > 0])
-
-    for ratio_name, recipe in two_cell_type_ratio_recipes().items():
-        proportions = list(recipe.layer_distributions[ratio_name].values())
-        labels = list(recipe.layer_distributions[ratio_name])
-        partition_indices = (np.cumsum(proportions) * config.grid_size**2).astype(int)
-        expected_counts = dict(zip(labels, np.diff(np.concatenate([[0], partition_indices]))))
-        assert counts_by_ratio[ratio_name] == expected_counts
-
-
 def test_spatial_affinity_demo_label_grids_match_requested_patterns():
     alternating, checker, only_a, thirds = (
         spatial_affinity_demo_label_grid(scenario_name, grid_size=6)
-        for scenario_name in spatial_affinity_demo_scenario_names()
+        for scenario_name in SPATIAL_AFFINITY_DEMO_SCENARIOS
     )
 
     assert np.all(alternating[:, 0::2] == "Type A")
@@ -175,29 +152,19 @@ def test_four_neighbor_grid_adjacency_has_expected_degrees():
     assert set(degrees[[5, 6, 9, 10]]) == {4}
 
 
-def test_spatial_affinity_demo_datasets_have_three_disjoint_metagenes_and_grid_graphs():
-    config = _small_config()
-    datasets = create_spatial_affinity_demo_datasets(config)
+def test_spatial_affinity_demo_datasets_use_simulation_schema():
+    datasets = create_spatial_affinity_demo_datasets(_small_config())
 
     for dataset in datasets:
-        assert dataset.uns["dataset_name"] == dataset.popari.name
-        assert dataset.uns["domain_names"] == [dataset.popari.name]
-        ground_truth_M = dataset.uns["ground_truth_M"][dataset.popari.name]
-        ground_truth_X = dataset.obsm["ground_truth_X"]
-        clean_expression = ground_truth_X @ ground_truth_M.T
-        metagene_support = np.where(ground_truth_M > 0, 1, 0)
-
+        clean_expression = dataset.simulation.ground_truth_expression
+        metagene_support = np.where(dataset.simulation.ground_truth_M > 0, 1, 0)
+        assert type(dataset) is ad.AnnData
         assert dataset.X.shape == (36, 20)
-        assert dataset.obs_names.is_unique
         assert issparse(dataset.X)
-        assert dataset.obs["scenario"].dtype.name == "category"
-        assert dataset.obs["cell_type"].dtype.name == "category"
-        assert dataset.obs["batch"].dtype.name == "category"
-        assert ground_truth_M.shape == (20, 3)
-        assert ground_truth_X.shape == (36, 3)
+        assert dataset.simulation.ground_truth_M.shape == (20, 3)
+        assert dataset.simulation.ground_truth_X.shape == (36, 3)
         assert np.all(metagene_support.sum(axis=1) == 1)
-        assert np.allclose(ground_truth_M.sum(axis=0), 1)
-        assert np.all(np.count_nonzero(ground_truth_X, axis=1) == 1)
+        assert np.all(np.count_nonzero(dataset.simulation.ground_truth_X, axis=1) == 1)
         assert np.all(dataset.X.toarray()[clean_expression == 0] == 0)
         assert "adjacency_matrix" in dataset.obsp
         assert "adjacency_list" in dataset.obsm

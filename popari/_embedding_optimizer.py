@@ -47,10 +47,10 @@ class EmbeddingOptimizer(nn.Module):
         self.Ys = Ys
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self.adjacency_lists = {dataset.name: dataset.obsm["adjacency_list"] for dataset in self.datasets}
+        self.adjacency_lists = {dataset.popari.name: dataset.obsm["adjacency_list"] for dataset in self.datasets}
         self.adjacency_matrices = BufferDict(prefix="dataset")
         for dataset in self.datasets:
-            self.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(
+            self.adjacency_matrices[dataset.popari.name] = convert_numpy_to_pytorch_sparse_coo(
                 dataset.obsp["adjacency_matrix"],
                 self.context,
             )
@@ -74,8 +74,8 @@ class EmbeddingOptimizer(nn.Module):
             is_spatial_replicate = "adjacency_list" in dataset.obsm
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
-            X = self.embedding_state[dataset.name].to(self.context["device"])
-            M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+            X = self.embedding_state[dataset.popari.name].to(self.context["device"])
+            M = self.parameter_optimizer.metagene_state[dataset.popari.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
             if not is_spatial_replicate or not use_neighbors:
@@ -98,7 +98,7 @@ class EmbeddingOptimizer(nn.Module):
                     prior_x,
                     dataset,
                 )
-            self.embedding_state[dataset.name] = updated_embedding
+            self.embedding_state[dataset.popari.name] = updated_embedding
 
             loss_list.append(loss)
 
@@ -109,8 +109,8 @@ class EmbeddingOptimizer(nn.Module):
                 is_spatial_replicate = "adjacency_list" in dataset.obsm
                 sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
                 Y = self.Ys[dataset_index].to(self.context["device"])
-                X = self.embedding_state[dataset.name].to(self.context["device"])
-                M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+                X = self.embedding_state[dataset.popari.name].to(self.context["device"])
+                M = self.parameter_optimizer.metagene_state[dataset.popari.name].to(self.context["device"])
                 prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
                 prior_x = self.parameter_optimizer.prior_xs[dataset_index]
                 if not is_spatial_replicate or not use_neighbors:
@@ -299,9 +299,9 @@ class EmbeddingOptimizer(nn.Module):
         Z = X / S
         N = len(Z)
 
-        E_adjacency_list = self.adjacency_lists[dataset.name]
-        adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
-        Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.name].to(self.context["device"])
+        E_adjacency_list = self.adjacency_lists[dataset.popari.name]
+        adjacency_matrix = self.adjacency_matrices[dataset.popari.name].to(self.context["device"])
+        Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.popari.name].to(self.context["device"])
 
         def update_s():
             S[:] = (YM * Z).sum(axis=1, keepdim=True)
@@ -486,9 +486,9 @@ class EmbeddingOptimizer(nn.Module):
         Z = X / S
         N = len(Z)
 
-        E_adjacency_list = self.adjacency_lists[dataset.name]
-        adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
-        Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.name].to(self.context["device"])
+        E_adjacency_list = self.adjacency_lists[dataset.popari.name]
+        adjacency_matrix = self.adjacency_matrices[dataset.popari.name].to(self.context["device"])
+        Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.popari.name].to(self.context["device"])
 
         def compute_loss():
             X = Z * S
@@ -523,10 +523,10 @@ class EmbeddingState(nn.Module):
         super().__init__()
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self._ordered_dataset_names = [dataset.name for dataset in datasets]
+        self._ordered_dataset_names = [dataset.popari.name for dataset in datasets]
         self.embedding_dict = ParameterDict(prefix="dataset")
         for dataset in datasets:
-            self.embedding_dict[dataset.name] = nn.Parameter(
+            self.embedding_dict[dataset.popari.name] = nn.Parameter(
                 torch.zeros((dataset.shape[0], K), **self.context),
                 requires_grad=False,
             )

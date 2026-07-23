@@ -5,8 +5,9 @@ import pytest
 from popari.train import MLFlowTrainer, MLFlowTrainParameters, Trainer, TrainParameters
 
 
-def test_trainer_runs_and_saves(shared_model_factory, tmp_path):
-    model = shared_model_factory()
+@pytest.mark.gpu
+def test_trainer_runs_and_saves(shared_model_factory, gpu_context, tmp_path):
+    model = shared_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     savepath = tmp_path / "trainer_test.h5ad"
     trainer = Trainer(
         parameters=TrainParameters(
@@ -24,13 +25,14 @@ def test_trainer_runs_and_saves(shared_model_factory, tmp_path):
     assert savepath.exists()
 
 
-def test_mlflow_trainer_runs_if_available(shared_model_factory, tmp_path):
+@pytest.mark.gpu
+def test_mlflow_trainer_runs_if_available(shared_model_factory, gpu_context, tmp_path):
     try:
         import mlflow  # noqa: F401
     except ImportError:
         pytest.skip("mlflow is not installed in the current environment.")
 
-    model = shared_model_factory()
+    model = shared_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     savepath = tmp_path / "mlflow_trainer_test.h5ad"
     trainer = MLFlowTrainer(
         parameters=MLFlowTrainParameters(

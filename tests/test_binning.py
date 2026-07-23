@@ -48,9 +48,14 @@ def test_partition_binning_produces_valid_assignments(shared_model_factory, data
         assert np.all(assignments.sum(axis=0) == 1)
 
 
+@pytest.mark.gpu
 @pytest.mark.expensive
-def test_hierarchical_superresolution_is_finite(hierarchical_model_factory):
-    model = hierarchical_model_factory(hierarchical_levels=2)
+def test_hierarchical_superresolution_is_finite(hierarchical_model_factory, gpu_context):
+    model = hierarchical_model_factory(
+        hierarchical_levels=2,
+        torch_context=gpu_context,
+        initial_context=gpu_context,
+    )
     model.estimate_parameters()
     model.estimate_weights()
 

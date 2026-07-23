@@ -6,13 +6,6 @@ from popari.io import load_anndata, save_anndata, unmerge_anndata
 from popari.model import load_trained_model
 
 
-def _train_small_model(model, n_steps: int = 2):
-    for _ in range(n_steps):
-        model.estimate_parameters()
-        model.estimate_weights()
-    return model
-
-
 def test_unmerge_anndata_allows_missing_adjacency_matrix():
     merged_dataset = ad.concat(
         [ad.AnnData(X=np.ones((2, 2))), ad.AnnData(X=np.ones((3, 2)))],
@@ -31,7 +24,7 @@ def test_unmerge_anndata_allows_missing_adjacency_matrix():
 
 @pytest.mark.baseline
 def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
-    model = _train_small_model(shared_model_factory())
+    model = shared_model_factory()
     filepath = tmp_path / "results.h5ad"
 
     save_anndata(filepath, model.datasets)
@@ -55,7 +48,7 @@ def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
 
 @pytest.mark.baseline
 def test_save_anndata_ignore_raw_data(shared_model_factory, tmp_path):
-    model = _train_small_model(shared_model_factory())
+    model = shared_model_factory()
     filepath = tmp_path / "results_ignore_raw.h5ad"
 
     datasets = save_anndata(filepath, model.datasets, ignore_raw_data=True)
@@ -66,7 +59,7 @@ def test_save_anndata_ignore_raw_data(shared_model_factory, tmp_path):
 
 @pytest.mark.baseline
 def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
-    model = _train_small_model(shared_model_factory())
+    model = shared_model_factory()
     filepath = tmp_path / "trained_model.h5ad"
 
     model.save_results(filepath, ignore_raw_data=False)
@@ -85,7 +78,7 @@ def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
 
 @pytest.mark.baseline
 def test_load_differential_from_shared_file(shared_model_factory, tmp_path):
-    model = _train_small_model(shared_model_factory())
+    model = shared_model_factory()
     filepath = tmp_path / "shared_model.h5ad"
     model.save_results(filepath, ignore_raw_data=False)
 
@@ -99,9 +92,14 @@ def test_load_differential_from_shared_file(shared_model_factory, tmp_path):
     assert differential.spatial_affinity_mode == "differential lookup"
 
 
+@pytest.mark.gpu
 @pytest.mark.expensive
-def test_hierarchical_save_and_load_roundtrip(hierarchical_model_factory, tmp_path):
-    model = hierarchical_model_factory(hierarchical_levels=2)
+def test_hierarchical_save_and_load_roundtrip(hierarchical_model_factory, gpu_context, tmp_path):
+    model = hierarchical_model_factory(
+        hierarchical_levels=2,
+        torch_context=gpu_context,
+        initial_context=gpu_context,
+    )
     model.estimate_parameters()
     model.estimate_weights()
     model.superresolve(n_epochs=2, tol=1e-6)

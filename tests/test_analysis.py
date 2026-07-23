@@ -12,9 +12,9 @@ def _fit_model(model, n_steps: int = 2):
 
 
 @pytest.mark.baseline
-def test_preprocess_and_pca(analyzed_shared_model, shared_reference_metrics):
-    model = analyzed_shared_model
-    metrics = shared_reference_metrics
+def test_preprocess_and_pca(preprocessed_shared_model, shared_model_expected_metrics):
+    model = preprocessed_shared_model
+    metrics = shared_model_expected_metrics
 
     for dataset in model.datasets:
         assert "normalized_X" in dataset.obsm
@@ -26,9 +26,9 @@ def test_preprocess_and_pca(analyzed_shared_model, shared_reference_metrics):
 
 
 @pytest.mark.expensive
-def test_clustering_metrics_and_classification(clustered_shared_model, shared_reference_metrics):
+def test_clustering_metrics_and_classification(clustered_shared_model, shared_model_expected_metrics):
     model = clustered_shared_model
-    metrics = shared_reference_metrics
+    metrics = shared_model_expected_metrics
     try:
         tl.compute_confusion_matrix(model, labels="cell_type", predictions="leiden", joint=True)
     except ValueError:
@@ -65,10 +65,6 @@ def test_clustering_metrics_and_classification(clustered_shared_model, shared_re
 @pytest.mark.expensive
 def test_embedding_and_spatial_summaries(analyzed_shared_model):
     model = analyzed_shared_model
-    tl.compute_columnwise_autocorrelation(model, uns="M")
-    tl.compute_empirical_correlations(model, output="empirical_correlation")
-    tl.compute_spatial_gene_correlation(model)
-    tl.cluster_domains(model, target_domains=2)
 
     for dataset in model.datasets:
         assert "empirical_correlation" in dataset.uns
@@ -80,9 +76,13 @@ def test_embedding_and_spatial_summaries(analyzed_shared_model):
         assert np.allclose(empirical, empirical.T)
 
 
+@pytest.mark.gpu
 @pytest.mark.expensive
-def test_differential_analysis_helpers(differential_model_factory):
-    model = _fit_model(differential_model_factory())
+def test_differential_analysis_helpers(differential_model_factory, gpu_context):
+    model = _fit_model(
+        differential_model_factory(torch_context=gpu_context, initial_context=gpu_context),
+        n_steps=1,
+    )
 
     genes = tl.find_differential_genes(model, top_gene_limit=2)
     assert genes

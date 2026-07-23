@@ -1,8 +1,10 @@
 from functools import partial
 from typing import Optional, Sequence
 
+import anndata as ad
 import numpy as np
 import scanpy as sc
+import squidpy as sq
 from matplotlib import cm
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
@@ -10,6 +12,8 @@ from matplotlib.colors import ListedColormap
 
 from popari._dataset_utils import (
     _evaluate_classification_task,
+    _matrix_heatmap,
+    _matrix_heatmap_panel,
     _multigroup_heatmap,
     _multireplicate_heatmap,
     _plot_all_embeddings,
@@ -25,6 +29,7 @@ from popari._dataset_utils import (
     for_model,
     setup_squarish_axes,
 )
+from popari.analysis_utils import metagene_pair_edge_values
 from popari.model import Popari
 
 in_situ = for_model(_plot_in_situ, return_outputs=True)
@@ -35,6 +40,190 @@ multireplicate_heatmap = for_model(_multireplicate_heatmap, return_outputs=True)
 spatial_affinity_heatmap = for_model(_spatial_affinity_heatmap, return_outputs=True)
 clusters_to_categories = for_model(_plot_clusters_to_categories, return_outputs=True)
 metagene_signature_enrichment = for_model(_plot_metagene_signature_enrichment, return_outputs=True)
+
+
+def _highlight_cell(x, y, ax=None, **kwargs):
+    """Draw a rectangle around a heatmap cell."""
+
+    ax = ax or plt.gca()
+    rectangle = plt.Rectangle((x - 0.5, y - 0.5), 1, 1, fill=False, **kwargs)
+    ax.add_patch(rectangle)
+    return rectangle
+
+
+def matrix_heatmap(matrix, **heatmap_kwargs):
+    """Plot a standalone matrix-like object as a heatmap.
+
+    ``matrix`` may be a :class:`pandas.DataFrame` or array-like object. DataFrame
+    indexes and columns are used as axis labels by default.
+
+    """
+
+    return _matrix_heatmap(matrix, **heatmap_kwargs)
+
+
+def matrix_heatmap_panel(matrices, **heatmap_kwargs):
+    """Plot a collection of standalone matrix-like objects as heatmaps.
+
+    ``matrices`` may be a mapping from title to matrix, or a sequence of
+    matrix-like objects.
+
+    """
+
+    return _matrix_heatmap_panel(matrices, **heatmap_kwargs)
+
+
+def edge_interactions(
+    dataset: ad.AnnData,
+    first_metagene: int,
+    second_metagene: int,
+    *,
+    mode: str = "affinity",
+    color: Optional[str] = "cell_type",
+    embedding_key: str = "X",
+    affinity_key: str = "Sigma_x_inv",
+    neighbor_key: str = "adjacency_matrix",
+    rescale: bool = True,
+    ax: Optional[Axes] = None,
+    edge_cmap="Blues",
+    edges_width: float = 1,
+    size: Optional[float] = None,
+    title: Optional[str] = None,
+    **spatial_kwargs,
+):
+    """Plot metagene-pair edge interaction values in situ.
+
+    Edge colors are computed by :func:`popari.analysis_utils.metagene_pair_edge_values`
+    and are not stored in ``dataset``.
+
+    """
+
+    edges, edge_values = metagene_pair_edge_values(
+        dataset,
+        first_metagene,
+        second_metagene,
+        mode=mode,
+        embedding_key=embedding_key,
+        affinity_key=affinity_key,
+        neighbor_key=neighbor_key,
+        rescale=rescale,
+    )
+
+    if ax is None:
+        dpi = spatial_kwargs.pop("dpi", 100)
+        fig, ax = plt.subplots(dpi=dpi)
+    else:
+        fig = ax.get_figure()
+
+    if isinstance(edge_cmap, str):
+        edge_cmap = plt.get_cmap(edge_cmap)
+
+    edges_kwargs = spatial_kwargs.pop("edges_kwargs", {})
+    edges_kwargs = {
+        "edgelist": edges,
+        "edge_cmap": edge_cmap,
+        **edges_kwargs,
+    }
+
+    if size is None:
+        size = 5000 / dataset.n_obs
+    if title is None:
+        title = f"m{first_metagene} -> m{second_metagene} ({mode})"
+
+    axes = sq.pl.spatial_scatter(
+        dataset,
+        shape=None,
+        color=color,
+        connectivity_key=neighbor_key,
+        edges_width=edges_width,
+        edges_color=edge_values,
+        edges_kwargs=edges_kwargs,
+        size=size,
+        title=title,
+        ax=ax,
+        return_ax=True,
+        **spatial_kwargs,
+    )
+
+    if isinstance(axes, np.ndarray):
+        return axes.flat[0].get_figure()
+    if isinstance(axes, list):
+        return axes[0].get_figure()
+    if axes is None:
+        return fig
+    return axes.get_figure()
+
+
+def affinity_difference(
+    dataset: ad.AnnData,
+    comparison: str,
+    reference: str,
+    spatial_affinity_key: str = "Sigma_x_inv",
+    ax: Optional[Axes] = None,
+    cmap: str = "bwr_r",
+    mask_upper: bool = True,
+    label_values: bool = False,
+    label_font_size: float = 8,
+    metagene_labels: Optional[Sequence[str]] = None,
+    **imshow_kwargs,
+):
+    """Plot the spatial affinity difference between two named datasets.
+
+    Args:
+        dataset: AnnData object containing named affinity matrices in ``.uns``.
+        comparison: Dataset name for the positive term.
+        reference: Reference dataset name for the negative term.
+        spatial_affinity_key: Key in ``.uns`` containing named affinity matrices.
+        ax: Existing matplotlib axis. If ``None``, a new figure and axis are created.
+        cmap: Colormap for the centered heatmap.
+        mask_upper: If ``True``, mask the upper triangle.
+        label_values: If ``True``, label visible heatmap cells.
+        label_font_size: Font size for heatmap cell labels.
+        metagene_labels: Optional labels for x and y ticks.
+        **imshow_kwargs: Additional keyword arguments passed to ``imshow``.
+
+    """
+
+    difference = dataset.popari.affinity_difference(
+        comparison,
+        reference,
+        spatial_affinity_key=spatial_affinity_key,
+    )
+
+    if mask_upper:
+        mask = np.zeros_like(difference, dtype=bool)
+        mask[np.triu_indices_from(mask, k=1)] = True
+        image = np.ma.masked_where(mask, difference)
+    else:
+        image = difference
+
+    max_value = np.max(np.abs(difference))
+    if max_value == 0:
+        max_value = 1.0
+    vmin = imshow_kwargs.pop("vmin", -max_value)
+    vmax = imshow_kwargs.pop("vmax", max_value)
+
+    if ax is None:
+        dpi = imshow_kwargs.pop("dpi", 100)
+        fig, ax = plt.subplots(dpi=dpi)
+    else:
+        fig = ax.get_figure()
+
+    im = ax.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax, interpolation="nearest", **imshow_kwargs)
+    ax.set_title(f"{comparison} - {reference}")
+
+    if metagene_labels is None:
+        metagene_labels = [f"m{index}" for index in range(difference.shape[0])]
+    ax.set_xticks(np.arange(difference.shape[1]), metagene_labels, rotation=45, ha="right")
+    ax.set_yticks(np.arange(difference.shape[0]), metagene_labels)
+
+    if label_values:
+        for (row, column), value in np.ndenumerate(difference):
+            if not mask_upper or not mask[row, column]:
+                ax.text(column, row, f"{value:.2g}", ha="center", va="center", fontsize=label_font_size)
+
+    plt.colorbar(im, ax=ax, orientation="vertical", fraction=0.046, pad=0.04)
+    return fig
 
 
 def multigroup_heatmap(
@@ -186,12 +375,12 @@ def affinity_magnitude_vs_difference(
 
     for ax, (index, dataset) in zip(axes.flat, enumerate(datasets)):
         dataset.uns["delta_Sigma"] = {
-            dataset.name: dataset.uns[spatial_affinity_key][dataset.name]
+            dataset.popari.name: dataset.uns[spatial_affinity_key][dataset.popari.name]
             - dataset.uns[spatial_affinity_bar_key][f"_default{group_suffix}"],
         }
 
-        Sigma_x_inv = dataset.uns[spatial_affinity_key][dataset.name]
-        delta_Sigma = dataset.uns["delta_Sigma"][dataset.name]
+        Sigma_x_inv = dataset.uns[spatial_affinity_key][dataset.popari.name]
+        delta_Sigma = dataset.uns["delta_Sigma"][dataset.popari.name]
         pairs = {}
         for i in range(trained_model.K):
             for j in range(i + 1):
@@ -252,7 +441,7 @@ def normalized_affinity_trends(
     first_dataset = datasets[0]
     spatial_trends = first_dataset.uns["spatial_trends"]
 
-    all_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.name] for dataset in datasets])
+    all_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.popari.name] for dataset in datasets])
 
     if normalize:
         for index in range(len(datasets), axes.size):

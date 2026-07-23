@@ -2,8 +2,9 @@ import numpy as np
 import pytest
 
 
+@pytest.mark.gpu
 @pytest.mark.expensive
-def test_multigroup_spatial_affinity_groups_are_respected(dataset_factory, differential_model_factory):
+def test_multigroup_spatial_affinity_groups_are_respected(dataset_factory, differential_model_factory, gpu_context):
     datasets = dataset_factory(num_replicates=3, replicate_names=["top", "bottom", "central"])
     model = differential_model_factory(
         datasets=datasets,
@@ -12,6 +13,8 @@ def test_multigroup_spatial_affinity_groups_are_respected(dataset_factory, diffe
             "vertical_gradient": ["top", "bottom"],
             "central_group": ["central"],
         },
+        torch_context=gpu_context,
+        initial_context=gpu_context,
     )
 
     model.estimate_parameters()

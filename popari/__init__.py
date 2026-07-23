@@ -12,7 +12,7 @@ from . import analysis as tl
 from . import plotting as pl
 from .__about__ import __version__
 from ._popari_dataset import PopariNamespace
-from ._simulation_dataset import MetageneSimulationNamespace
+from .simulation.schema import MetageneSimulationNamespace
 
 sys.modules.update({f"{__name__}.{m}": globals()[m] for m in ["tl", "pl"]})
 

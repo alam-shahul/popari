@@ -60,6 +60,17 @@ class PopariNamespace:
         if "batch" in self._adata.obs:
             self._adata.obs["batch"] = f"{replicate_name}"
 
+    @property
+    def spatial_affinity(self) -> np.ndarray:
+        """Spatial affinity matrix for this dataset."""
+
+        return self._adata.uns["Sigma_x_inv"][self.name]
+
+    @spatial_affinity.setter
+    def spatial_affinity(self, value) -> None:
+        self._adata.uns.setdefault("Sigma_x_inv", {})
+        self._adata.uns["Sigma_x_inv"][self.name] = value
+
     def ensure_name(self, replicate_name: str | None = None, batch_key: str = "batch") -> ad.AnnData:
         if replicate_name is not None:
             self._adata.uns[DATASET_NAME_KEY] = f"{replicate_name}"
@@ -111,19 +122,19 @@ class PopariNamespace:
 
     def affinity_difference(
         self,
-        numerator: str,
-        denominator: str,
+        comparison: str,
+        reference: str,
         spatial_affinity_key: str = "Sigma_x_inv",
     ) -> np.ndarray:
         """Return the difference between two named spatial affinity matrices.
 
         Args:
-            numerator: Name of the dataset whose affinity matrix is subtracted from.
-            denominator: Name of the dataset whose affinity matrix is subtracted.
+            comparison: Dataset whose affinity matrix is compared against the reference.
+            reference: Reference dataset whose affinity matrix is subtracted.
             spatial_affinity_key: Key in ``.uns`` containing named affinity matrices.
 
         Returns:
-            ``uns[spatial_affinity_key][numerator] - uns[spatial_affinity_key][denominator]``.
+            ``uns[spatial_affinity_key][comparison] - uns[spatial_affinity_key][reference]``.
 
         """
 
@@ -131,14 +142,14 @@ class PopariNamespace:
             raise KeyError(f"Missing spatial affinity key in `.uns`: {spatial_affinity_key!r}.")
 
         spatial_affinities = self._adata.uns[spatial_affinity_key]
-        missing_names = [name for name in (numerator, denominator) if name not in spatial_affinities]
+        missing_names = [name for name in (comparison, reference) if name not in spatial_affinities]
         if missing_names:
             raise KeyError(
                 f"Missing spatial affinity matrix/matrices under `.uns[{spatial_affinity_key!r}]`: "
                 f"{missing_names}.",
             )
 
-        return np.asarray(spatial_affinities[numerator]) - np.asarray(spatial_affinities[denominator])
+        return np.asarray(spatial_affinities[comparison]) - np.asarray(spatial_affinities[reference])
 
     def plot_metagene_embedding(self, metagene_index: int, embedding_key: str = "X", **scatterplot_kwargs):
         return plot_metagene_embedding(

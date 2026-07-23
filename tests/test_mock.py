@@ -15,8 +15,9 @@ def test_popari_init(shared_mock_model, mock_datasets):
     assert shared_mock_model.embedding_optimizer is shared_mock_model.base_view.embedding_optimizer
 
 
-def test_popari_registers_parameters_and_state_dict_roundtrip(shared_model_factory):
-    model = shared_model_factory()
+@pytest.mark.gpu
+def test_popari_registers_parameters_and_state_dict_roundtrip(shared_model_factory, gpu_context):
+    model = shared_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     model.estimate_parameters()
     model.estimate_weights()
 
@@ -30,7 +31,7 @@ def test_popari_registers_parameters_and_state_dict_roundtrip(shared_model_facto
     assert any(name.endswith("parameter_optimizer.sigma_yxs") for name in buffer_names)
     assert any(name.endswith("betas") for name in buffer_names)
 
-    reloaded_model = shared_model_factory()
+    reloaded_model = shared_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     reloaded_model.load_state_dict(model.state_dict())
 
     assert reloaded_model.parameter_optimizer.sigma_yxs.detach().cpu().numpy() == pytest.approx(

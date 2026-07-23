@@ -38,6 +38,69 @@ def test_affinity_difference_plot_returns_figure():
         _close_figures(figure)
 
 
+def test_matrix_heatmap_uses_dataframe_labels_and_centered_scale():
+    matrix = pd.DataFrame(
+        [[-1.0, 2.0], [3.0, -4.0]],
+        index=["row_0", "row_1"],
+        columns=["col_0", "col_1"],
+    )
+
+    figure = pl.matrix_heatmap(matrix, center_zero=True, colorbar=False)
+
+    try:
+        assert isinstance(figure, Figure)
+        ax = figure.axes[0]
+        image = ax.images[0]
+        assert image.norm.vmin == pytest.approx(-4.0)
+        assert image.norm.vmax == pytest.approx(4.0)
+        assert [tick.get_text() for tick in ax.get_xticklabels()] == ["col_0", "col_1"]
+        assert [tick.get_text() for tick in ax.get_yticklabels()] == ["row_0", "row_1"]
+    finally:
+        _close_figures(figure)
+
+
+def test_matrix_heatmap_panel_uses_shared_scale_and_colorbar():
+    matrices = {
+        "first": pd.DataFrame([[1.0, 2.0], [3.0, 4.0]]),
+        "second": pd.DataFrame([[-10.0, 0.0], [0.0, 5.0]]),
+    }
+
+    figure = pl.matrix_heatmap_panel(matrices, center_zero=True, shared_scale=True, colorbar="shared")
+
+    try:
+        assert isinstance(figure, Figure)
+        image_axes = [ax for ax in figure.axes if ax.images]
+        assert len(image_axes) == 2
+        for ax in image_axes:
+            image = ax.images[0]
+            assert image.norm.vmin == pytest.approx(-10.0)
+            assert image.norm.vmax == pytest.approx(10.0)
+        assert len(figure.axes) == 3
+    finally:
+        _close_figures(figure)
+
+
+def test_matrix_heatmap_panel_center_zero_without_shared_scale():
+    matrices = {
+        "first": pd.DataFrame([[-1.0, 2.0]]),
+        "second": pd.DataFrame([[-3.0, 1.0]]),
+    }
+
+    figure = pl.matrix_heatmap_panel(matrices, center_zero=True, shared_scale=False, colorbar="each")
+
+    try:
+        assert isinstance(figure, Figure)
+        image_axes = [ax for ax in figure.axes if ax.images]
+        assert len(image_axes) == 2
+        expected_limits = [(-2.0, 2.0), (-3.0, 3.0)]
+        for ax, (expected_vmin, expected_vmax) in zip(image_axes, expected_limits):
+            image = ax.images[0]
+            assert image.norm.vmin == pytest.approx(expected_vmin)
+            assert image.norm.vmax == pytest.approx(expected_vmax)
+    finally:
+        _close_figures(figure)
+
+
 def _edge_interaction_dataset():
     dataset = ad.AnnData(X=np.ones((3, 2)))
     dataset.obsm["spatial"] = np.array(
@@ -164,9 +227,10 @@ def test_embedding_category_and_umap_plots(clustered_shared_model):
         _close_figures(in_situ_figure, umap_figure, confusion_figure, categories_figure)
 
 
+@pytest.mark.gpu
 @pytest.mark.expensive
-def test_affinity_magnitude_plot(differential_model_factory):
-    model = differential_model_factory()
+def test_affinity_magnitude_plot(differential_model_factory, gpu_context):
+    model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     for _ in range(2):
         model.estimate_parameters()
         model.estimate_weights()
@@ -206,9 +270,10 @@ def test_affinity_trend_and_signature_plots(analyzed_shared_model):
         _close_figures(trend_figure, enrichment_figure)
 
 
+@pytest.mark.gpu
 @pytest.mark.expensive
-def test_multigroup_heatmap_with_differential_model(differential_model_factory):
-    model = differential_model_factory()
+def test_multigroup_heatmap_with_differential_model(differential_model_factory, gpu_context):
+    model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     for _ in range(2):
         model.estimate_parameters()
         model.estimate_weights()

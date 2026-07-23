@@ -211,7 +211,7 @@ def load_popari_model_from_wandb(
         root=root,
     )
     datasets = reloaded_hierarchy[0]
-    replicate_names = [dataset.popari.name() for dataset in datasets]
+    replicate_names = [dataset.popari.name for dataset in datasets]
     popari_kwargs.setdefault("hierarchical_levels", len(reloaded_hierarchy))
 
     return load_pretrained(

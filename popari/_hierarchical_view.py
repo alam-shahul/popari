@@ -55,7 +55,7 @@ class HierarchicalView(nn.Module):
         super().__init__()
 
         self.datasets = datasets
-        self.replicate_names = [dataset.name for dataset in datasets]
+        self.replicate_names = [dataset.popari.name for dataset in datasets]
         self.K = K
         self.level = level
         self.hierarchical_levels = hierarchical_levels
@@ -186,25 +186,25 @@ class HierarchicalView(nn.Module):
             #     self.parameter_optimizer.spatial_affinity_state.spatial_affinity_bar = {group_name: first_dataset.uns["M_bar"][group_name].to(**self.initial_context) for group_name in self.spatial_affinity_groups}
             spatial_affinity_copy = torch.zeros((len(self.datasets), self.K, self.K), **self.context)
             for dataset_index, dataset in enumerate(self.datasets):
-                self.parameter_optimizer.metagene_state[dataset.name] = torch.from_numpy(
-                    dataset.uns["M"][dataset.name],
+                self.parameter_optimizer.metagene_state[dataset.popari.name] = torch.from_numpy(
+                    dataset.uns["M"][dataset.popari.name],
                 ).to(**self.initial_context)
-                self.embedding_optimizer.embedding_state[dataset.name] = torch.from_numpy(dataset.obsm["X"]).to(
+                self.embedding_optimizer.embedding_state[dataset.popari.name] = torch.from_numpy(dataset.obsm["X"]).to(
                     **self.initial_context,
                 )
-                self.embedding_optimizer.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(
+                self.embedding_optimizer.adjacency_matrices[dataset.popari.name] = convert_numpy_to_pytorch_sparse_coo(
                     dataset.obsp["adjacency_matrix"],
                     self.initial_context,
                 )
-                self.parameter_optimizer.adjacency_matrices[dataset.name] = convert_numpy_to_pytorch_sparse_coo(
+                self.parameter_optimizer.adjacency_matrices[dataset.popari.name] = convert_numpy_to_pytorch_sparse_coo(
                     dataset.obsp["adjacency_matrix"],
                     self.initial_context,
                 )
 
-                self.parameter_optimizer.spatial_affinity[dataset.name] = torch.from_numpy(
-                    dataset.uns["Sigma_x_inv"][dataset.name],
+                self.parameter_optimizer.spatial_affinity[dataset.popari.name] = torch.from_numpy(
+                    dataset.uns["Sigma_x_inv"][dataset.popari.name],
                 ).to(**self.initial_context)
-                spatial_affinity_copy[dataset_index] = self.parameter_optimizer.spatial_affinity[dataset.name]
+                spatial_affinity_copy[dataset_index] = self.parameter_optimizer.spatial_affinity[dataset.popari.name]
 
             self.parameter_optimizer.update_sigma_yx()
             self.parameter_optimizer.spatial_affinity.initialize_optimizers(
@@ -257,16 +257,16 @@ class HierarchicalView(nn.Module):
                 raise NotImplementedError
 
             for dataset_index, dataset in enumerate(self.datasets):
-                self.parameter_optimizer.metagene_state[dataset.name] = self.M
-                self.embedding_optimizer.embedding_state[dataset.name] = self.Xs[dataset_index]
+                self.parameter_optimizer.metagene_state[dataset.popari.name] = self.M
+                self.embedding_optimizer.embedding_state[dataset.popari.name] = self.Xs[dataset_index]
 
             self.parameter_optimizer.scale_metagenes()
 
             # # Ensure initial embeddings do not have too large magnitudes
             # for dataset_index, dataset in enumerate(self.datasets):
-            #     initial_X = self.embedding_optimizer.embedding_state[dataset.name]
+            #     initial_X = self.embedding_optimizer.embedding_state[dataset.popari.name]
             #     cell_normalized_X = initial_X / torch.linalg.norm(initial_X, dim=0, keepdim=True)
-            #     self.embedding_optimizer.embedding_state[dataset.name][:] = cell_normalized_X
+            #     self.embedding_optimizer.embedding_state[dataset.popari.name][:] = cell_normalized_X
 
             self.Sigma_x_inv_bar = None
 
@@ -275,7 +275,9 @@ class HierarchicalView(nn.Module):
             # # Update metagenes to ensure that they lie on simplex after normalizign embeddings
             # self.parameter_optimizer.update_metagenes()
 
-            initial_embeddings = [self.embedding_optimizer.embedding_state[dataset.name] for dataset in self.datasets]
+            initial_embeddings = [
+                self.embedding_optimizer.embedding_state[dataset.popari.name] for dataset in self.datasets
+            ]
 
             # Initializing spatial affinities
             if self.verbose:
@@ -286,14 +288,14 @@ class HierarchicalView(nn.Module):
             )
 
             for dataset_index, dataset in enumerate(self.datasets):
-                metagene_state = self.parameter_optimizer.metagene_state[dataset.name].cpu().detach().numpy()
-                dataset.uns["M"] = {dataset.name: metagene_state}
+                metagene_state = self.parameter_optimizer.metagene_state[dataset.popari.name].cpu().detach().numpy()
+                dataset.uns["M"] = {dataset.popari.name: metagene_state}
 
-                X = self.embedding_optimizer.embedding_state[dataset.name].cpu().detach().numpy()
+                X = self.embedding_optimizer.embedding_state[dataset.popari.name].cpu().detach().numpy()
                 dataset.obsm["X"] = X
 
-                Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.name].cpu().detach().numpy()
-                dataset.uns["Sigma_x_inv"] = {dataset.name: Sigma_x_inv}
+                Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.popari.name].cpu().detach().numpy()
+                dataset.uns["Sigma_x_inv"] = {dataset.popari.name: Sigma_x_inv}
 
                 dataset.uns["popari_hyperparameters"] = {
                     "prior_x": self.parameter_optimizer.prior_xs[dataset_index][0].cpu().detach().numpy(),
@@ -378,11 +380,11 @@ class HierarchicalView(nn.Module):
                     "with `as_trainable=True` next time.",
                 )
 
-            X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
+            X = self.embedding_optimizer.embedding_state[dataset.popari.name].to(self.context["device"])
             X_B = low_res_dataset.obsm["X"]
-            B = low_res_dataset.obsm[f"bin_assignments_{low_res_dataset.name}"]
+            B = low_res_dataset.obsm[f"bin_assignments_{low_res_dataset.popari.name}"]
 
-            M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+            M = self.parameter_optimizer.metagene_state[dataset.popari.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
 
@@ -412,14 +414,14 @@ class HierarchicalView(nn.Module):
             )
             # superresolution_scheduler = torch.optim.lr_scheduler.StepLR(superresolution_optimizer, step_size=decay_period, gamma=0.5)
 
-            # self.superresolution_optimizers[dataset.name] = superresolution_optimizer
-            # self.superresolution_schedulers[dataset.name] = superresolution_scheduler
+            # self.superresolution_optimizers[dataset.popari.name] = superresolution_optimizer
+            # self.superresolution_schedulers[dataset.popari.name] = superresolution_scheduler
 
             def gradient_update(X, iteration=None):
                 """TODO:UNTESTED."""
 
                 # lambda_B = 1e-1
-                # self.superresolution_optimizers[dataset.name].zero_grad()
+                # self.superresolution_optimizers[dataset.popari.name].zero_grad()
                 superresolution_optimizer.zero_grad()
                 # X.grad = None
                 quadratic_term_gradient = X @ MTM + BTB @ X
@@ -434,9 +436,9 @@ class HierarchicalView(nn.Module):
                     # loss = (torch.linalg.norm(Y.T - M @ X.T, ord='fro') ** 2) / 2  + ((torch.linalg.norm(X_B - B @ X, ord='fro') ** 2) / 2 )
                     loss.backward()
 
-                # self.superresolution_optimizers[dataset.name].step()
+                # self.superresolution_optimizers[dataset.popari.name].step()
                 superresolution_optimizer.step()
-                # self.superresolution_schedulers[dataset.name].step()
+                # self.superresolution_schedulers[dataset.popari.name].step()
 
                 if verbose > 4 and (iteration % 5 == 0):
                     pass
@@ -485,14 +487,14 @@ class HierarchicalView(nn.Module):
                     break
 
             progress_bar.close()
-            self.embedding_optimizer.embedding_state[dataset.name] = X.clone().detach()
+            self.embedding_optimizer.embedding_state[dataset.popari.name] = X.clone().detach()
 
             final_losses[dataset_index] = loss.cpu().detach().numpy()
 
             # Delete dangling reference
             # TODO: can probably delete all this?
             del superresolution_optimizer
-            # del self.superresolution_optimizers[dataset.name]
+            # del self.superresolution_optimizers[dataset.popari.name]
 
             del sigma_yx
             del Y
@@ -515,17 +517,17 @@ class HierarchicalView(nn.Module):
 
         """
         for dataset_index, dataset in enumerate(self.datasets):
-            self.parameter_optimizer.metagene_state[dataset.name] = torch.from_numpy(
-                dataset.uns["M"][dataset.name],
+            self.parameter_optimizer.metagene_state[dataset.popari.name] = torch.from_numpy(
+                dataset.uns["M"][dataset.popari.name],
             ).to(**self.initial_context)
-            self.embedding_optimizer.embedding_state[dataset.name] = torch.from_numpy(dataset.obsm["X"]).to(
+            self.embedding_optimizer.embedding_state[dataset.popari.name] = torch.from_numpy(dataset.obsm["X"]).to(
                 **self.initial_context,
             )
             # self.parameter_optimizer.sigma_yxs[dataset_index] = dataset.uns["sigma_yx"] TODO: sigma_yx doesn't seem to be saved correctly due to issues with `merge_anndata`
 
             with torch.no_grad():
-                self.parameter_optimizer.spatial_affinity[dataset.name] = torch.from_numpy(
-                    dataset.uns["Sigma_x_inv"][dataset.name],
+                self.parameter_optimizer.spatial_affinity[dataset.popari.name] = torch.from_numpy(
+                    dataset.uns["Sigma_x_inv"][dataset.popari.name],
                 ).to(**self.initial_context)
 
         if self.parameter_optimizer.metagene_mode == "differential":
@@ -539,14 +541,14 @@ class HierarchicalView(nn.Module):
     def synchronize_datasets(self):
         """Synchronize datasets with learned view parameters and embeddings."""
         for dataset_index, dataset in enumerate(self.datasets):
-            dataset.uns["M"][dataset.name] = (
-                self.parameter_optimizer.metagene_state[dataset.name].cpu().detach().numpy()
+            dataset.uns["M"][dataset.popari.name] = (
+                self.parameter_optimizer.metagene_state[dataset.popari.name].cpu().detach().numpy()
             )
-            dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.name].cpu().detach().numpy()
+            dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.popari.name].cpu().detach().numpy()
             dataset.uns["sigma_yx"] = self.parameter_optimizer.sigma_yxs[dataset_index]
             with torch.no_grad():
-                dataset.uns["Sigma_x_inv"][dataset.name][:] = (
-                    self.parameter_optimizer.spatial_affinity[dataset.name].cpu().detach().numpy()
+                dataset.uns["Sigma_x_inv"][dataset.popari.name][:] = (
+                    self.parameter_optimizer.spatial_affinity[dataset.popari.name].cpu().detach().numpy()
                 )
 
             # dataset.uns["losses"]["nll_embeddings"].append(self.embedding_optimizer.nll_embeddings())
@@ -579,14 +581,14 @@ class HierarchicalView(nn.Module):
         if use_spatial:
             weighted_total_cells = 0
             for dataset in self.datasets:
-                E_adjacency_list = self.embedding_optimizer.adjacency_lists[dataset.name]
+                E_adjacency_list = self.embedding_optimizer.adjacency_lists[dataset.popari.name]
                 weighted_total_cells += sum(map(len, E_adjacency_list))
 
         for dataset_index, dataset in enumerate(self.datasets):
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
-            X = self.embedding_optimizer.embedding_state[dataset.name].to(self.context["device"])
-            M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+            X = self.embedding_optimizer.embedding_state[dataset.popari.name].to(self.context["device"])
+            M = self.parameter_optimizer.metagene_state[dataset.popari.name].to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
 
@@ -607,10 +609,10 @@ class HierarchicalView(nn.Module):
                     logZ_i_X += torch.full((N,), self.K * torch.log(prior_x[0]).item(), **self.context)
                 log_partition_function = (logZ_i_Y + logZ_i_X).sum()
             else:
-                adjacency_matrix = self.embedding_optimizer.adjacency_matrices[dataset.name].to(
+                adjacency_matrix = self.embedding_optimizer.adjacency_matrices[dataset.popari.name].to(
                     self.context["device"],
                 )
-                Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.name].to(
+                Sigma_x_inv = self.parameter_optimizer.spatial_affinity[dataset.popari.name].to(
                     self.context["device"],
                 )
                 nu = adjacency_matrix @ Z
@@ -640,7 +642,7 @@ class HierarchicalView(nn.Module):
                 if self.parameter_optimizer.spatial_affinity.mode == "differential lookup":
                     spatial_affinity_bars = [
                         self.parameter_optimizer.spatial_affinity_bar[group_name]
-                        for group_name in self.parameter_optimizer.spatial_affinity_tags[dataset.name]
+                        for group_name in self.parameter_optimizer.spatial_affinity_tags[dataset.popari.name]
                     ]
 
                 regularization = torch.zeros((), **self.context)
@@ -665,7 +667,7 @@ class HierarchicalView(nn.Module):
             if self.parameter_optimizer.metagene_mode == "differential":
                 M_bar = [
                     self.parameter_optimizer.metagene_state.M_bar[group_name]
-                    for group_name in self.parameter_optimizer.metagene_tags[dataset.name]
+                    for group_name in self.parameter_optimizer.metagene_tags[dataset.popari.name]
                 ]
 
             if self.parameter_optimizer.lambda_M > 0 and M_bar is not None:
@@ -730,7 +732,7 @@ class Hierarchy:
         base_view = self[0]
         context = base_view.context
         previous_view = base_view
-        original_names = [dataset.name for dataset in previous_view.datasets]
+        original_names = [dataset.popari.name for dataset in previous_view.datasets]
         for level in range(1, levels):
             print(f"{get_datetime()} Initializing hierarchy level {level}")
             previous_datasets = previous_view.datasets
@@ -740,7 +742,7 @@ class Hierarchy:
 
             effective_kwargs = kwargs.copy()
             for previous_Y, previous_dataset, original_name in zip(previous_Ys, previous_datasets, original_names):
-                dataset_name, *_ = previous_dataset.name.split("_level_")
+                dataset_name, *_ = previous_dataset.popari.name.split("_level_")
                 binned_dataset_name = f"{dataset_name}_level_{level}"
                 bin_assignments_key = f"bin_assignments_{binned_dataset_name}"
                 binned_dataset, effective_kwargs = self.downsampler.downsample(
@@ -788,11 +790,11 @@ class Hierarchy:
             if previous_view is not None:
                 binned_Ys = []
                 for dataset, previous_Y in zip(datasets, previous_view.Ys):
-                    B = dataset.obsm[f"bin_assignments_{dataset.name}"]
-                    dataset.obsm[f"bin_assignments_{dataset.name}"] = csr_array(B)
+                    B = dataset.obsm[f"bin_assignments_{dataset.popari.name}"]
+                    dataset.obsm[f"bin_assignments_{dataset.popari.name}"] = csr_array(B)
                     binned_Y = (
                         convert_numpy_to_pytorch_sparse_coo(
-                            dataset.obsm[f"bin_assignments_{dataset.name}"],
+                            dataset.obsm[f"bin_assignments_{dataset.popari.name}"],
                             context=context,
                         )
                         @ previous_Y

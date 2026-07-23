@@ -71,7 +71,7 @@ def compute_gene_set_auroc(dataset, gene_sets, metagene_key: str = "M"):
     from scipy.stats import mannwhitneyu
     from sklearn.metrics import auc, roc_curve
 
-    metagenes = dataset.uns[metagene_key][dataset.name]
+    metagenes = dataset.uns[metagene_key][dataset.popari.name]
     _, num_metagenes = metagenes.shape
     num_gene_sets = len(gene_sets.columns)
 
@@ -100,7 +100,7 @@ def plot_metagene_gene_set_aurocs(dataset, gene_sets, metagene_key: str = "M"):
 
     from matplotlib import gridspec
 
-    metagenes = dataset.uns[metagene_key][dataset.name]
+    metagenes = dataset.uns[metagene_key][dataset.popari.name]
     _, num_metagenes = metagenes.shape
     num_gene_sets = len(gene_sets.columns)
 

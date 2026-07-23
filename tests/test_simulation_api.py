@@ -1,17 +1,17 @@
 import numpy as np
 
-from popari.simulation import (
+from popari.simulation.recipes import (
     SimulationConfig,
     SpatialDropoutConfig,
     alternating_replicates,
     default_differential_cortex_recipes,
     default_hierarchical_cortex_recipes,
     default_joint_improvement_recipes,
-    generate_simulation,
     named_replicates,
     paired_replicates,
     simulation_sweep_output_path,
 )
+from popari.simulation.synthetic import generate_simulation
 
 
 def test_hierarchical_cortex_preset_matches_expected_shape():
@@ -46,18 +46,18 @@ def test_joint_improvement_preset_matches_expected_shape():
     assert tuple(recipes["layer"].spatial_distributions) == ("L1", "L2", "L3", "L4")
 
 
-def test_replicate_specs_are_ordered_and_named():
-    assert named_replicates("layer", count=2).recipe_by_replicate == {
+def test_replicate_mappings_are_ordered_and_named():
+    assert named_replicates("layer", count=2) == {
         "layer_0": "layer",
         "layer_1": "layer",
     }
-    assert alternating_replicates(("progenitor", "layer"), count=4).recipe_by_replicate == {
+    assert alternating_replicates(("progenitor", "layer"), count=4) == {
         "progenitor_0": "progenitor",
         "layer_1": "layer",
         "progenitor_2": "progenitor",
         "layer_3": "layer",
     }
-    assert paired_replicates(("progenitor", "layer"), count=2).recipe_by_replicate == {
+    assert paired_replicates(("progenitor", "layer"), count=2) == {
         "progenitor_0": "progenitor",
         "layer_0": "layer",
         "progenitor_1": "progenitor",
@@ -82,7 +82,10 @@ def test_generate_simulation_supports_two_recipe_tiny_grid():
         dropout=SpatialDropoutConfig(sparsity=0.1, random_state=0),
     )
 
-    assert result.replicate_names == ("progenitor_0", "layer_1")
+    assert tuple(dataset.popari.name for dataset in result.datasets) == (
+        "progenitor_0",
+        "layer_1",
+    )
     assert len(result.datasets) == 2
     for dataset in result.datasets:
         assert dataset.shape == (16, 8)
@@ -112,7 +115,10 @@ def test_generate_joint_improvement_supports_paired_replicates():
         replicates=paired_replicates(("progenitor", "layer"), count=1),
     )
 
-    assert result.replicate_names == ("progenitor_0", "layer_0")
+    assert tuple(dataset.popari.name for dataset in result.datasets) == (
+        "progenitor_0",
+        "layer_0",
+    )
     assert len(result.datasets) == 2
     for dataset in result.datasets:
         assert dataset.shape == (16, 11)

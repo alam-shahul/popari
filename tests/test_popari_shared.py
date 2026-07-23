@@ -4,9 +4,10 @@ import pytest
 from popari import tl
 
 
+@pytest.mark.gpu
 @pytest.mark.baseline
-def test_shared_parameter_updates_are_finite(shared_model_factory):
-    model = shared_model_factory()
+def test_shared_parameter_updates_are_finite(shared_model_factory, gpu_context):
+    model = shared_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     initial_m = model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy().copy()
     initial_sigma = model.parameter_optimizer.sigma_yxs.detach().cpu().numpy().copy()
 
@@ -20,9 +21,10 @@ def test_shared_parameter_updates_are_finite(shared_model_factory):
     assert not np.allclose(initial_sigma, updated_sigma)
 
 
+@pytest.mark.gpu
 @pytest.mark.baseline
-def test_shared_embedding_updates_preserve_nonnegativity(shared_model_factory):
-    model = shared_model_factory()
+def test_shared_embedding_updates_preserve_nonnegativity(shared_model_factory, gpu_context):
+    model = shared_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     name = model.datasets[0].popari.name
     initial_x = model.embedding_optimizer.embedding_state[name].detach().cpu().numpy().copy()
 
@@ -35,6 +37,7 @@ def test_shared_embedding_updates_preserve_nonnegativity(shared_model_factory):
     assert not np.allclose(initial_x, updated_x)
 
 
+@pytest.mark.gpu
 @pytest.mark.baseline
 def test_shared_nll_components_are_numerically_stable(trained_shared_model, shared_reference_metrics):
     model = trained_shared_model

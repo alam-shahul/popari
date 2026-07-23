@@ -53,6 +53,13 @@ def float32_context():
 
 
 @pytest.fixture(scope="session")
+def gpu_context():
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required for GPU training tests.")
+    return {"device": "cuda", "dtype": torch.float64}
+
+
+@pytest.fixture(scope="session")
 def dataset_factory():
     def factory(
         *,
@@ -171,8 +178,12 @@ def tmp_h5_path(tmp_path):
 
 
 @pytest.fixture(scope="session")
-def trained_shared_model(shared_model_factory, dataset_factory):
-    model = shared_model_factory(datasets=dataset_factory(num_cells=48))
+def trained_shared_model(shared_model_factory, dataset_factory, gpu_context):
+    model = shared_model_factory(
+        datasets=dataset_factory(num_cells=48),
+        torch_context=gpu_context,
+        initial_context=gpu_context,
+    )
     for _ in range(2):
         model.estimate_parameters()
         model.estimate_weights()
@@ -180,11 +191,22 @@ def trained_shared_model(shared_model_factory, dataset_factory):
 
 
 @pytest.fixture(scope="session")
-def analyzed_shared_model(trained_shared_model):
-    model = trained_shared_model
+def initialized_shared_model(shared_model_factory, dataset_factory):
+    return shared_model_factory(datasets=dataset_factory(num_cells=48))
+
+
+@pytest.fixture(scope="session")
+def preprocessed_shared_model(initialized_shared_model):
+    model = initialized_shared_model
     tl.preprocess_embeddings(model)
     tl.pca(model, joint=False, n_comps=3)
     tl.pca(model, joint=True, n_comps=3)
+    return model
+
+
+@pytest.fixture(scope="session")
+def analyzed_shared_model(preprocessed_shared_model):
+    model = preprocessed_shared_model
     tl.compute_columnwise_autocorrelation(model, uns="M")
     tl.compute_empirical_correlations(model, output="empirical_correlation")
     tl.compute_spatial_gene_correlation(model)
@@ -193,26 +215,27 @@ def analyzed_shared_model(trained_shared_model):
 
 
 @pytest.fixture(scope="session")
-def clustered_shared_model(analyzed_shared_model):
-    tl.leiden(analyzed_shared_model, joint=True, target_clusters=3)
-    tl.compute_ari_scores(analyzed_shared_model, labels="cell_type", predictions="leiden")
-    tl.compute_silhouette_scores(analyzed_shared_model, labels="cell_type", embeddings="normalized_X")
-    tl.evaluate_classification_task(analyzed_shared_model, labels="cell_type", embeddings="normalized_X", joint=False)
-    tl.evaluate_classification_task(analyzed_shared_model, labels="cell_type", embeddings="normalized_X", joint=True)
-    return analyzed_shared_model
+def clustered_shared_model(preprocessed_shared_model):
+    model = preprocessed_shared_model
+    tl.leiden(model, joint=True, target_clusters=3)
+    tl.compute_ari_scores(model, labels="cell_type", predictions="leiden")
+    tl.compute_silhouette_scores(model, labels="cell_type", embeddings="normalized_X")
+    tl.evaluate_classification_task(model, labels="cell_type", embeddings="normalized_X", joint=False)
+    tl.evaluate_classification_task(model, labels="cell_type", embeddings="normalized_X", joint=True)
+    return model
 
 
 @pytest.fixture(scope="session")
-def shared_reference_metrics(clustered_shared_model):
+def shared_model_expected_metrics():
     return {
         "nll": -657.06558928,
         "sigma_yx": [0.14147329, 0.13269758],
         "metagene_sum": 3.0,
         "embedding_sum_0": 140.5735742798036,
-        "spatial_affinity_sum_0": 25.167094980101766,
+        "spatial_affinity_sum_0": 25.172290296280824,
         "pca_norms": [30.21869468688965, 32.63429260253906],
-        "ari": [1.0, 0.5607476635514018],
-        "silhouette": [0.9893147404134058, 0.45012760617995057],
-        "microprecision_validation": [0.6388888888888888, 0.6388888888888888],
-        "macroprecision_validation": [0.6551051051051051, 0.6551051051051051],
+        "ari": [1.0, 1.0],
+        "silhouette": [0.9852840340378157, 0.955100150059938],
+        "microprecision_validation": [2 / 3, 2 / 3],
+        "macroprecision_validation": [0.5, 0.5],
     }

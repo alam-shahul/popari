@@ -73,7 +73,9 @@ mlflow = [
   "pynvml",
 ]
 benchmark = [
-  "multiprocess>=0.70.15"
+  "multiprocess>=0.70.15",
+  "scmultisim",
+  "sctm",
 ]
 migration = [
   "mlflow>=2.5.0",
@@ -89,6 +91,8 @@ url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [tool.uv.sources]
+scmultisim = { path = "../scmultisim", editable = true }
+sctm = { path = "../scTM", editable = true }
 torch = [
     { index = "pytorch-cu126", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
@@ -124,6 +128,7 @@ markers = [
     "cheap: lightweight smoke tests for quick validation during refactors",
     "baseline: fast, default regression checks for core functionality",
     "expensive: slower integration checks involving repeated training, analysis, hierarchy, or simulation",
+    "gpu: tests that run Popari training on CUDA",
 ]
 
 # Dev requirements

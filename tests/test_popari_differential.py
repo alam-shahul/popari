@@ -4,9 +4,10 @@ import pytest
 from popari import tl
 
 
+@pytest.mark.gpu
 @pytest.mark.expensive
-def test_differential_parameter_updates_are_finite(differential_model_factory):
-    model = differential_model_factory()
+def test_differential_parameter_updates_are_finite(differential_model_factory, gpu_context):
+    model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
 
     for _ in range(2):
         model.estimate_parameters()
@@ -18,9 +19,10 @@ def test_differential_parameter_updates_are_finite(differential_model_factory):
         assert np.isfinite(model.parameter_optimizer.spatial_affinity[dataset.popari.name].detach().cpu().numpy()).all()
 
 
+@pytest.mark.gpu
 @pytest.mark.expensive
-def test_differential_group_averages_track_replicate_parameters(differential_model_factory):
-    model = differential_model_factory()
+def test_differential_group_averages_track_replicate_parameters(differential_model_factory, gpu_context):
+    model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     model.estimate_parameters()
 
     for group_name, group_replicates in model.metagene_groups.items():
@@ -44,9 +46,10 @@ def test_differential_group_averages_track_replicate_parameters(differential_mod
         )
 
 
+@pytest.mark.gpu
 @pytest.mark.expensive
-def test_differential_analysis_pipeline_runs(differential_model_factory):
-    model = differential_model_factory()
+def test_differential_analysis_pipeline_runs(differential_model_factory, gpu_context):
+    model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     for _ in range(2):
         model.estimate_parameters()
         model.estimate_weights()

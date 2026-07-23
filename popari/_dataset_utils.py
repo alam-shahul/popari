@@ -13,7 +13,7 @@ import squidpy as sq
 from matplotlib import cm, colormaps
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import ListedColormap, Normalize
 from matplotlib.transforms import Affine2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axisartist import angle_helper, floating_axes
@@ -64,6 +64,224 @@ def setup_squarish_axes(num_axes, **subplots_kwargs):
     )
 
     return fig, axes
+
+
+def _matrix_data_and_labels(matrix, xticklabels=None, yticklabels=None):
+    """Extract array values and axis labels from a matrix-like object."""
+
+    if isinstance(matrix, pd.DataFrame):
+        if xticklabels is None:
+            xticklabels = matrix.columns
+        if yticklabels is None:
+            yticklabels = matrix.index
+        matrix = matrix.to_numpy()
+
+    return np.asarray(matrix), xticklabels, yticklabels
+
+
+def _matrix_absmax(matrices):
+    """Return a nonzero absolute maximum across a collection of matrices."""
+
+    max_value = 0.0
+    for matrix in matrices:
+        values, _, _ = _matrix_data_and_labels(matrix)
+        if np.ma.isMaskedArray(values):
+            values = values.compressed()
+        if values.size:
+            max_value = max(max_value, float(np.nanmax(np.abs(values))))
+
+    return max_value if max_value != 0 else 1.0
+
+
+def _matrix_heatmap(
+    matrix,
+    *,
+    ax: Optional[Axes] = None,
+    title: Optional[str] = None,
+    cmap: str = "bwr",
+    center_zero: bool = False,
+    colorbar: bool = True,
+    colorbar_label: Optional[str] = None,
+    label_values: bool = False,
+    label_font_size: Optional[float] = None,
+    mask: Optional[np.ndarray] = None,
+    xticklabels=None,
+    yticklabels=None,
+    render_mode: str = "image",
+    return_image: bool = False,
+    **imshow_kwargs,
+):
+    """Plot a standalone matrix-like object as a heatmap.
+
+    ``render_mode="image"`` uses ``imshow``. ``render_mode="rectangles"``
+    draws each matrix entry as a vector rectangle, which exports more reliably
+    to PDF/Illustrator for small publication heatmaps.
+
+    """
+
+    values, xticklabels, yticklabels = _matrix_data_and_labels(matrix, xticklabels, yticklabels)
+    if mask is not None:
+        values = np.ma.masked_where(mask, values)
+
+    if center_zero:
+        max_value = _matrix_absmax([values])
+        imshow_kwargs.setdefault("vmin", -max_value)
+        imshow_kwargs.setdefault("vmax", max_value)
+
+    dpi = imshow_kwargs.pop("dpi", 100)
+    figsize = imshow_kwargs.pop("figsize", None)
+    aspect = imshow_kwargs.pop("aspect", "equal")
+    if ax is None:
+        fig, ax = plt.subplots(dpi=dpi, figsize=figsize)
+    else:
+        fig = ax.get_figure()
+
+    if render_mode == "image":
+        image = ax.imshow(values, cmap=cmap, interpolation="nearest", aspect=aspect, **imshow_kwargs)
+    elif render_mode == "rectangles":
+        norm = imshow_kwargs.pop("norm", None)
+        vmin = imshow_kwargs.pop("vmin", None)
+        vmax = imshow_kwargs.pop("vmax", None)
+        alpha = imshow_kwargs.pop("alpha", None)
+        if imshow_kwargs:
+            unexpected = ", ".join(sorted(imshow_kwargs))
+            raise TypeError(f"Unsupported rectangle heatmap arguments: {unexpected}")
+
+        masked_values = np.ma.asarray(values)
+        visible_values = masked_values.compressed()
+        visible_values = visible_values[np.isfinite(visible_values)]
+        if norm is None:
+            if vmin is None:
+                vmin = float(np.min(visible_values)) if visible_values.size else 0.0
+            if vmax is None:
+                vmax = float(np.max(visible_values)) if visible_values.size else 1.0
+            norm = Normalize(vmin=vmin, vmax=vmax)
+
+        cmap_object = colormaps[cmap] if isinstance(cmap, str) else cmap
+        mask_array = np.ma.getmaskarray(masked_values)
+        num_rows, num_columns = masked_values.shape
+        for row in range(num_rows):
+            for column in range(num_columns):
+                value = masked_values[row, column]
+                if mask_array[row, column] or not np.isfinite(value):
+                    continue
+                rectangle = patches.Rectangle(
+                    (column - 0.5, row - 0.5),
+                    1,
+                    1,
+                    facecolor=cmap_object(norm(float(value))),
+                    edgecolor="none",
+                    linewidth=0,
+                    alpha=alpha,
+                )
+                ax.add_patch(rectangle)
+
+        ax.set_xlim(-0.5, num_columns - 0.5)
+        ax.set_ylim(num_rows - 0.5, -0.5)
+        ax.set_aspect(aspect)
+        image = cm.ScalarMappable(norm=norm, cmap=cmap_object)
+        image.set_array(visible_values)
+    else:
+        raise ValueError("render_mode must be 'image' or 'rectangles'.")
+    if title is not None:
+        ax.set_title(title)
+
+    num_rows, num_columns = values.shape
+    if xticklabels is None:
+        xticklabels = np.arange(num_columns)
+    if yticklabels is None:
+        yticklabels = np.arange(num_rows)
+    ax.set_xticks(np.arange(num_columns), xticklabels, rotation=45, ha="right")
+    ax.set_yticks(np.arange(num_rows), yticklabels)
+    ax.grid(False)
+
+    if label_values:
+        font_size = 8 if label_font_size is None else label_font_size
+        for (row, column), value in np.ndenumerate(np.asarray(values)):
+            if mask is None or not mask[row, column]:
+                ax.text(column, row, f"{value:.2g}", ha="center", va="center", fontsize=font_size)
+
+    if colorbar:
+        cbar = fig.colorbar(image, ax=ax, orientation="vertical", fraction=0.046, pad=0.04)
+        if colorbar_label is not None:
+            cbar.set_label(colorbar_label)
+
+    if return_image:
+        return fig, image
+    return fig
+
+
+def _matrix_heatmap_panel(
+    matrices,
+    *,
+    axes: Optional[Sequence[Axes]] = None,
+    titles: Optional[Sequence[str]] = None,
+    shared_scale: bool = True,
+    center_zero: bool = False,
+    colorbar: str | bool = "shared",
+    colorbar_label: Optional[str] = None,
+    figsize=None,
+    dpi: int = 100,
+    sharex: bool = True,
+    sharey: bool = True,
+    **heatmap_kwargs,
+):
+    """Plot a collection of matrix-like objects as a heatmap panel."""
+
+    if isinstance(matrices, Mapping):
+        titles = list(matrices) if titles is None else titles
+        matrices = list(matrices.values())
+    else:
+        matrices = list(matrices)
+
+    if axes is None:
+        subplots_kwargs = {"dpi": dpi, "sharex": sharex, "sharey": sharey}
+        if figsize is not None:
+            subplots_kwargs["figsize"] = figsize
+        fig, axes = setup_squarish_axes(len(matrices), **subplots_kwargs)
+    else:
+        axes = np.asarray(axes)
+        fig = axes.flat[0].get_figure()
+
+    if titles is None:
+        titles = [None] * len(matrices)
+
+    panel_kwargs = dict(heatmap_kwargs)
+    if shared_scale:
+        if center_zero:
+            max_value = _matrix_absmax(matrices)
+            panel_kwargs.setdefault("vmin", -max_value)
+            panel_kwargs.setdefault("vmax", max_value)
+        elif "vmin" not in panel_kwargs and "vmax" not in panel_kwargs:
+            values = [_matrix_data_and_labels(matrix)[0] for matrix in matrices]
+            panel_kwargs["vmin"] = min(float(np.nanmin(value)) for value in values if value.size)
+            panel_kwargs["vmax"] = max(float(np.nanmax(value)) for value in values if value.size)
+
+    images = []
+    per_axis_colorbar = colorbar == "each" or colorbar is True
+    for index, ax in enumerate(axes.flat):
+        if index >= len(matrices):
+            ax.set_visible(False)
+            continue
+
+        _, image = _matrix_heatmap(
+            matrices[index],
+            ax=ax,
+            title=titles[index],
+            center_zero=center_zero and not shared_scale,
+            colorbar=per_axis_colorbar,
+            colorbar_label=colorbar_label,
+            return_image=True,
+            **panel_kwargs,
+        )
+        images.append(image)
+
+    if colorbar == "shared" and images:
+        cbar = fig.colorbar(images[-1], ax=axes.ravel().tolist(), orientation="vertical", shrink=0.8)
+        if colorbar_label is not None:
+            cbar.set_label(colorbar_label)
+
+    return fig
 
 
 def copy_annotations(original_dataset, updated_dataset, annotations: Optional[Mapping[str, Sequence[str]]] = None):
@@ -457,7 +675,7 @@ def _plot_in_situ(dataset: Sequence[ad.AnnData], axes=None, fig=None, color="lei
             edges_width=edges_width,
             legend_fontsize=legend_fontsize,
             ax=ax,
-            title=dataset.name,
+            title=dataset.popari.name,
             fig=fig,
             palette=palette,
             edgecolors=edgecolors,
@@ -531,62 +749,41 @@ def _multireplicate_heatmap(
 
     """
 
-    sharex = heatmap_kwargs.pop("sharex", True)
-    sharey = heatmap_kwargs.pop("sharey", True)
-    dpi = heatmap_kwargs.pop("dpi", 100)
-
-    fig = None
-    if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets), sharex=sharex, sharey=sharey, dpi=dpi)
-
-    for ax in axes.flat:
-        ax.grid(False)
-
-    aspect = heatmap_kwargs.pop("aspect", 1)
     cmap = heatmap_kwargs.pop("cmap", "hot")
 
-    images = []
-    for dataset_index, ax in enumerate(axes.flat):
-        if dataset_index >= len(datasets):
-            ax.set_visible(False)
-            continue
-
-        dataset = datasets[dataset_index]
-        key = None
+    matrices = {}
+    for dataset in datasets:
         if obsm:
             image = dataset.obsm[obsm]
-        if obsp:
+        elif obsp:
             image = dataset.obsp[obsp]
-        if uns:
+        elif uns:
             image = dataset.uns[uns]
+        else:
+            raise ValueError("One of obsm, obsp, or uns must be provided.")
 
         if nested:
-            image = image[dataset.name]
-
+            image = image[dataset.popari.name]
         if mask is not None:
             image = np.ma.masked_where(mask, image)
 
-        images.append(image)
+        matrices[dataset.popari.name] = image
 
-    for dataset_index, (image, ax) in enumerate(zip(images, axes.flat)):
-        dataset = datasets[dataset_index]
-        im = ax.imshow(image, cmap=cmap, interpolation="nearest", aspect=aspect, **heatmap_kwargs)
-        if title_font_size is not None:
-            ax.set_title(dataset.name, fontsize=title_font_size)
-        else:
-            ax.set_title(dataset.name)
+    fig = _matrix_heatmap_panel(
+        matrices,
+        axes=axes,
+        cmap=cmap,
+        shared_scale=False,
+        colorbar="each",
+        label_values=label_values,
+        label_font_size=label_font_size,
+        **heatmap_kwargs,
+    )
 
-        if label_values:
-            truncated_image = image.astype(int)
-            for (j, i), label in np.ndenumerate(truncated_image):
-                if mask is None or not mask[j, i]:
-                    ax.text(i, j, label, ha="center", va="center", fontsize=label_font_size)
-
-        num_rows, num_columns = image.shape
-        ax.set_xticks(np.arange(num_columns).astype(int))
-        ax.set_yticks(np.arange(num_rows).astype(int))
-
-        plt.colorbar(im, ax=ax, orientation="vertical", fraction=0.046, pad=0.04)
+    if title_font_size is not None:
+        for ax in fig.axes:
+            if ax.images:
+                ax.title.set_fontsize(title_font_size)
 
     return fig
 
@@ -613,59 +810,42 @@ def _spatial_affinity_heatmap(
 
     """
 
-    dpi = heatmap_kwargs.pop("dpi", 100)
-    fig = None
-    if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets), sharex=True, sharey=True, dpi=dpi)
-
-    # Override following kwargs with
     cmap = heatmap_kwargs.pop("cmap") if "cmap" in heatmap_kwargs else "bwr"
-    nested = heatmap_kwargs.pop("nested") if "nested" in heatmap_kwargs else True
-    spatial_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.name] for dataset in datasets])
-    max_value = round(np.max(np.abs(spatial_affinities)))
+    spatial_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.popari.name] for dataset in datasets])
 
     _, K, _ = spatial_affinities.shape
 
-    vmin = -max_value
-    vmax = max_value
-
     if metagene_order is not None:
-        for dataset in datasets:
-            spatial_affinity = dataset.uns[spatial_affinity_key][dataset.name]
-            reordered_spatial_affinity = spatial_affinity[metagene_order][:, metagene_order]
-            dataset.uns[f"{spatial_affinity_key}_reordered"] = {
-                dataset.name: reordered_spatial_affinity,
-            }
-
-        spatial_affinity_key = f"{spatial_affinity_key}_reordered"
+        metagene_order = np.asarray(metagene_order)
     else:
         metagene_order = np.arange(K)
 
-    _multireplicate_heatmap(
-        datasets,
+    metagene_labels = [f"m{k}" for k in metagene_order]
+    matrices = {}
+    for dataset in datasets:
+        spatial_affinity = dataset.uns[spatial_affinity_key][dataset.popari.name]
+        matrices[dataset.popari.name] = pd.DataFrame(
+            spatial_affinity[metagene_order][:, metagene_order],
+            index=metagene_labels,
+            columns=metagene_labels,
+        )
+
+    fig = _matrix_heatmap_panel(
+        matrices,
         axes=axes,
-        uns=spatial_affinity_key,
-        nested=nested,
         cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
+        center_zero=True,
+        shared_scale=True,
+        colorbar="shared",
+        sharex=True,
+        sharey=True,
         **heatmap_kwargs,
     )
 
-    fig = axes.flat[0].get_figure()
-    metagene_labels = [f"m{k}" for k in metagene_order]
-    for ax_idx, ax in enumerate(axes.flat):
-        if metagene_order is not None:
-            ax.set_xticks(np.arange(K), metagene_labels, fontsize="x-small", rotation=90)
-            ax.set_yticks(np.arange(K), metagene_labels, fontsize="x-small")
-
-        ax.grid(False)
-        im = ax.images[0]
-        im.colorbar.remove()
-
-    cax = fig.add_axes([0.95, 0.2, 0.05, 0.6])
-    fig.colorbar(im, ax=cax, orientation="vertical")
-    cax.set_axis_off()
+    for ax in fig.axes:
+        if ax.images:
+            ax.set_xticklabels(metagene_labels, fontsize="x-small", rotation=90)
+            ax.set_yticklabels(metagene_labels, fontsize="x-small")
 
     return fig
 
@@ -707,7 +887,7 @@ def _multigroup_heatmap(
 
     for group_index, (ax, group_name) in enumerate(zip(axes.flat, groups)):
         first_dataset_name = groups[group_name][0]
-        first_dataset = next(filter(lambda dataset: dataset.name == first_dataset_name, datasets))
+        first_dataset = next(filter(lambda dataset: dataset.popari.name == first_dataset_name, datasets))
 
         if group_index > len(groups):
             ax.set_visible(False)
@@ -773,7 +953,7 @@ def _compute_empirical_correlations(
     empirical_correlations *= scaling
 
     for dataset, empirical_correlation in zip(datasets, empirical_correlations):
-        all_correlations = {dataset.name: empirical_correlation}
+        all_correlations = {dataset.popari.name: empirical_correlation}
         dataset.uns[output] = all_correlations
 
     return datasets
@@ -1077,7 +1257,7 @@ def _compute_columnwise_autocorrelation(
 ):
     """"""
 
-    matrix = dataset.uns[uns][f"{dataset.name}"].T
+    matrix = dataset.uns[uns][f"{dataset.popari.name}"].T
 
     num_columns, _ = matrix.shape
     correlation_coefficient_matrix = np.corrcoef(matrix, matrix)[:num_columns, :num_columns]
@@ -1114,8 +1294,8 @@ def _compute_spatial_gene_correlation(
 ):
     """Computes spatial gene correlation according to learned metagenes."""
 
-    spatial_affinity_matrix = dataset.uns[spatial_key][f"{dataset.name}"]
-    metagenes = dataset.uns[metagene_key][f"{dataset.name}"]
+    spatial_affinity_matrix = dataset.uns[spatial_key][f"{dataset.popari.name}"]
+    metagenes = dataset.uns[metagene_key][f"{dataset.popari.name}"]
 
     neighbor_interactions = metagenes @ spatial_affinity_matrix
     spatial_gene_correlation = neighbor_interactions @ metagenes.T
@@ -1178,7 +1358,7 @@ def _pretty_plot_spatial_affinities(
     fig = plt.figure(dpi=1200, figsize=(width, height))
 
     first_dataset = datasets[0]
-    _, K = first_dataset.uns[metagene_key][first_dataset.name].shape
+    _, K = first_dataset.uns[metagene_key][first_dataset.popari.name].shape
 
     def setup_axes(fig, rect, metagene_ticks):
         """Setup axes for rotated heatmap plot."""
@@ -1230,7 +1410,7 @@ def _pretty_plot_spatial_affinities(
 
         rect = (height, width, index + 1)
         ax, aux_ax = setup_axes(fig, rect, metagene_ticks)
-        ax.set_title(dataset.name, fontsize=2, y=0.5)
+        ax.set_title(dataset.popari.name, fontsize=2, y=0.5)
         axes.append(aux_ax)
 
     mask = np.ones((K, K), dtype=np.bool)
@@ -1320,7 +1500,7 @@ def _plot_cell_type_to_metagene(
     if cell_types is None:
         cell_types = cell_type_de_genes.keys()
 
-    metagenes = dataset.uns[metagene_key][dataset.name]
+    metagenes = dataset.uns[metagene_key][dataset.popari.name]
 
     if normalize:
         metagenes = zscore(metagenes, axis=1)
@@ -1500,7 +1680,7 @@ def _plot_cell_type_to_metagene_difference(
     if cell_types is None:
         cell_types = cell_type_de_genes.keys()
 
-    metagenes = dataset.uns[metagene_key][dataset.name]
+    metagenes = dataset.uns[metagene_key][dataset.popari.name]
 
     if normalize:
         metagenes = zscore(metagenes, axis=1)
@@ -1848,7 +2028,7 @@ def _cluster_domains(
         processed_key = "X_scanorama"
         for dataset in datasets:
             dataset.obsm[processed_key] = (
-                merged_dataset[merged_dataset.obs["batch"] == dataset.name].obsm[processed_key].copy()
+                merged_dataset[merged_dataset.obs["batch"] == dataset.popari.name].obsm[processed_key].copy()
             )
 
     for dataset in datasets:
@@ -1875,7 +2055,7 @@ def _metagene_gsea(
     **gsea_kwargs,
 ):
     """Compute GSEA for the top genes from a particular metagene."""
-    metagenes = dataset.uns[metagene_key][dataset.name]
+    metagenes = dataset.uns[metagene_key][dataset.popari.name]
     metagene = metagenes[:, metagene_index]
 
     gene_names = dataset.var_names

@@ -23,6 +23,17 @@ def test_popari_name_property_requires_dataset_name():
         _ = dataset.popari.name
 
 
+def test_spatial_affinity_property_getter_and_setter():
+    dataset = ad.AnnData(X=np.ones((2, 3)))
+    dataset.popari.name = "sample_a"
+    spatial_affinity = np.array([[1.0, 2.0], [2.0, 3.0]])
+
+    dataset.popari.spatial_affinity = spatial_affinity
+
+    np.testing.assert_array_equal(dataset.popari.spatial_affinity, spatial_affinity)
+    np.testing.assert_array_equal(dataset.uns["Sigma_x_inv"]["sample_a"], spatial_affinity)
+
+
 def test_affinity_difference_subtracts_named_matrices():
     dataset = ad.AnnData(X=np.ones((2, 3)))
     dataset.uns["Sigma_x_inv"] = {
@@ -30,7 +41,10 @@ def test_affinity_difference_subtracts_named_matrices():
         "dataset_2": np.array([[5.0, 7.0], [11.0, 13.0]]),
     }
 
-    difference = dataset.popari.affinity_difference("dataset_2", "dataset_1")
+    difference = dataset.popari.affinity_difference(
+        comparison="dataset_2",
+        reference="dataset_1",
+    )
 
     np.testing.assert_array_equal(difference, np.array([[4.0, 5.0], [8.0, 9.0]]))
 

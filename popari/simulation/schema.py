@@ -1,4 +1,4 @@
-"""AnnData namespace for metagene-simulation fields."""
+"""AnnData namespace defining Popari's simulation-result schema."""
 
 from __future__ import annotations
 

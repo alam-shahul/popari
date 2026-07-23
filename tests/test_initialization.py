@@ -3,7 +3,8 @@ import pytest
 from scipy.sparse import issparse
 
 from popari.model import Popari
-from popari.simulation import SyntheticDataConfig, create_spatial_affinity_demo_datasets
+from popari.simulation.recipes import SimulationConfig
+from popari.simulation.synthetic import create_spatial_affinity_demo_datasets
 
 
 @pytest.mark.baseline
@@ -45,7 +46,7 @@ def test_ground_truth_initialization_requires_k_to_match_labels(shared_model_fac
 
 @pytest.mark.baseline
 def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(context):
-    config = SyntheticDataConfig(num_genes=12, grid_size=4, sig_y_scale=0.5, random_state=0)
+    config = SimulationConfig(num_genes=12, grid_size=4, sig_y_scale=0.5, random_state=0)
     (dataset,) = create_spatial_affinity_demo_datasets(config, scenario_names=("Monotype",))
     assert issparse(dataset.X)
 
