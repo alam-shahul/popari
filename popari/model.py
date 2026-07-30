@@ -1,22 +1,26 @@
-import itertools
+import copy
 import logging
-import os
-import pickle
-import sys
-import time
+import warnings
 from pathlib import Path
 from typing import Optional, Sequence, Union
 
 import anndata as ad
 import numpy as np
-import pandas as pd
 import torch
 from anndata import AnnData
 from torch import nn
 from tqdm import trange
 
 from popari._hierarchical_view import HierarchicalView, Hierarchy
-from popari.io import load_anndata, load_anndata_hierarchy, save_anndata, unmerge_anndata
+from popari.io import (
+    convert_legacy_anndata,
+    load_anndata,
+    load_anndata_hierarchy,
+    merge_anndata,
+    save_anndata,
+    save_anndata_hierarchy,
+)
+from popari.schema import DEFAULT_SAMPLE_KEY
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
 
@@ -32,8 +36,9 @@ class Popari(nn.Module):
     Attributes:
         K: number of metagenes to learn
         replicate_names: names of spatial datasets
-        datasets: list of input AnnData spatial datasets for Popari.
-        dataset_path: path to AnnData merged dataset on disk. Ignored if ``datasets`` is specified.
+        adata: unified multisample AnnData used for training.
+        sample_key: observation column containing ordered sample identities.
+        dataset_path: path to a unified AnnData dataset on disk.
         reloaded_hierarchy: data from previous hierarchical run of Popari.
         lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: ``1e-4``
         pretrained: if set, attempts to load model state from input files. Default: ``False``
@@ -89,6 +94,8 @@ class Popari(nn.Module):
     def __init__(
         self,
         K: int,
+        adata: Optional[ad.AnnData] = None,
+        sample_key: str | None = None,
         replicate_names: Optional[Sequence[str]] = None,
         datasets: Optional[Sequence[ad.AnnData]] = None,
         dataset_path: Optional[Union[str, Path]] = None,
@@ -131,8 +138,8 @@ class Popari(nn.Module):
         self.use_inplace_ops = use_inplace_ops
         self.verbose = verbose
 
-        if not any([datasets, dataset_path]):
-            raise ValueError("At least one of `datasets`, `dataset_path` must be specified in the Popari constructor.")
+        if sum(value is not None for value in (adata, datasets, dataset_path)) != 1:
+            raise ValueError("Specify exactly one of `adata`, `datasets`, or `dataset_path`.")
 
         if K <= 1:
             raise ValueError("`K` must be an integer value greater than 1.")
@@ -179,13 +186,17 @@ class Popari(nn.Module):
         self.downsampling_method = downsampling_method
         self.binning_downsample_rate = binning_downsample_rate
         self.chunks = chunks
+        self.sample_key = sample_key
 
-        if dataset_path:
+        if dataset_path is not None:
             self.load_dataset(dataset_path)
-        elif datasets:
+        elif adata is not None:
+            self.load_anndata(adata)
+        else:
             self.load_anndata_datasets(datasets, replicate_names)
 
-        self.replicate_names = [dataset.popari.name for dataset in self.datasets]
+        self.replicate_names = list(self._adata.popari.sample_names)
+        self.num_replicates = len(self.replicate_names)
 
         self.parameter_optimizer_hyperparameters = {
             "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
@@ -216,10 +227,20 @@ class Popari(nn.Module):
         return self.views[self.hierarchical_levels - 1]
 
     @property
+    def adata(self):
+        """Unified AnnData at the finest hierarchy level."""
+
+        if hasattr(self, "hierarchy"):
+            return self.hierarchy[0].adata
+        return self._adata
+
+    @property
     def datasets(self):
+        """Temporary compatibility view of the coarsest hierarchy level."""
+
         if hasattr(self, "views"):
             return self.base_view.datasets
-        return self._datasets
+        return [self._adata]
 
     @property
     def Ys(self):
@@ -258,20 +279,37 @@ class Popari(nn.Module):
         return self.base_view.spatial_affinity_tags
 
     def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
-        """Load Popari data directly from AnnData objects.
+        """Compatibility adapter for legacy single-sample AnnData sequences.
 
         Args:
             datasets: spatial transcriptomics datasets in AnnData format (one for each FOV)
             replicate_names: names for all datasets/replicates
 
         """
-        if replicate_names is None:
-            self._datasets = list(datasets)
-        else:
-            self._datasets = list(datasets)
-            for dataset, replicate_name in zip(self._datasets, replicate_names):
+        warnings.warn(
+            "Passing datasets= is deprecated; pass one multisample AnnData with adata=.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        datasets = list(datasets)
+        if replicate_names is not None:
+            if len(replicate_names) != len(datasets):
+                raise ValueError("replicate_names must match the number of datasets.")
+            for dataset, replicate_name in zip(datasets, replicate_names):
                 dataset.popari.name = replicate_name
-        self.num_replicates = len(self.datasets)
+        resolved_sample_key = self.sample_key or DEFAULT_SAMPLE_KEY
+        self._adata = merge_anndata(datasets, sample_key=resolved_sample_key)
+        self.sample_key = resolved_sample_key
+
+    def load_anndata(self, adata: ad.AnnData):
+        """Load one unified Popari AnnData."""
+
+        self._adata = convert_legacy_anndata(
+            adata,
+            sample_key=self.sample_key,
+            copy=True,
+        )
+        self.sample_key = self._adata.popari.sample_key
 
     def load_dataset(self, dataset_path: Union[str, Path]):
         """Load dataset into Popari from saved .h5ad file.
@@ -283,9 +321,8 @@ class Popari(nn.Module):
 
         dataset_path = Path(dataset_path)
 
-        merged_dataset = load_anndata(dataset_path)
-        datasets, replicate_names = unmerge_anndata(merged_dataset)
-        self.load_anndata_datasets(datasets, replicate_names)
+        self._adata = load_anndata(dataset_path, sample_key=self.sample_key)
+        self.sample_key = self._adata.popari.sample_key
 
     def _initialize(
         self,
@@ -318,6 +355,7 @@ class Popari(nn.Module):
             "metagene_groups": self.metagene_groups,
             "spatial_affinity_groups": self.spatial_affinity_groups,
             "superresolution_lr": self.superresolution_lr,
+            "sample_key": self.sample_key,
             "parameter_optimizer_hyperparameters": self.parameter_optimizer_hyperparameters,
             "embedding_optimizer_hyperparameters": self.embedding_optimizer_hyperparameters,
         }
@@ -328,14 +366,15 @@ class Popari(nn.Module):
         elif self.downsampling_method == "partition":
             bin_assignment_kwargs["adjacency_list_key"] = "adjacency_list"
 
-        base_view = HierarchicalView(self.datasets, level=0, **hierarchical_view_kwargs)
-
         if self.pretrained:
+            if self.reloaded_hierarchy is None:
+                self.reloaded_hierarchy = {0: self._adata}
             self.hierarchy = Hierarchy.reconstruct(
                 self.reloaded_hierarchy,
                 **hierarchical_view_kwargs,
             )
         else:
+            base_view = HierarchicalView(self.adata, level=0, **hierarchical_view_kwargs)
             self.hierarchy = Hierarchy(
                 downsampling_method=self.downsampling_method,
                 base_view=base_view,
@@ -444,7 +483,7 @@ class Popari(nn.Module):
             view._propagate_parameters()
 
             progress_bar = trange(effective_epochs, leave=True, disable=not self.verbose, miniters=10000)
-            previous_losses = np.full(len(view.datasets), np.inf)
+            previous_losses = np.full(view.num_replicates, np.inf)
             for epoch in progress_bar:
                 view.parameter_optimizer.update_sigma_yx()
                 losses = view._superresolve_embeddings(
@@ -462,7 +501,7 @@ class Popari(nn.Module):
                 progress_bar.set_description(description)
 
             pretrained_embeddings = [
-                view.embedding_optimizer.embedding_state[dataset.popari.name].clone() for dataset in view.datasets
+                view.embedding_optimizer.embedding_state[sample].clone() for sample in view.replicate_names
             ]
             view.parameter_optimizer.spatial_affinity.initialize(
                 pretrained_embeddings,
@@ -503,7 +542,7 @@ class Popari(nn.Module):
                 self.hierarchy[level].superresolution_lr = new_lr
 
     def synchronize_datasets(self):
-        """Synchronize datasets across all hierarchical levels."""
+        """Synchronize unified AnnData objects across hierarchy levels."""
 
         self.base_view.synchronize_datasets()
         if self.hierarchical_levels > 1:
@@ -530,30 +569,41 @@ class Popari(nn.Module):
         if self.hierarchical_levels == 1:
             if self.verbose:
                 print(f"{get_datetime()} Writing results to {path_without_extension}.h5ad")
-            save_anndata(f"{path_without_extension}.h5ad", self.datasets, ignore_raw_data=ignore_raw_data)
+            save_anndata(
+                f"{path_without_extension}.h5ad",
+                self.adata,
+                ignore_raw_data=ignore_raw_data,
+                sample_key=self.sample_key,
+            )
         else:
-            path_without_extension.mkdir(exist_ok=True)
+            save_anndata_hierarchy(
+                path_without_extension,
+                {level: self.hierarchy[level].adata for level in range(self.hierarchical_levels)},
+                ignore_raw_data=ignore_raw_data,
+                sample_key=self.sample_key,
+            )
 
-            merged_datasets = []
-            for level in range(self.hierarchical_levels):
-                view = self.hierarchy[level]
-                datasets = view.datasets
-                if self.verbose:
-                    print(
-                        f"{get_datetime()} Writing hierarchical results to {path_without_extension / f'level_{level}.h5ad'}",
-                    )
-
-                save_anndata(path_without_extension / f"level_{level}.h5ad", datasets, ignore_raw_data=ignore_raw_data)
-
-    def _reload_expression(self, raw_datasets: Sequence[AnnData]):
+    def _reload_expression(self, raw_adata: AnnData | Sequence[AnnData]):
         """Can be used to recover expression values for training model if saved
         with `ignore_raw_data=True`"""
-        high_resolution_view = self.hierarchy[0]
-        for index, (raw_dataset, dataset) in enumerate(zip(raw_datasets, high_resolution_view.datasets)):
-            dataset.X = raw_dataset.X.copy()
-            num_cells, _ = dataset.shape
+        if not isinstance(raw_adata, AnnData):
+            raw_adata = merge_anndata(raw_adata, sample_key=self.sample_key)
+        raw_adata = convert_legacy_anndata(
+            raw_adata,
+            sample_key=self.sample_key,
+            copy=False,
+        )
 
-            Y = convert_numpy_to_pytorch_sparse_coo(dataset.X, self.context)
+        high_resolution_view = self.hierarchy[0]
+        if not raw_adata.obs_names.equals(high_resolution_view.adata.obs_names):
+            raw_adata = raw_adata[high_resolution_view.adata.obs_names].copy()
+        high_resolution_view.adata.X = raw_adata.X.copy()
+        for index, sample in enumerate(high_resolution_view.replicate_names):
+            indices = high_resolution_view.sample_axis.indices(sample)
+            expression = high_resolution_view.adata.X[indices]
+            num_cells = len(indices)
+
+            Y = convert_numpy_to_pytorch_sparse_coo(expression, self.context)
             Y *= (self.K * 1) / (Y.sum() / num_cells)
             high_resolution_view.Ys[index] = Y
 
@@ -562,14 +612,15 @@ class Popari(nn.Module):
         for level in range(self.hierarchical_levels - 1):
             view = self.hierarchy[level]
             low_res_view = self.hierarchy[level + 1]
-            for index, (dataset, binned_dataset, previous_Y) in enumerate(
-                zip(view.datasets, low_res_view.datasets, view.Ys),
+            assignments = low_res_view.adata.obsm["bin_assignments"]
+            low_res_view.adata.X = assignments @ view.adata.X
+            for index, (sample, previous_Y) in enumerate(
+                zip(view.replicate_names, view.Ys),
             ):
-                binned_dataset_name = binned_dataset.popari.name
-                bin_assignments = binned_dataset.obsm[f"bin_assignments_{binned_dataset_name}"]
-                binned_expression = bin_assignments @ dataset.X
-                binned_dataset.X = binned_expression
-
+                bin_assignments = assignments[low_res_view.sample_axis.indices(sample)][
+                    :,
+                    view.sample_axis.indices(sample),
+                ]
                 bin_assignments_tensor = convert_numpy_to_pytorch_sparse_coo(
                     bin_assignments,
                     context=self.initial_context,
@@ -609,16 +660,11 @@ def load_trained_model(
     dataset_path = Path(dataset_path)
     path_without_extension = dataset_path.parent / dataset_path.stem
 
-    canonical_hierarchy = load_anndata_hierarchy(path_without_extension)
-    reloaded_hierarchy = {level: unmerge_anndata(level_adata)[0] for level, level_adata in canonical_hierarchy.items()}
+    reloaded_hierarchy = load_anndata_hierarchy(path_without_extension)
     popari_kwargs["hierarchical_levels"] = len(reloaded_hierarchy)
 
-    datasets = reloaded_hierarchy[0]
-    replicate_names = [dataset.popari.name for dataset in datasets]
-
     return load_pretrained(
-        datasets,
-        replicate_names,
+        reloaded_hierarchy[0],
         reloaded_hierarchy=reloaded_hierarchy,
         context=context,
         **popari_kwargs,
@@ -626,15 +672,14 @@ def load_trained_model(
 
 
 def load_pretrained(
-    datasets: Sequence[AnnData],
-    replicate_names: Sequence[str] = None,
+    adata: AnnData,
     context=dict(device="cpu", dtype=torch.float64),
     reloaded_hierarchy: Optional[dict] = None,
     **popari_kwargs,
 ):
-    """Load pretrained Popari model from in-memory datasets."""
-    first_dataset = datasets[0]
-    saved_hyperparameters = first_dataset.uns["popari_hyperparameters"]
+    """Load a pretrained Popari model from a unified AnnData."""
+
+    saved_hyperparameters = copy.deepcopy(adata.uns["popari_hyperparameters"])
 
     metagene_groups = saved_hyperparameters["metagene_groups"]
     for group in metagene_groups:
@@ -644,27 +689,16 @@ def load_pretrained(
     for group in spatial_affinity_groups:
         spatial_affinity_groups[group] = list(spatial_affinity_groups[group])
 
-    new_kwargs = saved_hyperparameters.copy()
-    for keyword in popari_kwargs:
-        new_kwargs[keyword] = popari_kwargs[keyword]
+    new_kwargs = saved_hyperparameters | popari_kwargs
 
     for noninitial_hyperparameter in ["prior_x", "metagene_tags", "spatial_affinity_tags"]:
         new_kwargs.pop(noninitial_hyperparameter)
 
-    # metagene_mode = saved_hyperparameters["metagene_mode"]
-    # K = saved_hyperparameters["K"]
-    # lambda_Sigma_x_inv = saved_hyperparameters["lambda_Sigma_x_inv"]
-
     trained_model = Popari(
-        datasets=datasets,
-        replicate_names=replicate_names,
+        adata=adata,
+        sample_key=adata.popari.sample_key,
         reloaded_hierarchy=reloaded_hierarchy,
         pretrained=True,
-        # K=K,
-        # metagene_mode=metagene_mode,
-        # metagene_groups=metagene_groups,
-        # spatial_affinity_groups=spatial_affinity_groups,
-        # lambda_Sigma_x_inv=lambda_Sigma_x_inv,
         initial_context=context,
         torch_context=context,
         **new_kwargs,
@@ -676,20 +710,13 @@ def load_pretrained(
 def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambda_Sigma_bar: float = 1e-3):
     """Initialize Popari object from a SpiceMix pretrained model."""
 
-    pretrained_datasets = pretrained_model.hierarchy[0].datasets
-    datasets = [dataset.copy() for dataset in pretrained_datasets]
-    replicate_names = [dataset.popari.name for dataset in datasets]
-
-    reloaded_hierarchy = None
-
-    reloaded_hierarchy = {}
-    for level in range(pretrained_model.hierarchical_levels):
-        level_datasets = pretrained_model.hierarchy[level].datasets
-        reloaded_hierarchy[level] = [level_dataset.copy() for level_dataset in level_datasets]
+    adata = pretrained_model.adata.copy()
+    reloaded_hierarchy = {
+        level: pretrained_model.hierarchy[level].adata.copy() for level in range(pretrained_model.hierarchical_levels)
+    }
 
     return load_pretrained(
-        datasets,
-        replicate_names,
+        adata,
         reloaded_hierarchy=reloaded_hierarchy,
         hierarchical_levels=pretrained_model.hierarchical_levels,
         metagene_mode="differential",

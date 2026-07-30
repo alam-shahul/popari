@@ -2,14 +2,17 @@ import awkward as ak
 import numpy as np
 import torch
 from anndata import AnnData
+from scipy.sparse import csr_array
 from torch import nn
 from tqdm.auto import tqdm, trange
 
 from popari._named_state import BufferDict, ParameterDict
+from popari._sample_axis import SampleAxis
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import (
     IndependentSet,
     NesterovGD,
+    convert_adjacency_matrix_to_awkward_array,
     convert_numpy_to_pytorch_sparse_coo,
     get_datetime,
     project2simplex,
@@ -27,7 +30,8 @@ class ParameterOptimizer(nn.Module):
         self,
         K,
         Ys,
-        datasets,
+        adata: AnnData,
+        sample_axis: SampleAxis,
         betas,
         prior_x_modes,
         metagene_groups,
@@ -56,7 +60,9 @@ class ParameterOptimizer(nn.Module):
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
 
-        self.datasets = datasets
+        self.adata = adata
+        self.sample_axis = sample_axis
+        self.sample_names = sample_axis.names
         self.spatial_affinity_mode = spatial_affinity_mode
         self.K = K
         self.Ys = Ys
@@ -83,11 +89,16 @@ class ParameterOptimizer(nn.Module):
             "betas",
             torch.as_tensor(betas, dtype=self.context["dtype"], device=self.context["device"]),
         )
-        self.adjacency_lists = {dataset.popari.name: dataset.obsm["adjacency_list"] for dataset in self.datasets}
+        self.adjacency_lists = {}
         self.adjacency_matrices = BufferDict(prefix="dataset")
-        for dataset in self.datasets:
-            self.adjacency_matrices[dataset.popari.name] = convert_numpy_to_pytorch_sparse_coo(
-                dataset.obsp["adjacency_matrix"],
+        for sample in self.sample_names:
+            indices = sample_axis.indices(sample)
+            adjacency = csr_array(adata.obsp["adjacency_matrix"])[indices][:, indices]
+            self.adjacency_lists[sample] = convert_adjacency_matrix_to_awkward_array(
+                adjacency.tocoo(),
+            )
+            self.adjacency_matrices[sample] = convert_numpy_to_pytorch_sparse_coo(
+                adjacency,
                 self.context,
             )
 
@@ -96,7 +107,8 @@ class ParameterOptimizer(nn.Module):
 
         self.metagene_state = MetageneState(
             self.K,
-            self.datasets,
+            adata.n_vars,
+            self.sample_names,
             self.metagene_groups,
             self.metagene_tags,
             mode=self.metagene_mode,
@@ -110,7 +122,8 @@ class ParameterOptimizer(nn.Module):
 
         self.spatial_affinity = SpatialAffinity(
             self.K,
-            self.datasets,
+            self.sample_names,
+            self.adjacency_lists,
             self.spatial_affinity_groups,
             self.betas,
             scaling=self.spatial_affinity_scaling,
@@ -123,19 +136,19 @@ class ParameterOptimizer(nn.Module):
         if self.spatial_affinity_mode == "differential lookup":
             self.spatial_affinity_bar = SpatialAffinityBar(
                 self.K,
-                self.datasets,
+                self.sample_names,
                 self.spatial_affinity_groups,
                 context=self.context,
             )
 
         if all(prior_x_mode == "exponential shared fixed" for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in self.sample_names]
         elif all(prior_x_mode == None for prior_x_mode in self.prior_x_modes):
-            self.prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in range(len(self.datasets))]
+            self.prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in self.sample_names]
         else:
             raise NotImplementedError
 
-        self.register_buffer("sigma_yxs", torch.zeros(len(self.datasets), **self.context))
+        self.register_buffer("sigma_yxs", torch.zeros(len(self.sample_names), **self.context))
 
     def link(self, embedding_optimizer):
         """Link to embedding_optimizer."""
@@ -152,16 +165,17 @@ class ParameterOptimizer(nn.Module):
         with torch.no_grad():
             self.metagene_state.metagenes.div_(scale_factor)
             for group_index, group_replicates in enumerate(self.metagene_groups.values()):
-                for dataset_index, dataset in enumerate(self.datasets):
-                    if dataset.popari.name not in group_replicates:
+                for dataset_index, sample in enumerate(self.sample_names):
+                    if sample not in group_replicates:
                         continue
-                    replicate_embedding = self.embedding_optimizer.embedding_state.embeddings[dataset_index]
+                    replicate_embedding = self.embedding_optimizer.embedding_state[sample]
                     if self.metagene_mode == "differential":
                         replicate_scale_factor = scale_factor[dataset_index]
                         replicate_embedding.mul_(replicate_scale_factor)
                     else:
                         group_scale_factor = scale_factor[group_index]
                         replicate_embedding.mul_(group_scale_factor)
+                    self.embedding_optimizer.embedding_state[sample] = replicate_embedding
 
     def estimate_Sigma_x_inv(
         self,
@@ -185,20 +199,17 @@ class ParameterOptimizer(nn.Module):
             Sigma_x_inv: previous estimate of Σx-1
 
         """
-        datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
+        samples = [sample for use_replicate, sample in zip(replicate_mask, self.sample_names) if use_replicate]
         betas = torch.as_tensor(
             [beta for (use_replicate, beta) in zip(replicate_mask, self.betas) if use_replicate],
             **self.context,
         )
         betas = betas / betas.sum()
 
-        Xs = [self.embedding_optimizer.embedding_state[dataset.popari.name].detach() for dataset in datasets]
-        spatial_flags = ["adjacency_list" in dataset.obsm for dataset in datasets]
+        Xs = [self.embedding_optimizer.embedding_state[sample].detach() for sample in samples]
+        num_edges_per_fov = [ak.count(self.adjacency_lists[sample], axis=None) for sample in samples]
 
-        num_edges_per_fov = [ak.count(dataset.obsm["adjacency_list"], axis=None) for dataset in datasets]
-        # num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
-
-        if not any(num_edges > 0 and u for num_edges, u in zip(num_edges_per_fov, spatial_flags)):
+        if not any(num_edges > 0 for num_edges in num_edges_per_fov):
             return
 
         linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
@@ -207,15 +218,10 @@ class ParameterOptimizer(nn.Module):
         nus = []  # sum of neighbors' z
         weighted_total_cells = 0
 
-        for Z, dataset, num_edges, use_spatial, beta in zip(Zs, datasets, num_edges_per_fov, spatial_flags, self.betas):
-            adjacency_list = self.adjacency_lists[dataset.popari.name]
-            adjacency_matrix = self.adjacency_matrices[dataset.popari.name]
-
-            if use_spatial:
-                nu = adjacency_matrix @ Z
-                linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
-            else:
-                nu = None
+        for Z, sample, num_edges, beta in zip(Zs, samples, num_edges_per_fov, betas):
+            adjacency_matrix = self.adjacency_matrices[sample]
+            nu = adjacency_matrix @ Z
+            linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
 
             nus.append(nu)
             weighted_total_cells += beta * num_edges
@@ -261,13 +267,16 @@ class ParameterOptimizer(nn.Module):
             )
 
             log_partition_function = 0
-            for nu, beta in zip(nus, self.betas):
+            for nu, beta, sample in zip(nus, betas, samples):
+                sample_size = len(self.sample_axis.indices(sample))
+                adjacency_list = self.adjacency_lists[sample]
                 if subsample_rate is None:
-                    subsample_index = np.arange(len(dataset))
                     subsample_multiplier = 1
                 else:
-                    node_limit = int(subsample_rate * len(dataset))
-                    subsample_index = np.sort(sample_graph_iid(adjacency_list, range(len(dataset)), node_limit))
+                    node_limit = int(subsample_rate * sample_size)
+                    subsample_index = np.sort(
+                        sample_graph_iid(adjacency_list, range(sample_size), node_limit),
+                    )
                     subsample_multiplier = 1 / subsample_rate
                     nu = nu[subsample_index]
 
@@ -382,20 +391,17 @@ class ParameterOptimizer(nn.Module):
         return Sigma_x_inv, loss * weighted_total_cells
 
     def nll_Sigma_x_inv(self, Sigma_x_inv, replicate_mask, Sigma_x_inv_bar=None):
-        datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
+        samples = [sample for use_replicate, sample in zip(replicate_mask, self.sample_names) if use_replicate]
         betas = torch.as_tensor(
             [beta for (use_replicate, beta) in zip(replicate_mask, self.betas) if use_replicate],
             **self.context,
         )
         betas = betas / betas.sum()
 
-        Xs = [self.embedding_optimizer.embedding_state[dataset.popari.name] for dataset in datasets]
-        spatial_flags = ["adjacency_list" in dataset.obsm for dataset in datasets]
+        Xs = [self.embedding_optimizer.embedding_state[sample] for sample in samples]
+        num_edges_per_fov = [ak.count(self.adjacency_lists[sample], axis=None) for sample in samples]
 
-        # num_edges_per_fov = [sum(map(len, dataset.obsm["adjacency_list"])) for dataset in datasets]
-        num_edges_per_fov = [ak.count(dataset.obsm["adjacency_list"], axis=None) for dataset in datasets]
-
-        if not any(num_edges > 0 and u for num_edges, u in zip(num_edges_per_fov, spatial_flags)):
+        if not any(num_edges > 0 for num_edges in num_edges_per_fov):
             return
 
         linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
@@ -404,15 +410,10 @@ class ParameterOptimizer(nn.Module):
         nus = []  # sum of neighbors' z
         weighted_total_cells = 0
 
-        for Z, dataset, num_edges, use_spatial, beta in zip(Zs, datasets, num_edges_per_fov, spatial_flags, self.betas):
-            adjacency_list = self.adjacency_lists[dataset.popari.name]
-            adjacency_matrix = self.adjacency_matrices[dataset.popari.name]
-
-            if use_spatial:
-                nu = adjacency_matrix @ Z
-                linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
-            else:
-                nu = None
+        for Z, sample, num_edges, beta in zip(Zs, samples, num_edges_per_fov, betas):
+            adjacency_matrix = self.adjacency_matrices[sample]
+            nu = adjacency_matrix @ Z
+            linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
 
             nus.append(nu)
             weighted_total_cells += beta * num_edges
@@ -457,7 +458,7 @@ class ParameterOptimizer(nn.Module):
     def update_spatial_affinity(self, differentiate_spatial_affinities=True, **optimization_kwargs):
         if self.spatial_affinity_mode == "shared lookup":
             for group_name, group_replicates in self.spatial_affinity_groups.items():
-                replicate_mask = [dataset.popari.name in group_replicates for dataset in self.datasets]
+                replicate_mask = [sample in group_replicates for sample in self.sample_names]
                 first_dataset_name = group_replicates[0]
                 Sigma_x_inv = self.spatial_affinity[first_dataset_name].to(self.context["device"])
                 optimizer = self.spatial_affinity.optimizers[group_name]
@@ -472,19 +473,19 @@ class ParameterOptimizer(nn.Module):
                     self.spatial_affinity[first_dataset_name] = Sigma_x_inv
 
         elif self.spatial_affinity_mode == "differential lookup":
-            for dataset_index, dataset in enumerate(self.datasets):
+            for dataset_index, sample in enumerate(self.sample_names):
                 if differentiate_spatial_affinities:
                     spatial_affinity_bars = [
                         self.spatial_affinity_bar[group_name].detach()
-                        for group_name in self.spatial_affinity_tags[dataset.popari.name]
+                        for group_name in self.spatial_affinity_tags[sample]
                     ]
                 else:
                     spatial_affinity_bars = None
 
-                replicate_mask = [False] * len(self.datasets)
+                replicate_mask = [False] * len(self.sample_names)
                 replicate_mask[dataset_index] = True
-                Sigma_x_inv = self.spatial_affinity[dataset.popari.name].to(self.context["device"])
-                optimizer = self.spatial_affinity.optimizers[dataset.popari.name]
+                Sigma_x_inv = self.spatial_affinity[sample].to(self.context["device"])
+                optimizer = self.spatial_affinity.optimizers[sample]
                 Sigma_x_inv, loss = self.estimate_Sigma_x_inv(
                     Sigma_x_inv,
                     replicate_mask,
@@ -496,13 +497,13 @@ class ParameterOptimizer(nn.Module):
                 # K_options, group_options = np.meshgrid()
                 # runs =
                 with torch.no_grad():
-                    self.spatial_affinity[dataset.popari.name] = Sigma_x_inv
+                    self.spatial_affinity[sample] = Sigma_x_inv
 
             self.spatial_affinity.reaverage(self.spatial_affinity_bar)
 
     def reinitialize_spatial_affinities(self):
         pretrained_embeddings = [
-            self.embedding_optimizer.embedding_state[dataset.popari.name].clone() for dataset in self.datasets
+            self.embedding_optimizer.embedding_state[sample].clone() for sample in self.sample_names
         ]
         self.spatial_affinity.initialize(pretrained_embeddings, self.spatial_affinity_bar)
 
@@ -513,22 +514,22 @@ class ParameterOptimizer(nn.Module):
             loss_spatial_affinities = torch.zeros(1, **self.context)
             if self.spatial_affinity_mode == "shared lookup":
                 for group_name, group_replicates in self.spatial_affinity_groups.items():
-                    replicate_mask = [dataset.popari.name in group_replicates for dataset in self.datasets]
+                    replicate_mask = [sample in group_replicates for sample in self.sample_names]
                     first_dataset_name = group_replicates[0]
                     Sigma_x_inv = self.spatial_affinity[first_dataset_name].to(self.context["device"])
                     loss_Sigma_x_inv = self.nll_Sigma_x_inv(Sigma_x_inv, replicate_mask)
                     loss_spatial_affinities += loss_Sigma_x_inv
 
             elif self.spatial_affinity_mode == "differential lookup":
-                for dataset_index, dataset in enumerate(self.datasets):
+                for dataset_index, sample in enumerate(self.sample_names):
                     spatial_affinity_bars = [
                         self.spatial_affinity_bar[group_name].detach()
-                        for group_name in self.spatial_affinity_tags[dataset.popari.name]
+                        for group_name in self.spatial_affinity_tags[sample]
                     ]
 
-                    replicate_mask = [False] * len(self.datasets)
+                    replicate_mask = [False] * len(self.sample_names)
                     replicate_mask[dataset_index] = True
-                    Sigma_x_inv = self.spatial_affinity[dataset.popari.name].to(self.context["device"])
+                    Sigma_x_inv = self.spatial_affinity[sample].to(self.context["device"])
                     loss_Sigma_x_inv = self.nll_Sigma_x_inv(
                         Sigma_x_inv,
                         replicate_mask,
@@ -542,25 +543,23 @@ class ParameterOptimizer(nn.Module):
         if self.metagene_mode == "shared":
             for group_name, group_replicates in self.metagene_groups.items():
                 first_dataset_name = group_replicates[0]
-                replicate_mask = [dataset.popari.name in group_replicates for dataset in self.datasets]
+                replicate_mask = [sample in group_replicates for sample in self.sample_names]
                 M = self.metagene_state[first_dataset_name]
                 updated_M = self.estimate_M(M, replicate_mask, simplex_projection_mode=simplex_projection_mode)
                 for dataset_name in group_replicates:
                     self.metagene_state[dataset_name] = updated_M
 
         elif self.metagene_mode == "differential":
-            for dataset_index, dataset in enumerate(self.datasets):
+            for dataset_index, sample in enumerate(self.sample_names):
                 if differentiate_metagenes:
-                    M_bars = [
-                        self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.popari.name]
-                    ]
+                    M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[sample]]
                 else:
                     M_bars = None
 
-                M = self.metagene_state[dataset.popari.name]
-                replicate_mask = [False] * len(self.datasets)
+                M = self.metagene_state[sample]
+                replicate_mask = [False] * len(self.sample_names)
                 replicate_mask[dataset_index] = True
-                self.metagene_state[dataset.popari.name] = self.estimate_M(
+                self.metagene_state[sample] = self.estimate_M(
                     M,
                     replicate_mask,
                     M_bar=M_bars,
@@ -575,19 +574,17 @@ class ParameterOptimizer(nn.Module):
             if self.metagene_mode == "shared":
                 for group_name, group_replicates in self.metagene_groups.items():
                     first_dataset_name = group_replicates[0]
-                    replicate_mask = [dataset.popari.name in group_replicates for dataset in self.datasets]
+                    replicate_mask = [sample in group_replicates for sample in self.sample_names]
                     M = self.metagene_state[first_dataset_name]
                     loss_M = self.nll_M(M, replicate_mask)
                     loss_metagenes += loss_M
 
             elif self.metagene_mode == "differential":
-                for dataset_index, dataset in enumerate(self.datasets):
-                    M_bars = [
-                        self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[dataset.popari.name]
-                    ]
+                for dataset_index, sample in enumerate(self.sample_names):
+                    M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[sample]]
 
-                    M = self.metagene_state[dataset.popari.name]
-                    replicate_mask = [False] * len(self.datasets)
+                    M = self.metagene_state[sample]
+                    replicate_mask = [False] * len(self.sample_names)
                     replicate_mask[dataset_index] = True
                     loss_M = self.nll_M(M, replicate_mask, M_bar=M_bars)
                     loss_metagenes += loss_M
@@ -599,8 +596,8 @@ class ParameterOptimizer(nn.Module):
         quadratic_factor = torch.zeros([K, K], **self.context)
         linear_term = torch.zeros_like(M)
 
-        datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
-        Xs = [self.embedding_optimizer.embedding_state[dataset.popari.name] for dataset in datasets]
+        samples = [sample for use_replicate, sample in zip(replicate_mask, self.sample_names) if use_replicate]
+        Xs = [self.embedding_optimizer.embedding_state[sample] for sample in samples]
         Ys = [Y for (use_replicate, Y) in zip(replicate_mask, self.Ys) if use_replicate]
         sigma_yxs = self.sigma_yxs[replicate_mask]
 
@@ -613,13 +610,11 @@ class ParameterOptimizer(nn.Module):
         constant_magnitude = sum(torch.square(Y).sum().item() for Y in Ys)
 
         constant = sum(
-            (torch.linalg.norm(self.embedding_optimizer.embedding_state[dataset.popari.name]).item() ** 2)
-            * scaled_beta.item()
-            for dataset, scaled_beta in zip(datasets, scaled_betas)
+            (torch.linalg.norm(self.embedding_optimizer.embedding_state[sample]).item() ** 2) * scaled_beta.item()
+            for sample, scaled_beta in zip(samples, scaled_betas)
         )
 
-        regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
-        for dataset, X, Y, sigma_yx, scaled_beta in zip(datasets, Xs, Ys, sigma_yxs, scaled_betas):
+        for X, Y, sigma_yx, scaled_beta in zip(Xs, Ys, sigma_yxs, scaled_betas):
             # X_c^TX_c
             quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
             # MX_c^TY_c
@@ -701,8 +696,8 @@ class ParameterOptimizer(nn.Module):
 
         tol /= G
 
-        datasets = [dataset for (use_replicate, dataset) in zip(replicate_mask, self.datasets) if use_replicate]
-        Xs = [self.embedding_optimizer.embedding_state[dataset.popari.name] for dataset in datasets]
+        samples = [sample for use_replicate, sample in zip(replicate_mask, self.sample_names) if use_replicate]
+        Xs = [self.embedding_optimizer.embedding_state[sample] for sample in samples]
         Ys = [Y for (use_replicate, Y) in zip(replicate_mask, self.Ys) if use_replicate]
         sigma_yxs = self.sigma_yxs[replicate_mask]
 
@@ -720,8 +715,7 @@ class ParameterOptimizer(nn.Module):
             print(f"M constant: {constant: .1e}")
             # print(f"M constant magnitude: {constant_magnitude:.1e}")
 
-        regularization = [self.prior_xs[dataset_index] for dataset_index, dataset in enumerate(datasets)]
-        for dataset, X, Y, scaled_beta in zip(datasets, Xs, Ys, scaled_betas):
+        for X, Y, scaled_beta in zip(Xs, Ys, scaled_betas):
             # X_c^TX_c
             quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
             # MX_c^TY_c
@@ -924,28 +918,28 @@ class ParameterOptimizer(nn.Module):
         """Update sigma_yx for each replicate."""
 
         # print((self.Ys[0]).is_sparse)
-        # print((self.embedding_optimizer.embedding_state[self.datasets[0].name]).is_sparse)
-        # print((self.metagene_state[self.datasets[0].name].T).is_sparse)
-        # squared_loss = np.zeros(len(self.datasets))
-        # for index, (Y, dataset) in enumerate(zip(self.Ys, self.datasets)):
-        #     result = torch.square(-(self.embedding_optimizer.embedding_state[dataset.popari.name] @ self.metagene_state[dataset.popari.name].T) + Y).sum()
+        # print((self.embedding_optimizer.embedding_state[self.sample_names[0]]).is_sparse)
+        # print((self.metagene_state[self.sample_names[0]].T).is_sparse)
+        # squared_loss = np.zeros(len(self.sample_names))
+        # for index, (Y, sample) in enumerate(zip(self.Ys, self.sample_names)):
+        #     result = torch.square(-(self.embedding_optimizer.embedding_state[sample] @ self.metagene_state[sample].T) + Y).sum()
         #     print(result)
         #     2/0
         #     squared_loss[index] = result
         squared_terms = [
             torch.addmm(
                 Y.to_dense(),
-                self.embedding_optimizer.embedding_state[dataset.popari.name],
-                self.metagene_state[dataset.popari.name].T,
+                self.embedding_optimizer.embedding_state[sample],
+                self.metagene_state[sample].T,
                 alpha=-1,
             )
-            for Y, dataset in zip(self.Ys, self.datasets)
+            for Y, sample in zip(self.Ys, self.sample_names)
         ]
         squared_loss = torch.as_tensor(
             [torch.linalg.norm(squared_term, ord="fro").item() ** 2 for squared_term in squared_terms],
             **self.context,
         )
-        num_replicates = len(self.datasets)
+        num_replicates = len(self.sample_names)
         sizes = torch.as_tensor([Y.numel() for Y in self.Ys], **self.context)
         if self.sigma_yx_inv_mode == "separate":
             self.sigma_yxs[:] = torch.sqrt(squared_loss / sizes)
@@ -960,11 +954,11 @@ class ParameterOptimizer(nn.Module):
             squared_terms = [
                 torch.addmm(
                     Y.to_dense(),
-                    self.embedding_optimizer.embedding_state[dataset.popari.name],
-                    self.metagene_state[dataset.popari.name].T,
+                    self.embedding_optimizer.embedding_state[sample],
+                    self.metagene_state[sample].T,
                     alpha=-1,
                 )
-                for Y, dataset in zip(self.Ys, self.datasets)
+                for Y, sample in zip(self.Ys, self.sample_names)
             ]
             squared_loss = np.array(
                 [torch.linalg.norm(squared_term, ord="fro").item() ** 2 for squared_term in squared_terms],
@@ -979,7 +973,7 @@ class MetageneState(nn.Module):
     Metagene state can be shared across replicates or maintained separately for each replicate.
 
     Attributes:
-        datasets: A reference to the AnnData objects being optimized.
+        sample_names: Ordered names of samples represented by the metagene state.
         context: Parameters to define the context for PyTorch tensor instantiation.
         metagenes: A PyTorch tensor containing all metagene parameters.
 
@@ -988,7 +982,8 @@ class MetageneState(nn.Module):
     def __init__(
         self,
         K,
-        datasets,
+        num_genes,
+        sample_names,
         groups,
         tags,
         mode="shared",
@@ -999,10 +994,9 @@ class MetageneState(nn.Module):
         super().__init__()
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self._ordered_dataset_names = [dataset.popari.name for dataset in datasets]
+        self._ordered_dataset_names = list(sample_names)
         self._ordered_group_names = list(groups)
-        num_genes = datasets[0].shape[1]
-        self.datasets = datasets
+        self.sample_names = tuple(sample_names)
         self.groups = groups
         self.tags = tags
         self.M_constraint = M_constraint
@@ -1016,9 +1010,9 @@ class MetageneState(nn.Module):
                     self._dataset_indices[dataset_name] = group_index
 
         elif mode == "differential":
-            self.metagenes = nn.Parameter(torch.zeros((len(self.datasets), num_genes, K), **self.context))
-            for dataset_index, dataset in enumerate(self.datasets):
-                self._dataset_indices[dataset.popari.name] = dataset_index
+            self.metagenes = nn.Parameter(torch.zeros((len(self.sample_names), num_genes, K), **self.context))
+            for dataset_index, sample in enumerate(self.sample_names):
+                self._dataset_indices[sample] = dataset_index
             self.M_bar = ParameterDict(prefix="M_bar")
             for group_name in groups:
                 self.M_bar[group_name] = nn.Parameter(torch.zeros((num_genes, K), **self.context), requires_grad=False)
@@ -1079,7 +1073,8 @@ class SpatialAffinity(nn.Module):
     def __init__(
         self,
         K,
-        datasets,
+        sample_names,
+        adjacency_lists,
         groups,
         betas,
         scaling=10,
@@ -1091,8 +1086,10 @@ class SpatialAffinity(nn.Module):
         super().__init__()
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self._ordered_dataset_names = [dataset.popari.name for dataset in datasets]
+        self._ordered_dataset_names = list(sample_names)
         self._ordered_group_names = list(groups)
+        self.sample_names = tuple(sample_names)
+        self.adjacency_lists = adjacency_lists
         self._dataset_group = {}
         for group_name, group_replicates in groups.items():
             for dataset_name in group_replicates:
@@ -1103,9 +1100,8 @@ class SpatialAffinity(nn.Module):
                 self.spatial_affinity_dict[group_name] = torch.zeros((K, K), **self.initial_context)
         elif mode == "differential lookup":
             self.spatial_affinity_dict = ParameterDict(prefix="dataset")
-            for dataset in datasets:
-                self.spatial_affinity_dict[dataset.popari.name] = torch.zeros((K, K), **self.initial_context)
-        self.datasets = datasets
+            for sample in self.sample_names:
+                self.spatial_affinity_dict[sample] = torch.zeros((K, K), **self.initial_context)
         self.groups = groups
         self.K = K
         self.mode = mode
@@ -1115,26 +1111,21 @@ class SpatialAffinity(nn.Module):
         self.optimizers = {}
         if mode == "attention":
             metagene_affinities = 0  # attention mechanism here
-            for dataset_index, dataset in enumerate(self.datasets):
-                self.__setitem__(dataset.popari.name, metagene_affinities[dataset_index])
+            for dataset_index, sample in enumerate(self.sample_names):
+                self.__setitem__(sample, metagene_affinities[dataset_index])
         elif mode not in {"shared lookup", "differential lookup"}:
             raise NotImplementedError(f"{mode=} is not implemented.")
 
     def initialize(self, initial_embeddings, spatial_affinity_bar=None):
-        use_spatial_info = ["adjacency_list" in dataset.obsm for dataset in self.datasets]
-
-        if not any(use_spatial_info):
-            return
-
-        num_replicates = len(self.datasets)
+        num_replicates = len(self.sample_names)
         Sigma_x_invs = torch.zeros([num_replicates, self.K, self.K], **self.initial_context)
-        for replicate, (initial_embedding, is_spatial_replicate, dataset) in enumerate(
-            zip(initial_embeddings, use_spatial_info, self.datasets),
+        for replicate, (initial_embedding, sample) in enumerate(
+            zip(initial_embeddings, self.sample_names),
         ):
-            if not is_spatial_replicate:
+            adjacency_list = self.adjacency_lists[sample]
+            if ak.count(adjacency_list, axis=None) == 0:
                 continue
 
-            adjacency_list = dataset.obsm["adjacency_list"]
             X = initial_embedding
             Z = X / torch.linalg.norm(X, dim=1, keepdim=True, ord=1)
             edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
@@ -1161,8 +1152,8 @@ class SpatialAffinity(nn.Module):
                 shared_affinity = self.spatial_affinity_dict[group_name]
                 with torch.no_grad():
                     shared_affinity.zero_()
-                    for dataset_index, (beta, dataset) in enumerate(zip(self.betas, self.datasets)):
-                        if dataset.popari.name in group_replicates:
+                    for dataset_index, (beta, sample) in enumerate(zip(self.betas, self.sample_names)):
+                        if sample in group_replicates:
                             shared_affinity.add_(beta * Sigma_x_invs[dataset_index])
 
                 optimizer = torch.optim.Adam(
@@ -1175,14 +1166,14 @@ class SpatialAffinity(nn.Module):
         elif self.mode == "differential lookup":
             for group_name, group_replicates in self.groups.items():
                 spatial_affinity_bar[group_name].zero_()
-                for dataset_index, dataset in enumerate(self.datasets):
-                    if dataset.popari.name in group_replicates:
+                for dataset_index, sample in enumerate(self.sample_names):
+                    if sample in group_replicates:
                         spatial_affinity_bar[group_name].add_(Sigma_x_invs[dataset_index])
 
                 spatial_affinity_bar[group_name].div_(len(group_replicates))
 
-            for dataset_index, dataset in enumerate(self.datasets):
-                differential_affinity = self[dataset.popari.name]
+            for dataset_index, sample in enumerate(self.sample_names):
+                differential_affinity = self[sample]
                 with torch.no_grad():
                     differential_affinity.copy_(Sigma_x_invs[dataset_index])
                 optimizer = torch.optim.Adam(
@@ -1190,7 +1181,7 @@ class SpatialAffinity(nn.Module):
                     lr=self.lr,
                     betas=(0.5, 0.9),
                 )
-                self.optimizers[dataset.popari.name] = optimizer
+                self.optimizers[sample] = optimizer
 
         elif self.mode == "attention":
             # TODO: initialize with gradient descent
@@ -1238,10 +1229,10 @@ class SpatialAffinity(nn.Module):
 
 
 class SpatialAffinityBar(nn.Module):
-    def __init__(self, K, datasets, groups, context=None):
+    def __init__(self, K, sample_names, groups, context=None):
         super().__init__()
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self._ordered_dataset_names = [dataset.popari.name for dataset in datasets]
+        self._ordered_dataset_names = list(sample_names)
         self._ordered_group_names = list(groups)
         self.groups = groups
         self.spatial_affinity_bar = ParameterDict(prefix="spatial_affinity_bar")

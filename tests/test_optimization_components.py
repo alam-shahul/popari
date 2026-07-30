@@ -13,7 +13,7 @@ def _sigma_yxs_numpy(model):
 
 def _shared_group_and_mask(model):
     group_name, group_replicates = next(iter(model.metagene_groups.items()))
-    replicate_mask = np.array([dataset.popari.name in group_replicates for dataset in model.datasets], dtype=bool)
+    replicate_mask = np.array([sample in group_replicates for sample in model.replicate_names], dtype=bool)
     first_dataset_name = group_replicates[0]
     return group_name, group_replicates, replicate_mask, first_dataset_name
 
@@ -23,17 +23,17 @@ def test_sigma_yx_update_matches_manual_residual_sum(shared_model_factory):
     model.parameter_optimizer.update_sigma_yx()
 
     manual_squared_loss = 0.0
-    for y, dataset in zip(model.Ys, model.datasets):
+    for y, sample in zip(model.Ys, model.replicate_names):
         residual = torch.addmm(
             y.to_dense(),
-            model.embedding_optimizer.embedding_state[dataset.popari.name],
-            model.parameter_optimizer.metagene_state[dataset.popari.name].T,
+            model.embedding_optimizer.embedding_state[sample],
+            model.parameter_optimizer.metagene_state[sample].T,
             alpha=-1,
         )
         manual_squared_loss += torch.linalg.norm(residual, ord="fro").item() ** 2
 
     sigma_yxs = _sigma_yxs_numpy(model)
-    assert sigma_yxs.shape == (len(model.datasets),)
+    assert sigma_yxs.shape == (len(model.replicate_names),)
     assert np.all(np.isfinite(sigma_yxs))
     assert np.all(sigma_yxs > 0)
     assert model.parameter_optimizer.nll_sigma_yx() == pytest.approx(manual_squared_loss, abs=1e-6)
@@ -41,8 +41,7 @@ def test_sigma_yx_update_matches_manual_residual_sum(shared_model_factory):
 
 def test_scale_metagenes_preserves_reconstruction_and_simplex_constraint(shared_model_factory):
     model = shared_model_factory()
-    dataset = model.datasets[0]
-    name = dataset.popari.name
+    name = model.replicate_names[0]
 
     original_metagenes = model.parameter_optimizer.metagene_state[name].clone()
     original_embedding = model.embedding_optimizer.embedding_state[name].clone()
@@ -114,7 +113,7 @@ def test_nll_metagenes_matches_groupwise_sum(shared_model_factory):
     manual_loss = 0.0
     for _, group_replicates in model.metagene_groups.items():
         first_dataset_name = group_replicates[0]
-        replicate_mask = np.array([dataset.popari.name in group_replicates for dataset in model.datasets], dtype=bool)
+        replicate_mask = np.array([sample in group_replicates for sample in model.replicate_names], dtype=bool)
         m = model.parameter_optimizer.metagene_state[first_dataset_name]
         manual_loss += model.parameter_optimizer.nll_M(m, replicate_mask)
 
@@ -160,7 +159,7 @@ def test_nll_spatial_affinities_matches_groupwise_sum(shared_model_factory):
     manual_loss = 0.0
     for _, group_replicates in model.spatial_affinity_groups.items():
         first_dataset_name = group_replicates[0]
-        replicate_mask = np.array([dataset.popari.name in group_replicates for dataset in model.datasets], dtype=bool)
+        replicate_mask = np.array([sample in group_replicates for sample in model.replicate_names], dtype=bool)
         sigma_x_inv = model.parameter_optimizer.spatial_affinity[first_dataset_name]
         manual_loss += model.parameter_optimizer.nll_Sigma_x_inv(sigma_x_inv, replicate_mask).item()
 
@@ -172,8 +171,8 @@ def test_spatial_affinity_update_is_symmetric(shared_model_factory):
     model.parameter_optimizer.update_sigma_yx()
     model.parameter_optimizer.update_spatial_affinity()
 
-    for dataset in model.datasets:
-        affinity = model.parameter_optimizer.spatial_affinity[dataset.popari.name].detach().cpu().numpy()
+    for sample in model.replicate_names:
+        affinity = model.parameter_optimizer.spatial_affinity[sample].detach().cpu().numpy()
         assert np.allclose(affinity, affinity.T, atol=1e-6)
 
 
@@ -199,19 +198,18 @@ def test_nll_embeddings_matches_sum_without_neighbors(shared_model_factory):
     model.parameter_optimizer.update_sigma_yx()
 
     manual_loss = 0.0
-    for dataset_index, dataset in enumerate(model.datasets):
+    for dataset_index, sample in enumerate(model.replicate_names):
         manual_loss += model.embedding_optimizer.nll_weight_wonbr(
             model.Ys[dataset_index].to(model.embedding_optimizer.context["device"]),
-            model.parameter_optimizer.metagene_state[dataset.popari.name].to(
+            model.parameter_optimizer.metagene_state[sample].to(
                 model.embedding_optimizer.context["device"],
             ),
-            model.embedding_optimizer.embedding_state[dataset.popari.name].to(
+            model.embedding_optimizer.embedding_state[sample].to(
                 model.embedding_optimizer.context["device"],
             ),
             model.parameter_optimizer.sigma_yxs[dataset_index].item(),
             model.parameter_optimizer.prior_x_modes[dataset_index],
             model.parameter_optimizer.prior_xs[dataset_index],
-            dataset,
         )
 
     assert model.embedding_optimizer.nll_embeddings(use_neighbors=False).item() == pytest.approx(
@@ -224,19 +222,15 @@ def test_direct_estimate_weight_wonbr_reduces_loss(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
     dataset_index = 0
-    dataset = model.datasets[dataset_index]
+    sample = model.replicate_names[dataset_index]
     y = model.Ys[dataset_index].to(model.embedding_optimizer.context["device"])
-    m = model.parameter_optimizer.metagene_state[dataset.popari.name].to(model.embedding_optimizer.context["device"])
-    x = (
-        model.embedding_optimizer.embedding_state[dataset.popari.name]
-        .clone()
-        .to(model.embedding_optimizer.context["device"])
-    )
+    m = model.parameter_optimizer.metagene_state[sample].to(model.embedding_optimizer.context["device"])
+    x = model.embedding_optimizer.embedding_state[sample].clone().to(model.embedding_optimizer.context["device"])
     sigma_yx = model.parameter_optimizer.sigma_yxs[dataset_index].item()
     prior_x_mode = model.parameter_optimizer.prior_x_modes[dataset_index]
     prior_x = model.parameter_optimizer.prior_xs[dataset_index]
 
-    initial_loss = model.embedding_optimizer.nll_weight_wonbr(y, m, x, sigma_yx, prior_x_mode, prior_x, dataset)
+    initial_loss = model.embedding_optimizer.nll_weight_wonbr(y, m, x, sigma_yx, prior_x_mode, prior_x)
     updated_loss, updated_x = model.embedding_optimizer.estimate_weight_wonbr(
         y,
         m,
@@ -244,7 +238,6 @@ def test_direct_estimate_weight_wonbr_reduces_loss(shared_model_factory):
         sigma_yx,
         prior_x_mode,
         prior_x,
-        dataset,
     )
 
     assert np.isfinite(updated_loss)
@@ -255,16 +248,13 @@ def test_direct_estimate_weight_wonbr_reduces_loss(shared_model_factory):
 def test_update_embeddings_without_neighbors_changes_values(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
-    before = {
-        dataset.popari.name: model.embedding_optimizer.embedding_state[dataset.popari.name].clone()
-        for dataset in model.datasets
-    }
+    before = {sample: model.embedding_optimizer.embedding_state[sample].clone() for sample in model.replicate_names}
 
     model.embedding_optimizer.update_embeddings(use_neighbors=False)
 
-    for dataset in model.datasets:
-        after = model.embedding_optimizer.embedding_state[dataset.popari.name]
-        assert not torch.allclose(before[dataset.popari.name], after)
+    for sample in model.replicate_names:
+        after = model.embedding_optimizer.embedding_state[sample]
+        assert not torch.allclose(before[sample], after)
         assert torch.all(after >= 0)
         assert torch.isfinite(after).all()
 
@@ -274,19 +264,19 @@ def test_nll_embeddings_matches_sum_with_neighbors(shared_model_factory):
     model.parameter_optimizer.update_sigma_yx()
 
     manual_loss = 0.0
-    for dataset_index, dataset in enumerate(model.datasets):
+    for dataset_index, sample in enumerate(model.replicate_names):
         manual_loss += model.embedding_optimizer.nll_weight_wnbr(
             model.Ys[dataset_index].to(model.embedding_optimizer.context["device"]),
-            model.parameter_optimizer.metagene_state[dataset.popari.name].to(
+            model.parameter_optimizer.metagene_state[sample].to(
                 model.embedding_optimizer.context["device"],
             ),
-            model.embedding_optimizer.embedding_state[dataset.popari.name].to(
+            model.embedding_optimizer.embedding_state[sample].to(
                 model.embedding_optimizer.context["device"],
             ),
             model.parameter_optimizer.sigma_yxs[dataset_index].item(),
             model.parameter_optimizer.prior_x_modes[dataset_index],
             model.parameter_optimizer.prior_xs[dataset_index],
-            dataset,
+            sample,
         )
 
     assert model.embedding_optimizer.nll_embeddings(use_neighbors=True).item() == pytest.approx(
@@ -299,19 +289,15 @@ def test_direct_estimate_weight_wnbr_reduces_loss(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
     dataset_index = 0
-    dataset = model.datasets[dataset_index]
+    sample = model.replicate_names[dataset_index]
     y = model.Ys[dataset_index].to(model.embedding_optimizer.context["device"])
-    m = model.parameter_optimizer.metagene_state[dataset.popari.name].to(model.embedding_optimizer.context["device"])
-    x = (
-        model.embedding_optimizer.embedding_state[dataset.popari.name]
-        .clone()
-        .to(model.embedding_optimizer.context["device"])
-    )
+    m = model.parameter_optimizer.metagene_state[sample].to(model.embedding_optimizer.context["device"])
+    x = model.embedding_optimizer.embedding_state[sample].clone().to(model.embedding_optimizer.context["device"])
     sigma_yx = model.parameter_optimizer.sigma_yxs[dataset_index].item()
     prior_x_mode = model.parameter_optimizer.prior_x_modes[dataset_index]
     prior_x = model.parameter_optimizer.prior_xs[dataset_index]
 
-    initial_loss = model.embedding_optimizer.nll_weight_wnbr(y, m, x, sigma_yx, prior_x_mode, prior_x, dataset)
+    initial_loss = model.embedding_optimizer.nll_weight_wnbr(y, m, x, sigma_yx, prior_x_mode, prior_x, sample)
     updated_loss, updated_x = model.embedding_optimizer.estimate_weight_wnbr(
         y,
         m,
@@ -319,7 +305,7 @@ def test_direct_estimate_weight_wnbr_reduces_loss(shared_model_factory):
         sigma_yx,
         prior_x_mode,
         prior_x,
-        dataset,
+        sample,
         tol=1e-4,
     )
 
@@ -331,16 +317,13 @@ def test_direct_estimate_weight_wnbr_reduces_loss(shared_model_factory):
 def test_update_embeddings_with_neighbors_changes_values(shared_model_factory):
     model = shared_model_factory()
     model.parameter_optimizer.update_sigma_yx()
-    before = {
-        dataset.popari.name: model.embedding_optimizer.embedding_state[dataset.popari.name].clone()
-        for dataset in model.datasets
-    }
+    before = {sample: model.embedding_optimizer.embedding_state[sample].clone() for sample in model.replicate_names}
 
     model.embedding_optimizer.update_embeddings(use_neighbors=True)
 
-    for dataset in model.datasets:
-        after = model.embedding_optimizer.embedding_state[dataset.popari.name]
-        assert not torch.allclose(before[dataset.popari.name], after)
+    for sample in model.replicate_names:
+        after = model.embedding_optimizer.embedding_state[sample]
+        assert not torch.allclose(before[sample], after)
         assert torch.all(after >= 0)
         assert torch.isfinite(after).all()
 
@@ -348,7 +331,7 @@ def test_update_embeddings_with_neighbors_changes_values(shared_model_factory):
 def test_differential_reaverage_updates_group_averages(differential_model_factory):
     model = differential_model_factory()
 
-    dataset_names = [dataset.popari.name for dataset in model.datasets]
+    dataset_names = model.replicate_names
     for offset, dataset_name in enumerate(dataset_names, start=1):
         with torch.no_grad():
             model.parameter_optimizer.metagene_state[dataset_name].fill_(float(offset))
@@ -381,8 +364,8 @@ def test_update_metagenes_differential_reaverages_group_bars(differential_model_
 
     model.parameter_optimizer.update_metagenes(simplex_projection_mode="exact")
 
-    for dataset in model.datasets:
-        metagenes = model.parameter_optimizer.metagene_state[dataset.popari.name]
+    for sample in model.replicate_names:
+        metagenes = model.parameter_optimizer.metagene_state[sample]
         assert torch.all(metagenes >= 0)
         assert torch.allclose(
             metagenes.sum(dim=0),

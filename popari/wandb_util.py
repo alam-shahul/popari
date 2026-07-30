@@ -9,7 +9,7 @@ from typing import Union
 import anndata as ad
 import torch
 
-from popari.io import convert_legacy_anndata, load_anndata, unmerge_anndata
+from popari.io import convert_legacy_anndata, load_anndata, normalize_anndata_hierarchy
 from popari.model import load_pretrained
 
 LEVEL_FILE_PATTERN = re.compile(r"^level_(\d+)\.h5ad$")
@@ -155,7 +155,8 @@ def read_popari_anndata_hierarchy(paths: str | Path | list[str | Path]) -> dict[
         raise ValueError(f"Expected one flat .h5ad result file; found {len(flat_files)}.")
 
     files_by_level = level_files or {0: flat_files[0]}
-    return {level: load_anndata(h5ad_file) for level, h5ad_file in sorted(files_by_level.items())}
+    hierarchy = {level: load_anndata(h5ad_file) for level, h5ad_file in sorted(files_by_level.items())}
+    return normalize_anndata_hierarchy(hierarchy)
 
 
 def load_popari_anndata_from_wandb(
@@ -204,15 +205,11 @@ def load_popari_model_from_wandb(
         alias=alias,
         root=root,
     )
-    split_hierarchy = {level: unmerge_anndata(level_adata)[0] for level, level_adata in reloaded_hierarchy.items()}
-    datasets = split_hierarchy[0]
-    replicate_names = [dataset.popari.name for dataset in datasets]
     popari_kwargs.setdefault("hierarchical_levels", len(reloaded_hierarchy))
 
     return load_pretrained(
-        datasets,
-        replicate_names,
-        reloaded_hierarchy=split_hierarchy,
+        reloaded_hierarchy[0],
+        reloaded_hierarchy=reloaded_hierarchy,
         context=context,
         **popari_kwargs,
     )

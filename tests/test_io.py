@@ -9,6 +9,7 @@ from popari.io import (
     load_anndata,
     load_anndata_hierarchy,
     merge_anndata,
+    normalize_anndata_hierarchy,
     save_anndata,
     unmerge_anndata,
 )
@@ -50,7 +51,7 @@ def test_convert_legacy_anndata_reconstructs_sample_graphs():
 def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
     model = shared_model_factory()
     filepath = tmp_path / "results.h5ad"
-    canonical = merge_anndata(model.datasets)
+    canonical = model.adata.copy()
 
     save_anndata(filepath, canonical)
     reloaded = load_anndata(filepath)
@@ -58,18 +59,19 @@ def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
 
     assert replicate_names == model.replicate_names
     assert reloaded.popari.sample_names == tuple(model.replicate_names)
-    assert len(datasets) == len(model.datasets)
-    for original, reloaded in zip(model.datasets, datasets):
-        assert reloaded.popari.name == original.popari.name
-        assert reloaded.shape == original.shape
-        assert np.allclose(reloaded.obsm["X"], original.obsm["X"])
+    assert len(datasets) == len(model.replicate_names)
+    for sample, sample_adata in zip(model.replicate_names, datasets):
+        indices = model.adata.popari.sample_indices(sample)
+        assert sample_adata.popari.name == sample
+        assert sample_adata.shape == (len(indices), model.adata.n_vars)
+        assert np.allclose(sample_adata.obsm["X"], model.adata.obsm["X"][indices])
         assert np.allclose(
-            reloaded.uns["M"][reloaded.popari.name],
-            original.uns["M"][original.popari.name],
+            sample_adata.uns["M"][sample],
+            model.adata.uns["M"][sample],
         )
         assert np.allclose(
-            reloaded.uns["Sigma_x_inv"][reloaded.popari.name],
-            original.uns["Sigma_x_inv"][original.popari.name],
+            sample_adata.uns["Sigma_x_inv"][sample],
+            model.adata.uns["Sigma_x_inv"][sample],
         )
 
 
@@ -80,7 +82,7 @@ def test_save_anndata_ignore_raw_data(shared_model_factory, tmp_path):
 
     canonical = save_anndata(
         filepath,
-        merge_anndata(model.datasets),
+        model.adata,
         ignore_raw_data=True,
     )
 
@@ -92,7 +94,7 @@ def test_load_anndata_hierarchy_returns_one_anndata_per_level(shared_model_facto
     model = shared_model_factory()
     result_path = tmp_path / "hierarchy"
     result_path.mkdir()
-    canonical = merge_anndata(model.datasets)
+    canonical = model.adata
     save_anndata(result_path / "level_0.h5ad", canonical)
     save_anndata(result_path / "level_1.h5ad", canonical)
 
@@ -101,6 +103,26 @@ def test_load_anndata_hierarchy_returns_one_anndata_per_level(shared_model_facto
     assert tuple(hierarchy) == (0, 1)
     assert all(isinstance(dataset, ad.AnnData) for dataset in hierarchy.values())
     assert hierarchy[0].popari.sample_names == tuple(model.replicate_names)
+
+
+def test_normalize_anndata_hierarchy_removes_legacy_level_suffixes(shared_model_factory):
+    model = shared_model_factory()
+    fine = model.adata.copy()
+    coarse = model.adata.copy()
+    renames = {sample: f"{sample}_level_1" for sample in model.replicate_names}
+    coarse.obs["batch"] = pd.Categorical(
+        coarse.obs["batch"].astype(str).map(renames),
+        categories=renames.values(),
+        ordered=True,
+    )
+    for key in ("M", "Sigma_x_inv", "sigma_yx"):
+        coarse.uns[key] = {renames[sample]: value for sample, value in coarse.uns[key].items()}
+
+    hierarchy = normalize_anndata_hierarchy({0: fine, 1: coarse})
+
+    assert hierarchy[1].popari.sample_names == tuple(model.replicate_names)
+    assert tuple(hierarchy[1].uns["M"]) == tuple(model.replicate_names)
+    assert tuple(hierarchy[1].uns["Sigma_x_inv"]) == tuple(model.replicate_names)
 
 
 def test_save_and_load_supports_custom_sample_key(tmp_path):
@@ -136,9 +158,12 @@ def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
     assert reloaded.metagene_mode == model.metagene_mode
     assert reloaded.spatial_affinity_mode == model.spatial_affinity_mode
 
-    for original, restored in zip(model.datasets, reloaded.datasets):
-        assert np.allclose(restored.obsm["X"], original.obsm["X"])
-        assert np.allclose(restored.uns["M"][restored.popari.name], original.uns["M"][original.popari.name])
+    assert np.allclose(reloaded.adata.obsm["X"], model.adata.obsm["X"])
+    for sample in model.replicate_names:
+        assert np.allclose(
+            reloaded.adata.uns["M"][sample],
+            model.adata.uns["M"][sample],
+        )
 
     assert np.isfinite(reloaded.nll(level=0)).all()
 
@@ -177,21 +202,21 @@ def test_hierarchical_save_and_load_roundtrip(hierarchical_model_factory, gpu_co
 
     assert reloaded.hierarchical_levels == model.hierarchical_levels
     for level in range(model.hierarchical_levels):
-        for original, restored in zip(model.hierarchy[level].datasets, reloaded.hierarchy[level].datasets):
-            assert original.shape == restored.shape
-            assert np.allclose(original.obsm["X"], restored.obsm["X"])
+        original = model.hierarchy[level].adata
+        restored = reloaded.hierarchy[level].adata
+        assert original.shape == restored.shape
+        assert np.allclose(original.obsm["X"], restored.obsm["X"])
 
 
 @pytest.mark.expensive
 def test_reload_expression_restores_trainability(hierarchical_model_factory, tmp_path):
     model = hierarchical_model_factory(hierarchical_levels=2)
-    raw_datasets = [dataset.copy() for dataset in model.hierarchy[0].datasets]
+    raw_adata = model.hierarchy[0].adata.copy()
 
     filepath = tmp_path / "hierarchical_untrainable"
     model.save_results(filepath, ignore_raw_data=True)
     reloaded = load_trained_model(filepath)
 
-    reloaded._reload_expression(raw_datasets)
+    reloaded._reload_expression(raw_adata)
 
-    for dataset in reloaded.hierarchy[0].datasets:
-        assert dataset.X.sum() > 0
+    assert reloaded.hierarchy[0].adata.X.sum() > 0

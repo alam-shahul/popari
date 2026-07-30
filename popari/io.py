@@ -227,9 +227,14 @@ def _sample_name(dataset: AnnData, sample_key: str) -> str:
     try:
         return dataset.popari.name
     except ValueError:
-        if sample_key not in dataset.obs:
+        fallback_key = (
+            sample_key
+            if sample_key in dataset.obs
+            else DEFAULT_SAMPLE_KEY if DEFAULT_SAMPLE_KEY in dataset.obs else None
+        )
+        if fallback_key is None:
             raise
-        names = dataset.obs[sample_key].dropna().astype(str).unique()
+        names = dataset.obs[fallback_key].dropna().astype(str).unique()
         if len(names) != 1:
             raise ValueError(
                 "Each compatibility input AnnData must represent exactly one named sample.",
@@ -285,11 +290,15 @@ def merge_anndata(
     if bin_assignments and len(bin_assignments) != len(datasets):
         raise ValueError("Bin assignments must be present for either every sample or no samples.")
 
+    observation_names = pd.Index(
+        np.concatenate([dataset.obs_names.to_numpy() for dataset in copies]),
+    )
+    index_unique = None if observation_names.is_unique else "-"
     merged = ad.concat(
         copies,
         label=sample_key,
         keys=sample_names,
-        index_unique="-",
+        index_unique=index_unique,
         join="inner",
         merge="unique",
         uns_merge="unique",
@@ -494,10 +503,90 @@ def load_anndata_hierarchy(
 ) -> dict[int, AnnData]:
     """Load one canonical AnnData for every saved hierarchy level."""
 
-    return {
+    hierarchy = {
         level: load_anndata(level_path, sample_key=sample_key)
         for level, level_path in sorted(_hierarchy_files(path).items())
     }
+    return normalize_anndata_hierarchy(hierarchy, sample_key=sample_key)
+
+
+def _rename_mapping_keys(mapping: Mapping, renames: Mapping[str, str]) -> dict:
+    return {renames.get(str(key), str(key)): value for key, value in mapping.items()}
+
+
+def normalize_anndata_hierarchy(
+    hierarchy: Mapping[int, AnnData],
+    *,
+    sample_key: str | None = None,
+) -> dict[int, AnnData]:
+    """Normalize legacy hierarchy sample suffixes across unified levels."""
+
+    if not hierarchy:
+        raise ValueError("hierarchy must contain at least level 0.")
+
+    result = dict(sorted(hierarchy.items()))
+    levels = list(result)
+    if levels != list(range(len(levels))):
+        raise ValueError(f"Hierarchy levels must be contiguous from zero; found {levels}.")
+
+    resolved_sample_key = _resolved_sample_key(result[0], sample_key)
+    base_axis = SampleAxis.from_anndata(
+        result[0],
+        sample_key=resolved_sample_key,
+    )
+    base_names = base_axis.names
+
+    for level, adata in result.items():
+        if _resolved_sample_key(adata, sample_key) != resolved_sample_key:
+            raise ValueError("All hierarchy levels must use the same sample key.")
+
+        axis = SampleAxis.from_anndata(adata, sample_key=resolved_sample_key)
+        if axis.names == base_names:
+            continue
+
+        legacy_names = tuple(f"{sample}_level_{level}" for sample in base_names)
+        if axis.names != legacy_names:
+            raise ValueError(
+                f"Hierarchy level {level} has samples {axis.names}; expected "
+                f"{base_names} or legacy names {legacy_names}.",
+            )
+
+        renames = dict(zip(legacy_names, base_names))
+        adata.obs[resolved_sample_key] = pd.Categorical(
+            adata.obs[resolved_sample_key].astype(str).map(renames),
+            categories=base_names,
+            ordered=True,
+        )
+        for key in (*_SAMPLE_PARAMETER_KEYS, "sigma_yx"):
+            values = adata.uns.get(key)
+            if isinstance(values, Mapping):
+                adata.uns[key] = _rename_mapping_keys(values, renames)
+
+        hyperparameters = adata.uns.get(HYPERPARAMETERS_KEY)
+        if isinstance(hyperparameters, Mapping):
+            hyperparameters = dict(hyperparameters)
+            prior_x = hyperparameters.get("prior_x")
+            if isinstance(prior_x, Mapping):
+                hyperparameters["prior_x"] = _rename_mapping_keys(prior_x, renames)
+            for key in ("metagene_groups", "spatial_affinity_groups"):
+                groups = hyperparameters.get(key)
+                if isinstance(groups, Mapping):
+                    hyperparameters[key] = {
+                        group: [renames.get(str(sample), str(sample)) for sample in samples]
+                        for group, samples in groups.items()
+                    }
+            for key in ("metagene_tags", "spatial_affinity_tags"):
+                tags = hyperparameters.get(key)
+                if isinstance(tags, Mapping):
+                    hyperparameters[key] = _rename_mapping_keys(tags, renames)
+            adata.uns[HYPERPARAMETERS_KEY] = hyperparameters
+
+        SampleAxis.from_anndata(
+            adata,
+            sample_key=resolved_sample_key,
+        )
+
+    return result
 
 
 def save_anndata_hierarchy(
