@@ -11,7 +11,6 @@ from popari.io import (
     merge_anndata,
     normalize_anndata_hierarchy,
     save_anndata,
-    unmerge_anndata,
 )
 from popari.model import load_trained_model
 
@@ -117,19 +116,19 @@ def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
 
     save_anndata(filepath, canonical)
     reloaded = load_anndata(filepath)
-    datasets, replicate_names = unmerge_anndata(reloaded)
 
-    assert replicate_names == model.replicate_names
     assert reloaded.popari.sample_names == tuple(model.replicate_names)
-    assert len(datasets) == len(model.replicate_names)
-    for sample, sample_adata in zip(model.replicate_names, datasets):
-        indices = model.adata.popari.sample_indices(sample)
-        assert sample_adata.popari.name == sample
-        assert sample_adata.shape == (len(indices), model.adata.n_vars)
-        assert np.allclose(sample_adata.obsm["X"], model.adata.obsm["X"][indices])
-        assert np.allclose(sample_adata.uns["M"], model.adata.uns["M"])
+    assert reloaded.shape == model.adata.shape
+    assert reloaded.obs_names.equals(model.adata.obs_names)
+    assert np.allclose(reloaded.obsm["X"], model.adata.obsm["X"])
+    assert np.allclose(reloaded.uns["M"], model.adata.uns["M"])
+    for sample in model.replicate_names:
+        assert np.array_equal(
+            reloaded.popari.sample_indices(sample),
+            model.adata.popari.sample_indices(sample),
+        )
         assert np.allclose(
-            sample_adata.uns["Sigma_x_inv"][sample],
+            reloaded.uns["Sigma_x_inv"][sample],
             model.adata.uns["Sigma_x_inv"][sample],
         )
 

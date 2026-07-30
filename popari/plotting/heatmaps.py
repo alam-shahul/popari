@@ -330,7 +330,6 @@ def multireplicate_heatmap(
     adata: ad.AnnData,
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     title_font_size: int | None = None,
     axes: Sequence[Axes] | None = None,
     obsm: str | None = None,
@@ -349,7 +348,6 @@ def multireplicate_heatmap(
     Args:
         adata: Unified multisample AnnData object.
         samples: Sample names to plot. By default, plot every sample.
-        sample_key: Observation column containing sample identities.
         axes: A predefined set of matplotlib axes to plot on.
         obsm: Key in ``obsm`` containing an observation-by-feature matrix.
         obsp: Key in ``obsp`` containing an observation-by-observation matrix.
@@ -366,7 +364,6 @@ def multireplicate_heatmap(
     sample_axis, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
     )
     cmap = heatmap_kwargs.pop("cmap", "hot")
 
@@ -412,7 +409,6 @@ def spatial_affinity_heatmap(
     adata: ad.AnnData,
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     spatial_affinity_key: str | None = "Sigma_x_inv",
     axes: Sequence[Axes] | None = None,
     metagene_order: Sequence[int] | None = None,
@@ -423,7 +419,6 @@ def spatial_affinity_heatmap(
     Args:
         adata: Unified multisample AnnData containing spatial-affinity matrices.
         samples: Sample names to plot. By default, plot every sample.
-        sample_key: Observation column containing sample identities.
         axes: A predefined set of matplotlib axes to plot on.
         metagene_order: Optional permutation or subset of metagene indices.
         **heatmap_kwargs: Arguments passed to :func:`matrix_heatmap_panel`.
@@ -433,7 +428,6 @@ def spatial_affinity_heatmap(
     _, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
     )
     cmap = heatmap_kwargs.pop("cmap") if "cmap" in heatmap_kwargs else "bwr"
     spatial_affinities = np.asarray(

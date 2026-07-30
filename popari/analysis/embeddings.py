@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Literal
 
 import anndata as ad
 import numpy as np
@@ -17,14 +18,29 @@ def postprocess_embeddings(
     dataset: ad.AnnData,
     input_key: str = "X",
     normalized_key: str = "normalized_X",
+    *,
+    mode: Literal["sample", "joint"] = "sample",
 ) -> None:
-    """Standardize embeddings and build sample-local neighbor graphs."""
+    """Standardize embeddings and build a downstream neighbor graph.
+
+    ``mode="sample"`` reproduces processing a sequence of individual samples:
+    normalization and neighbor construction are performed independently within
+    each sample. ``mode="joint"`` treats all observations as one population.
+
+    """
 
     if input_key not in dataset.obsm:
         raise ValueError(f"Missing embeddings in obsm[{input_key!r}].")
+    if mode not in {"sample", "joint"}:
+        raise ValueError("mode must be 'sample' or 'joint'.")
+
+    embeddings = np.asarray(dataset.obsm[input_key])
+    if mode == "joint":
+        dataset.obsm[normalized_key] = np.nan_to_num(zscore(embeddings, axis=0))
+        sc.pp.neighbors(dataset, use_rep=normalized_key)
+        return
 
     sample_axis = SampleAxis.from_anndata(dataset, sample_key=dataset.popari.sample_key)
-    embeddings = np.asarray(dataset.obsm[input_key])
     normalized_embeddings = np.empty(embeddings.shape, dtype=float)
     for sample in sample_axis.names:
         indices = sample_axis.indices(sample)

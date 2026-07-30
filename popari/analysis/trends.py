@@ -20,13 +20,12 @@ def normalized_affinity_trends(
     spatial_affinity_key: str = "Sigma_x_inv",
     n_best: int = 5,
     highlight_metric: str = "pearson",
-    sample_key: str | None = None,
 ):
     """Compute temporal summaries for every lower-triangular affinity entry."""
 
     sample_axis = SampleAxis.from_anndata(
         dataset,
-        sample_key=sample_key or dataset.popari.sample_key,
+        sample_key=dataset.popari.sample_key,
     )
     timepoint_values = np.asarray(timepoint_values, dtype=float)
     if len(timepoint_values) != len(sample_axis):

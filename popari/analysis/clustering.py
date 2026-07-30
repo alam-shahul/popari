@@ -113,7 +113,13 @@ def cluster_domains(
     skip_thresholding: bool = True,
     batch_correct: bool = False,
 ):
-    """Discover spatial domains across a unified multisample embedding."""
+    """Discover spatial domains across a unified multisample embedding.
+
+    Normalization and spatial smoothing are sample-local. Neighbor construction
+    and Leiden clustering are joint so that domain labels are shared across
+    samples. Final label smoothing is again restricted to each spatial graph.
+
+    """
 
     sample_key = dataset.popari.sample_key
     sample_axis = SampleAxis.from_anndata(dataset, sample_key=sample_key)

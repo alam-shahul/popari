@@ -30,7 +30,6 @@ from popari.schema import (
     SCHEMA_VERSION_KEY,
     SPATIAL_AFFINITY_KEY,
 )
-from popari.util import convert_adjacency_matrix_to_awkward_array
 
 LEVEL_FILE_PATTERN = re.compile(r"^level_(\d+)\.h5ad$")
 _SAMPLE_PARAMETER_KEYS = (
@@ -383,78 +382,6 @@ def merge_anndata(
     elif sparse.issparse(merged.X):
         merged.X = csr_array(merged.X)
     return merged
-
-
-def _filter_hyperparameter_groups(hyperparameters: Mapping[str, Any], sample: str) -> dict:
-    filtered = dict(hyperparameters)
-    name_parts = sample.rsplit("_level_", maxsplit=1)
-    level = int(name_parts[1]) if len(name_parts) == 2 and name_parts[1].isdigit() else 0
-
-    for key in ("spatial_affinity_groups",):
-        groups = filtered.get(key)
-        if not isinstance(groups, Mapping):
-            continue
-        filtered[key] = {
-            group: group_samples
-            for group, group_samples in groups.items()
-            if (
-                (
-                    int(str(group).rsplit("_level_", maxsplit=1)[1])
-                    if "_level_" in str(group) and str(group).rsplit("_level_", maxsplit=1)[1].isdigit()
-                    else 0
-                )
-                == level
-            )
-        }
-    return filtered
-
-
-def unmerge_anndata(
-    merged_dataset: AnnData,
-    *,
-    sample_key: str | None = None,
-) -> tuple[list[AnnData], list[str]]:
-    """Compatibility adapter that splits a canonical AnnData by sample."""
-
-    canonical = convert_legacy_anndata(
-        merged_dataset,
-        sample_key=sample_key,
-        copy=True,
-    )
-    axis = SampleAxis.from_anndata(canonical, sample_key=canonical.popari.sample_key)
-    canonical.popari.validate_spatial_graph()
-    datasets = []
-    for sample in axis.names:
-        dataset = canonical[axis.indices(sample)].copy()
-        dataset.obs[axis.sample_key] = dataset.obs[axis.sample_key].cat.remove_unused_categories()
-        dataset.popari.name = sample
-
-        for key in _SAMPLE_PARAMETER_KEYS:
-            values = canonical.uns.get(key)
-            if isinstance(values, Mapping) and sample in values:
-                dataset.uns[key] = {sample: values[sample]}
-
-        if HYPERPARAMETERS_KEY in dataset.uns:
-            dataset.uns[HYPERPARAMETERS_KEY] = _filter_hyperparameter_groups(
-                dataset.uns[HYPERPARAMETERS_KEY],
-                sample,
-            )
-
-        adjacency = csr_array(dataset.obsp[ADJACENCY_MATRIX_KEY])
-        dataset.obsp[ADJACENCY_MATRIX_KEY] = adjacency
-        dataset.obsm[ADJACENCY_LIST_KEY] = convert_adjacency_matrix_to_awkward_array(
-            adjacency.tocoo(),
-        )
-        if BIN_ASSIGNMENTS_KEY in canonical.obsm:
-            assignment_rows = csr_array(canonical.obsm[BIN_ASSIGNMENTS_KEY])[axis.indices(sample)]
-            used_columns = np.unique(assignment_rows.indices)
-            if used_columns.size == 0:
-                raise ValueError(f"Sample {sample!r} has an empty bin-assignment matrix.")
-            dataset.obsm.pop(BIN_ASSIGNMENTS_KEY, None)
-            dataset.obsm[f"{BIN_ASSIGNMENTS_KEY}_{sample}"] = assignment_rows[:, used_columns]
-        datasets.append(dataset)
-
-    return datasets, list(axis.names)
 
 
 def _serializable_value(value: Any) -> Any:

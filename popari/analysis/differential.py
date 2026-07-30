@@ -107,7 +107,6 @@ def compute_category_marker_scores(
     categories: Sequence | None = None,
     layer: str | None = None,
     per_dataset: bool = False,
-    sample_key: str | None = None,
 ) -> pd.DataFrame:
     """Compute z-scored expression of category-specific marker genes.
 
@@ -123,9 +122,6 @@ def compute_category_marker_scores(
         layer: Expression layer to aggregate. By default, use ``X``.
         per_dataset: Whether columns should represent category-replicate pairs
             instead of pooled categories.
-        sample_key: Observation column defining samples. Defaults to the key
-            stored in the Popari namespace.
-
     Returns:
         Marker-by-category z-score matrix. Rows have ``marker_category`` and
         ``gene`` index levels. In per-dataset mode, columns have ``category``
@@ -184,7 +180,7 @@ def compute_category_marker_scores(
     if per_dataset:
         sample_axis = SampleAxis.from_anndata(
             dataset,
-            sample_key=sample_key or dataset.popari.sample_key,
+            sample_key=dataset.popari.sample_key,
         )
         category_means = {sample: aggregate(dataset[sample_axis.indices(sample)])[0] for sample in sample_axis.names}
         column_index = pd.MultiIndex.from_product(

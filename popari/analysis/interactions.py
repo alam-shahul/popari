@@ -223,10 +223,10 @@ def _scaled_embeddings(dataset, embedding_key: str, rescale: bool):
     return np.divide(embeddings, size_factor, out=np.zeros_like(embeddings, dtype=float), where=size_factor != 0)
 
 
-def _sample_axis(dataset, sample_key: str | None = None) -> SampleAxis:
+def _sample_axis(dataset) -> SampleAxis:
     sample_axis = SampleAxis.from_anndata(
         dataset,
-        sample_key=sample_key or dataset.popari.sample_key,
+        sample_key=dataset.popari.sample_key,
     )
     dataset.popari.validate_spatial_graph()
     return sample_axis
@@ -290,7 +290,6 @@ def compute_spatial_colocalization(
     symmetrize: bool = True,
     zero_center: bool = True,
     scaling: float = 1,
-    sample_key: str | None = None,
 ) -> None:
     """Compute one post-hoc factor co-localization matrix on spatial graph
     edges.
@@ -313,12 +312,11 @@ def compute_spatial_colocalization(
             scaling=scaling,
             feature=feature,
             output=output,
-            sample_key=sample_key,
             neighbor_key=neighbor_key,
         )
         return
 
-    sample_axis = _sample_axis(dataset, sample_key)
+    sample_axis = _sample_axis(dataset)
     matrices = {}
     for sample in sample_axis.names:
         sample_dataset = dataset[sample_axis.indices(sample)]
@@ -378,7 +376,6 @@ def compute_posthoc_colocalization(
     zero_center: bool = True,
     scaling: float = 1,
     outputs: dict[str, str] | None = None,
-    sample_key: str | None = None,
 ) -> None:
     """Compute multiple post-hoc factor co-localization baselines.
 
@@ -400,7 +397,6 @@ def compute_posthoc_colocalization(
             symmetrize=symmetrize,
             zero_center=zero_center,
             scaling=scaling,
-            sample_key=sample_key,
         )
 
 
@@ -412,7 +408,6 @@ def compute_edge_interactions(
     embedding_key: str = "X",
     neighbor_key: str = "adjacency_matrix",
     rescale: bool = True,
-    sample_key: str | None = None,
 ) -> EdgeInteractions:
     """Compute affinity-weighted interaction scores on every graph edge.
 
@@ -423,7 +418,7 @@ def compute_edge_interactions(
 
     """
 
-    sample_axis = _sample_axis(dataset, sample_key)
+    sample_axis = _sample_axis(dataset)
     if sample is None and affinity is not None:
         sample_dataset = dataset
     else:
@@ -461,7 +456,6 @@ def compute_differential_edge_interactions(
     affinity_key: str = "Sigma_x_inv",
     neighbor_key: str = "adjacency_matrix",
     rescale: bool = True,
-    sample_key: str | None = None,
 ) -> EdgeInteractions:
     """Compute one sample's edge scores from a named affinity contrast."""
 
@@ -477,7 +471,6 @@ def compute_differential_edge_interactions(
         embedding_key=embedding_key,
         neighbor_key=neighbor_key,
         rescale=rescale,
-        sample_key=sample_key,
     )
 
 
@@ -499,7 +492,6 @@ def compute_category_edge_rates(
     sample: str | None = None,
     category_key: str = "cell_type",
     neighbor_key: str = "adjacency_matrix",
-    sample_key: str | None = None,
 ) -> pd.DataFrame:
     """Compute source-normalized category edge rates.
 
@@ -509,7 +501,7 @@ def compute_category_edge_rates(
     """
 
     if sample is not None:
-        sample_axis = _sample_axis(dataset, sample_key)
+        sample_axis = _sample_axis(dataset)
         dataset = dataset[sample_axis.indices(sample)]
 
     labels = dataset.obs[category_key].astype(str).to_numpy()
@@ -617,7 +609,6 @@ def compute_pair_edge_classification_scores(
     pairs=None,
     neighbor_key: str = "adjacency_matrix",
     rescale: bool = True,
-    sample_key: str | None = None,
 ) -> pd.DataFrame:
     """Score whether metagene-pair edge scores identify category-pair edges.
 
@@ -636,7 +627,7 @@ def compute_pair_edge_classification_scores(
     else:
         pairs = [(str(source), str(target)) for source, target in pairs]
 
-    sample_axis = _sample_axis(dataset, sample_key)
+    sample_axis = _sample_axis(dataset)
     sample = _resolve_sample(sample_axis, sample)
     sample_dataset = dataset[sample_axis.indices(sample)]
     edge_interactions = compute_edge_interactions(
@@ -646,7 +637,6 @@ def compute_pair_edge_classification_scores(
         embedding_key=embedding_key,
         neighbor_key=neighbor_key,
         rescale=rescale,
-        sample_key=sample_key,
     )
     labels = sample_dataset.obs[category_key].astype(str).to_numpy()
 
@@ -736,11 +726,10 @@ def compute_cell_average_interaction(
     affinity_key: str = "Sigma_x_inv",
     neighbor_key: str = "adjacency_matrix",
     output_key: str = "aligned",
-    sample_key: str | None = None,
 ) -> None:
     """Store sample-specific aligned embeddings and mean edge accordance."""
 
-    sample_axis = _sample_axis(dataset, sample_key)
+    sample_axis = _sample_axis(dataset)
     aligned_embeddings = np.zeros_like(np.asarray(dataset.obsm[embedding_key]), dtype=float)
     average_interactions = np.zeros(dataset.n_obs, dtype=float)
     for sample in sample_axis.names:
@@ -754,7 +743,6 @@ def compute_cell_average_interaction(
             embedding_key=embedding_key,
             neighbor_key=neighbor_key,
             rescale=rescale,
-            sample_key=sample_key,
         )
         scaled_embeddings = _scaled_embeddings(sample_dataset, embedding_key, rescale)
         aligned_embeddings[indices] = -scaled_embeddings @ affinity
@@ -782,12 +770,11 @@ def compute_metagene_pair_interaction(
     neighbor_key: str = "adjacency_matrix",
     rescale: bool = True,
     output_key: str = "metagene_pair_interaction",
-    sample_key: str | None = None,
 ):
     """Store affinity-weighted metagene-pair interactions averaged over
     edges."""
 
-    sample_axis = _sample_axis(dataset, sample_key)
+    sample_axis = _sample_axis(dataset)
     samples = sample_axis.names if sample is None else (_resolve_sample(sample_axis, sample),)
     interactions_by_sample = {}
     edge_counts_by_sample = {}
@@ -805,7 +792,6 @@ def compute_metagene_pair_interaction(
             embedding_key=embedding_key,
             neighbor_key=neighbor_key,
             rescale=rescale,
-            sample_key=sample_key,
         )
 
         if category_key is None:

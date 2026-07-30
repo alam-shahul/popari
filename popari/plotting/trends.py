@@ -18,7 +18,6 @@ def affinity_magnitude_vs_difference(
     adata: ad.AnnData,
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     spatial_affinity_key: str = "Sigma_x_inv",
     spatial_affinity_bar_key: str = "spatial_affinity_bar",
     figsize=(10, 10),
@@ -29,7 +28,6 @@ def affinity_magnitude_vs_difference(
     _, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
     )
     fig, axes = setup_squarish_axes(len(selected_samples), figsize=figsize)
     affinity_groups = adata.uns["popari_hyperparameters"]["spatial_affinity_groups"]
@@ -65,7 +63,6 @@ def normalized_affinity_trends(
     timepoint_values: Sequence[float],
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     time_unit: str = "Days",
     normalize: bool = False,
     spatial_affinity_key: str = "Sigma_x_inv",
@@ -79,7 +76,6 @@ def normalized_affinity_trends(
     _, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
     )
     affinities = np.asarray(
         [adata.uns[spatial_affinity_key][sample] for sample in selected_samples],

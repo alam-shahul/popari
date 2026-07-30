@@ -23,7 +23,6 @@ def pretty_spatial_affinities(
     adata: ad.AnnData,
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     metagene_key: str = "M",
     metagene_label_key: str = "metagene_labels",
     spatial_affinity_key: str = "Sigma_x_inv",
@@ -33,14 +32,12 @@ def pretty_spatial_affinities(
     Args:
         adata: Unified multisample AnnData object.
         samples: Sample names to plot. By default, plot every sample.
-        sample_key: Observation column containing sample identities.
 
     """
 
     _, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
     )
     transform_skew = Affine2D().skew_deg(15, 15)
     transform_rotate = Affine2D().rotate_deg(-45)
@@ -113,7 +110,6 @@ def pretty_spatial_affinities(
     multireplicate_heatmap(
         adata,
         samples=selected_samples,
-        sample_key=sample_key,
         uns=spatial_affinity_key,
         cmap="bwr",
         label_values=False,

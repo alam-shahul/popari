@@ -26,7 +26,6 @@ def metagene_embedding(
     metagene_index: int,
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     axes: Sequence[Axes] | None = None,
     **scatterplot_kwargs,
 ):
@@ -36,7 +35,6 @@ def metagene_embedding(
         adata: Unified multisample AnnData containing spatial coordinates and embeddings.
         metagene_index: Index of the metagene to plot.
         samples: Sample names to plot. By default, plot every sample.
-        sample_key: Observation column containing sample identities.
         axes: A predefined set of matplotlib axes to plot on.
 
     """
@@ -44,7 +42,6 @@ def metagene_embedding(
     sample_axis, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
     )
     legend = scatterplot_kwargs.pop("legend", False)
     default_s = scatterplot_kwargs.pop("s", None)
@@ -111,7 +108,6 @@ def in_situ(
     adata: ad.AnnData,
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     color="leiden",
     figsize=None,
     **spatial_kwargs,
@@ -124,7 +120,6 @@ def in_situ(
     Args:
         adata: Unified multisample AnnData object.
         samples: Sample names to plot. By default, plot every sample.
-        sample_key: Observation column containing sample identities.
         color: Key in ``obs`` containing categorical or continuous values.
         figsize: Size of the complete figure.
         **spatial_kwargs: Additional arguments for Squidpy's spatial scatter plot.
@@ -134,7 +129,6 @@ def in_situ(
     sample_axis, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
     )
     spatial_kwargs.pop("joint", None)
 
@@ -157,7 +151,8 @@ def in_situ(
     if not edges_width or connectivity_key not in adata.obsp:
         connectivity_key = None
     shape = spatial_kwargs.pop("shape", None)
-    library_key = spatial_kwargs.pop("library_key", sample_axis.sample_key)
+    spatial_kwargs.pop("library_key", None)
+    library_key = sample_axis.sample_key
     spatial_kwargs.pop("neighbors_key", None)
     spatial_kwargs.setdefault("edgecolors", "none")
     spatial_kwargs.setdefault("linewidths", 0)
@@ -209,7 +204,6 @@ def umap(
     color="leiden",
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     axes=None,
     **kwargs,
 ):
@@ -219,7 +213,6 @@ def umap(
         adata: Unified multisample AnnData containing ``obsm["X_umap"]``.
         color: Observation annotation to plot.
         samples: Sample names to plot. By default, plot every sample.
-        sample_key: Observation column containing sample identities.
         axes: A predefined set of matplotlib axes to plot on.
         **kwargs: Additional arguments for :func:`scanpy.pl.umap`.
 
@@ -231,7 +224,6 @@ def umap(
     sample_axis, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
     )
     sharex = kwargs.pop("sharex", True)
     sharey = kwargs.pop("sharey", True)
@@ -282,7 +274,6 @@ def all_embeddings(
     column_names: Sequence[str] | None = None,
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     axes=None,
     **spatial_kwargs,
 ):
@@ -295,7 +286,6 @@ def all_embeddings(
         embedding_key: Key in ``obsm`` containing cell or spot embeddings.
         column_names: Display names for embedding dimensions.
         samples: Sample names to plot. By default, plot every sample.
-        sample_key: Observation column containing sample identities.
         axes: A predefined array of axes with one cell per sample and embedding.
         **spatial_kwargs: Additional arguments for Squidpy's spatial scatter plot.
 
@@ -304,7 +294,6 @@ def all_embeddings(
     sample_axis, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
     )
     if axes is None:
         axes = spatial_kwargs.pop("ax", None)
@@ -354,13 +343,13 @@ def all_embeddings(
     limits = [
         (np.nanmin(selected_embeddings[:, index]), np.nanmax(selected_embeddings[:, index])) for index in range(K)
     ]
+    size = len(selected_indices) / 100
+    if default_size is not None:
+        size *= default_size
 
     for sample_index, sample in enumerate(selected_samples):
         dataset = adata[sample_axis.indices(sample)]
         extracted = sq.pl.extract(dataset, embedding_key, prefix=embedding_key)
-        size = 5000 / dataset.n_obs
-        if default_size is not None:
-            size *= default_size
         for feature_index, column_name in enumerate(column_names):
             ax = axes.flat[sample_index * K + feature_index]
             vmin, vmax = limits[feature_index]

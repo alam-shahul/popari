@@ -434,6 +434,37 @@ def test_postprocess_embeddings_is_sample_local_and_preserves_observation_order(
     assert dataset.uns["neighbors"]["params"]["use_rep"] == "normalized_X"
 
 
+def test_postprocess_embeddings_joint_mode_treats_all_observations_as_one_population(monkeypatch):
+    dataset = ad.AnnData(
+        X=np.ones((6, 1)),
+        obs=pd.DataFrame(
+            {"batch": pd.Categorical(["a", "b"] * 3)},
+            index=[f"cell_{index}" for index in range(6)],
+        ),
+    )
+    dataset.obsm["X"] = np.array(
+        [
+            [0.0, 0.0],
+            [100.0, 20.0],
+            [1.0, 1.0],
+            [110.0, 21.0],
+            [2.0, 4.0],
+            [120.0, 24.0],
+        ],
+    )
+    neighbor_calls = []
+
+    def fake_neighbors(processed_dataset, use_rep):
+        neighbor_calls.append((processed_dataset.n_obs, use_rep))
+
+    monkeypatch.setattr("popari.analysis.embeddings.sc.pp.neighbors", fake_neighbors)
+
+    tl.postprocess_embeddings(dataset, mode="joint")
+
+    np.testing.assert_allclose(dataset.obsm["normalized_X"], zscore(dataset.obsm["X"], axis=0))
+    assert neighbor_calls == [(dataset.n_obs, "normalized_X")]
+
+
 def test_cluster_domains_thresholds_each_sample(monkeypatch):
     sample_a = np.array(
         [

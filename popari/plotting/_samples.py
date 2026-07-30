@@ -13,15 +13,13 @@ def resolve_samples(
     adata: ad.AnnData,
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     require_graph: bool = False,
 ) -> tuple[SampleAxis, tuple[str, ...]]:
     """Return the sample axis and validated sample names to plot."""
 
-    resolved_sample_key = sample_key or adata.popari.sample_key
     sample_axis = SampleAxis.from_anndata(
         adata,
-        sample_key=resolved_sample_key,
+        sample_key=adata.popari.sample_key,
     )
     if require_graph:
         adata.popari.validate_spatial_graph()

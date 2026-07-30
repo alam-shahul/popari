@@ -15,7 +15,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
 from popari._sample_axis import SampleAxis
-from popari.schema import DEFAULT_SAMPLE_KEY, _validate_spatial_graph
+from popari.schema import _validate_spatial_graph
 from popari.util import compute_neighborhood_enrichment
 
 
@@ -25,7 +25,6 @@ def compute_empirical_correlations(
     feature: str = "X",
     output: str = "empirical_correlation",
     *,
-    sample_key: str | None = None,
     neighbor_key: str = "adjacency_matrix",
 ) -> None:
     """Compute one empirical spatial-correlation matrix per sample.
@@ -39,7 +38,7 @@ def compute_empirical_correlations(
 
     sample_axis = SampleAxis.from_anndata(
         dataset,
-        sample_key=sample_key or dataset.popari.sample_key,
+        sample_key=dataset.popari.sample_key,
     )
     _validate_spatial_graph(dataset, sample_axis, adjacency_key=neighbor_key)
     embeddings = np.asarray(dataset.obsm[feature])
@@ -80,7 +79,6 @@ def adjacency_permutation_test(
     n_trials: int = 100,
     random_state: int = 0,
     pvalue_key: str = "pvalue",
-    sample_key: str | None = None,
 ) -> None:
     r"""Compute p-values for neighborhood enrichment.
 
@@ -93,7 +91,7 @@ def adjacency_permutation_test(
     rng = np.random.default_rng(seed=random_state)
     sample_axis = SampleAxis.from_anndata(
         dataset,
-        sample_key=sample_key or dataset.popari.sample_key,
+        sample_key=dataset.popari.sample_key,
     )
     dataset.popari.validate_spatial_graph()
     all_labels = np.asarray(dataset.obsm[labels])

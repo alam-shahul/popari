@@ -13,15 +13,13 @@ def calculate_dataset_similarity_matrix(
     dataset,
     similarity_function=pearsonr,
     feature_key: str = "X",
-    *,
-    sample_key: str | None = None,
 ):
     """Compute a pairwise similarity matrix for sample-level average
     embeddings."""
 
     sample_axis = SampleAxis.from_anndata(
         dataset,
-        sample_key=sample_key or dataset.popari.sample_key,
+        sample_key=dataset.popari.sample_key,
     )
     embeddings = np.asarray(dataset.obsm[feature_key])
     feature_vectors = [embeddings[sample_axis.indices(sample)].mean(axis=0) for sample in sample_axis.names]

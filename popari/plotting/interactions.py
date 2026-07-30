@@ -157,7 +157,6 @@ def edge_interactions_panel(
     interactions: Mapping[str, EdgeInteractions],
     *,
     samples: str | Sequence[str] | None = None,
-    sample_key: str | None = None,
     score: str = "total",
     metagene_pair: tuple[int, int] | None = None,
     category_key: str | None = None,
@@ -176,7 +175,6 @@ def edge_interactions_panel(
     sample_axis, selected_samples = resolve_samples(
         adata,
         samples=samples,
-        sample_key=sample_key,
         require_graph=True,
     )
     missing_results = [sample for sample in selected_samples if sample not in interactions]

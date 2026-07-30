@@ -457,6 +457,24 @@ def test_all_embeddings_without_adjacency_returns_figure():
         _close_figures(figure)
 
 
+def test_all_embeddings_restores_publication_size_scaling(monkeypatch):
+    dataset = _multisample_spatial_dataset()
+    dataset.obsm["X"] = np.arange(16, dtype=float).reshape(8, 2)
+    sizes = []
+
+    def fake_spatial_scatter(adata, **kwargs):
+        sizes.append(kwargs["size"])
+
+    monkeypatch.setattr("popari.plotting.spatial.sq.pl.spatial_scatter", fake_spatial_scatter)
+
+    figure = pl.all_embeddings(dataset, size=2)
+
+    try:
+        assert sizes == [pytest.approx(2 * dataset.n_obs / 100)] * 4
+    finally:
+        _close_figures(figure)
+
+
 def test_in_situ_supports_continuous_observation_values():
     dataset = ad.AnnData(
         X=np.ones((4, 1)),
