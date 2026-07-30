@@ -15,7 +15,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
 from popari._sample_axis import SampleAxis
-from popari.schema import DEFAULT_SAMPLE_KEY
+from popari.schema import DEFAULT_SAMPLE_KEY, _validate_spatial_graph
 from popari.util import compute_neighborhood_enrichment
 
 
@@ -40,8 +40,8 @@ def compute_empirical_correlations(
     sample_axis = SampleAxis.from_anndata(
         dataset,
         sample_key=sample_key or dataset.popari.sample_key,
-        adjacency_key=neighbor_key,
     )
+    _validate_spatial_graph(dataset, sample_axis, adjacency_key=neighbor_key)
     embeddings = np.asarray(dataset.obsm[feature])
     num_factors = embeddings.shape[1]
     correlations = {}
@@ -95,6 +95,7 @@ def adjacency_permutation_test(
         dataset,
         sample_key=sample_key or dataset.popari.sample_key,
     )
+    dataset.popari.validate_spatial_graph()
     all_labels = np.asarray(dataset.obsm[labels])
     adjacency_pvalues = {}
     avoidance_pvalues = {}
@@ -259,12 +260,9 @@ def compute_columnwise_autocorrelation(
 ):
     """"""
 
-    correlations = {}
-    for sample, stored_matrix in dataset.uns[uns].items():
-        matrix = np.asarray(stored_matrix).T
-        num_columns, _ = matrix.shape
-        correlations[sample] = np.corrcoef(matrix, matrix)[:num_columns, :num_columns]
-    dataset.uns[result_key] = correlations
+    matrix = np.asarray(dataset.uns[uns]).T
+    num_columns, _ = matrix.shape
+    dataset.uns[result_key] = np.corrcoef(matrix, matrix)[:num_columns, :num_columns]
 
 
 def compute_spatial_gene_correlation(
@@ -278,9 +276,9 @@ def compute_spatial_gene_correlation(
 
     spatial_gene_correlations = {}
     neighbor_interactions = {}
-    for sample, metagenes in dataset.uns[metagene_key].items():
+    metagenes = np.asarray(dataset.uns[metagene_key])
+    for sample in dataset.popari.sample_names:
         spatial_affinity_matrix = np.asarray(dataset.uns[spatial_key][sample])
-        metagenes = np.asarray(metagenes)
         sample_neighbor_interactions = metagenes @ spatial_affinity_matrix
         neighbor_interactions[sample] = sample_neighbor_interactions
         spatial_gene_correlations[sample] = sample_neighbor_interactions @ metagenes.T

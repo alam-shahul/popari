@@ -13,7 +13,7 @@ def subset_samples(
     sample_groups: Mapping[str, Sequence[str]],
     *,
     sample_key: str = "batch",
-    sample_parameter_keys: Sequence[str] = ("M", "Sigma_x_inv", "Sigma_x_inv_bar"),
+    sample_parameter_keys: Sequence[str] = ("Sigma_x_inv", "Sigma_x_inv_bar"),
 ) -> dict[str, ad.AnnData]:
     """Create named AnnData subsets from groups of sample identifiers.
 

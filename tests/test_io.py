@@ -42,9 +42,36 @@ def test_convert_legacy_anndata_reconstructs_sample_graphs():
 
     assert canonical.popari.sample_names == ("replicate_0", "replicate_1")
     assert canonical.obs_names.is_unique
-    assert canonical.uns["popari_schema_version"] == 1
+    assert canonical.uns["popari_schema_version"] == 2
     assert canonical.obsp["adjacency_matrix"].shape == (5, 5)
     assert canonical.obsp["adjacency_matrix"][:2, 2:].nnz == 0
+
+
+def test_convert_legacy_anndata_collapses_shared_metagene_mappings():
+    dataset = ad.AnnData(X=np.ones((4, 3)))
+    dataset.obs["batch"] = pd.Categorical(["first", "first", "second", "second"])
+    dataset.obsp["adjacency_matrix"] = csr_array((4, 4))
+    metagenes = np.arange(6).reshape(3, 2)
+    dataset.uns["M"] = {"first": metagenes, "second": metagenes.copy()}
+    dataset.uns["ground_truth_M"] = {"first": metagenes, "second": metagenes.copy()}
+
+    canonical = convert_legacy_anndata(dataset)
+
+    np.testing.assert_array_equal(canonical.uns["M"], metagenes)
+    np.testing.assert_array_equal(canonical.uns["ground_truth_M"], metagenes)
+
+
+def test_convert_legacy_anndata_rejects_differential_metagenes():
+    dataset = ad.AnnData(X=np.ones((4, 3)))
+    dataset.obs["batch"] = pd.Categorical(["first", "first", "second", "second"])
+    dataset.obsp["adjacency_matrix"] = csr_array((4, 4))
+    dataset.uns["M"] = {
+        "first": np.ones((3, 2)),
+        "second": np.full((3, 2), 2),
+    }
+
+    with pytest.raises(ValueError, match="Differential metagenes are no longer supported"):
+        convert_legacy_anndata(dataset)
 
 
 def test_convert_legacy_anndata_reconstructs_duplicate_observation_names():
@@ -100,10 +127,7 @@ def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
         assert sample_adata.popari.name == sample
         assert sample_adata.shape == (len(indices), model.adata.n_vars)
         assert np.allclose(sample_adata.obsm["X"], model.adata.obsm["X"][indices])
-        assert np.allclose(
-            sample_adata.uns["M"][sample],
-            model.adata.uns["M"][sample],
-        )
+        assert np.allclose(sample_adata.uns["M"], model.adata.uns["M"])
         assert np.allclose(
             sample_adata.uns["Sigma_x_inv"][sample],
             model.adata.uns["Sigma_x_inv"][sample],
@@ -150,13 +174,13 @@ def test_normalize_anndata_hierarchy_removes_legacy_level_suffixes(shared_model_
         categories=renames.values(),
         ordered=True,
     )
-    for key in ("M", "Sigma_x_inv", "sigma_yx"):
+    for key in ("Sigma_x_inv", "sigma_yx"):
         coarse.uns[key] = {renames[sample]: value for sample, value in coarse.uns[key].items()}
 
     hierarchy = normalize_anndata_hierarchy({0: fine, 1: coarse})
 
     assert hierarchy[1].popari.sample_names == tuple(model.replicate_names)
-    assert tuple(hierarchy[1].uns["M"]) == tuple(model.replicate_names)
+    np.testing.assert_array_equal(hierarchy[1].uns["M"], model.adata.uns["M"])
     assert tuple(hierarchy[1].uns["Sigma_x_inv"]) == tuple(model.replicate_names)
 
 
@@ -239,32 +263,25 @@ def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
     reloaded = load_trained_model(filepath)
 
     assert reloaded.replicate_names == model.replicate_names
-    assert reloaded.metagene_mode == model.metagene_mode
     assert reloaded.spatial_affinity_mode == model.spatial_affinity_mode
 
     assert np.allclose(reloaded.adata.obsm["X"], model.adata.obsm["X"])
-    for sample in model.replicate_names:
-        assert np.allclose(
-            reloaded.adata.uns["M"][sample],
-            model.adata.uns["M"][sample],
-        )
+    assert np.allclose(reloaded.adata.uns["M"], model.adata.uns["M"])
 
     assert np.isfinite(reloaded.nll(level=0)).all()
 
 
 @pytest.mark.baseline
-def test_load_differential_from_shared_file(shared_model_factory, tmp_path):
+def test_load_differential_affinities_from_shared_file(shared_model_factory, tmp_path):
     model = shared_model_factory()
     filepath = tmp_path / "shared_model.h5ad"
     model.save_results(filepath, ignore_raw_data=False)
 
     differential = load_trained_model(
         filepath,
-        metagene_mode="differential",
         spatial_affinity_mode="differential lookup",
     )
 
-    assert differential.metagene_mode == "differential"
     assert differential.spatial_affinity_mode == "differential lookup"
 
 

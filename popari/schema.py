@@ -2,6 +2,7 @@
 
 import anndata as ad
 import numpy as np
+from scipy import sparse
 
 from popari._sample_axis import SampleAxis
 
@@ -16,7 +17,34 @@ ADJACENCY_LIST_KEY = "adjacency_list"
 BIN_ASSIGNMENTS_KEY = "bin_assignments"
 HYPERPARAMETERS_KEY = "popari_hyperparameters"
 SCHEMA_VERSION_KEY = "popari_schema_version"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+
+def _validate_spatial_graph(
+    adata: ad.AnnData,
+    sample_axis: SampleAxis,
+    adjacency_key: str = ADJACENCY_MATRIX_KEY,
+) -> None:
+    """Validate one spatial graph against an existing sample axis."""
+
+    if adjacency_key not in adata.obsp:
+        raise KeyError(f"Missing spatial graph `obsp[{adjacency_key!r}]`.")
+
+    adjacency = adata.obsp[adjacency_key]
+    expected_shape = (adata.n_obs, adata.n_obs)
+    if adjacency.shape != expected_shape:
+        raise ValueError(
+            f"`obsp[{adjacency_key!r}]` has shape {adjacency.shape}; expected {expected_shape}.",
+        )
+
+    if sparse.issparse(adjacency):
+        graph = adjacency.tocoo(copy=True)
+        graph.eliminate_zeros()
+        rows, columns = graph.row, graph.col
+    else:
+        rows, columns = np.nonzero(np.asarray(adjacency))
+    if np.any(sample_axis.codes[rows] != sample_axis.codes[columns]):
+        raise ValueError(f"`obsp[{adjacency_key!r}]` contains cross-sample edges.")
 
 
 @ad.register_anndata_namespace("popari")
@@ -42,7 +70,6 @@ class PopariNamespace:
         return SampleAxis.from_anndata(
             self._adata,
             sample_key=self.sample_key,
-            adjacency_key=None,
         ).names
 
     @property
@@ -57,7 +84,6 @@ class PopariNamespace:
         return SampleAxis.from_anndata(
             self._adata,
             sample_key=sample_key or self.sample_key,
-            adjacency_key=None,
         ).mask(sample)
 
     def sample_indices(self, sample: str, sample_key: str | None = None) -> np.ndarray:
@@ -66,8 +92,16 @@ class PopariNamespace:
         return SampleAxis.from_anndata(
             self._adata,
             sample_key=sample_key or self.sample_key,
-            adjacency_key=None,
         ).indices(sample)
+
+    def validate_spatial_graph(self) -> None:
+        """Validate the canonical spatial graph against the sample axis."""
+
+        sample_axis = SampleAxis.from_anndata(
+            self._adata,
+            sample_key=self.sample_key,
+        )
+        _validate_spatial_graph(self._adata, sample_axis)
 
     def _single_sample_name(self) -> str:
         if DEFAULT_SAMPLE_KEY in self._adata.obs:
@@ -92,22 +126,13 @@ class PopariNamespace:
 
     @property
     def metagenes(self):
-        """Learned gene-by-metagene matrix for this dataset."""
+        """Shared learned gene-by-metagene matrix."""
 
-        return self.metagenes_for(self._single_sample_name())
+        return self._adata.uns[METAGENE_KEY]
 
     @metagenes.setter
     def metagenes(self, value) -> None:
-        self._adata.uns.setdefault(METAGENE_KEY, {})
-        self._adata.uns[METAGENE_KEY][self._single_sample_name()] = value
-
-    def metagenes_for(self, sample: str):
-        """Return the metagene matrix associated with a named sample."""
-
-        try:
-            return self._adata.uns[METAGENE_KEY][str(sample)]
-        except KeyError as error:
-            raise KeyError(f"Missing metagene matrix for sample {sample!r}.") from error
+        self._adata.uns[METAGENE_KEY] = value
 
     @property
     def spatial_affinity(self) -> np.ndarray:

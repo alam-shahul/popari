@@ -15,7 +15,7 @@ from mpl_toolkits.axisartist.grid_finder import DictFormatter, FixedLocator
 from scipy.sparse import issparse
 from scipy.stats import wilcoxon, zscore
 
-from popari.plotting._samples import resolve_sample_matrix, resolve_samples
+from popari.plotting._samples import resolve_samples
 from popari.plotting.heatmaps import multireplicate_heatmap
 
 
@@ -50,7 +50,7 @@ def pretty_spatial_affinities(
     width = 2
     fig = plt.figure(dpi=1200, figsize=(width, height))
 
-    _, K = adata.uns[metagene_key][selected_samples[0]].shape
+    _, K = adata.uns[metagene_key].shape
 
     def setup_axes(fig, rect, metagene_ticks):
         """Setup axes for rotated heatmap plot."""
@@ -169,7 +169,6 @@ def cell_type_to_metagene(
     dataset,
     cell_type_de_genes: dict,
     *,
-    sample: str | None = None,
     rank_mode: str = "metagene",
     plot_type: str = "box",
     normalize: bool = False,
@@ -199,7 +198,7 @@ def cell_type_to_metagene(
     if cell_types is None:
         cell_types = cell_type_de_genes.keys()
 
-    metagenes = resolve_sample_matrix(dataset, metagene_key, sample=sample)
+    metagenes = np.asarray(dataset.uns[metagene_key])
 
     if normalize:
         metagenes = zscore(metagenes, axis=1)
@@ -352,7 +351,6 @@ def cell_type_to_metagene_difference(
     first_metagene: int,
     second_metagene: int,
     *,
-    sample: str | None = None,
     rank_mode: str = "metagene",
     plot_type: str = "box",
     normalize: bool = False,
@@ -381,7 +379,7 @@ def cell_type_to_metagene_difference(
     if cell_types is None:
         cell_types = cell_type_de_genes.keys()
 
-    metagenes = resolve_sample_matrix(dataset, metagene_key, sample=sample)
+    metagenes = np.asarray(dataset.uns[metagene_key])
 
     if normalize:
         metagenes = zscore(metagenes, axis=1)

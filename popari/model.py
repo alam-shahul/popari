@@ -45,10 +45,6 @@ class Popari(nn.Module):
         initialization_method: algorithm to use for initializing metagenes and embeddings.
             Supports ``dummy``, ``kmeans``, ``svd``, ``leiden``, and ``ground_truth``. Default: ``leiden``
         hierarchical_levels: number of hierarchical levels to use. Default: ``1`` (non-hierarchical mode)
-        metagene_groups: defines a grouping of replicates for the metagene optimization. If
-            ``metagene_mode == "shared"``, then one set of metagenes will be created for each group;
-            if ``metagene_mode == "differential",  then all replicates will have their own set of metagenes,
-            but each group will share an ``M_bar``.
         spatial_affinity_groups: defines a grouping of replicates for the spatial affinity optimization.
             If ``spatial_affinity_mode == "shared lookup"``, then one set of spatial_affinities will be created for each group;
             if ``spatial_affinity_mode == "differential lookup"``,  then all replicates will have their own set of spatial
@@ -59,18 +55,7 @@ class Popari(nn.Module):
         sigma_yx_inv_mode: form of sigma_yx_inv parameter. Default: ``separate``
         torch_context: keyword args to use of PyTorch tensors during training.
         initial_context: keyword args to use during initialization of PyTorch tensors.
-        metagene_mode: modality of metagene parameters. Default: ``shared``.
-
-            =================  =====
-            ``metagene_mode``  Option
-            =================  =====
-            ``shared``         A metagene set is shared between all replicates in a group.
-            ``differential``   Each replicate learns its own metagene set.
-            =================  =====
-
         spatial_affinity_mode: modality of spatial affinity parameters. Default: ``shared lookup``
-        lambda_M: hyperparameter to constrain metagene deviation in differential case. Ignored if
-            ``metagene_mode`` is ``shared``. Default: ``0.5``
         lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
             ``spatial_affinity_mode`` is ``shared lookup``. Default: ``0.5``
         spatial_affinity_lr: learning rate for optimization of ``Sigma_x_inv``
@@ -104,7 +89,6 @@ class Popari(nn.Module):
         pretrained: bool = False,
         initialization_method: str = "leiden",
         hierarchical_levels: int = 1,
-        metagene_groups: Optional[dict] = None,
         spatial_affinity_groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
         prior_x_modes: Optional[Sequence[str]] = None,
@@ -112,9 +96,7 @@ class Popari(nn.Module):
         sigma_yx_inv_mode: str = "separate",
         torch_context: Optional[dict] = None,
         initial_context: Optional[dict] = None,
-        metagene_mode: str = "shared",
         spatial_affinity_mode: str = "shared lookup",
-        lambda_M: float = 0.5,
         lambda_Sigma_bar: float = 1e-3,
         spatial_affinity_lr: float = 1e-2,
         spatial_affinity_tol: float = 2e-3,
@@ -171,9 +153,6 @@ class Popari(nn.Module):
         self.spatial_affinity_mode = spatial_affinity_mode
         self.pretrained = pretrained
 
-        self.metagene_mode = metagene_mode
-        self.lambda_M = lambda_M
-        self._configured_metagene_groups = metagene_groups
         self._configured_spatial_affinity_groups = spatial_affinity_groups
 
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
@@ -210,8 +189,6 @@ class Popari(nn.Module):
             "M_constraint": self.M_constraint,
             "sigma_yx_inv_mode": self.sigma_yx_inv_mode,
             "spatial_affinity_mode": self.spatial_affinity_mode,
-            "lambda_M": self.lambda_M,
-            "metagene_mode": self.metagene_mode,
         }
 
         self.embedding_optimizer_hyperparameters = {
@@ -257,16 +234,6 @@ class Popari(nn.Module):
     @property
     def embedding_optimizer(self):
         return self.base_view.embedding_optimizer
-
-    @property
-    def metagene_groups(self):
-        if hasattr(self, "views"):
-            return self.base_view.metagene_groups
-        return self._configured_metagene_groups
-
-    @property
-    def metagene_tags(self):
-        return self.base_view.metagene_tags
 
     @property
     def spatial_affinity_groups(self):
@@ -352,7 +319,6 @@ class Popari(nn.Module):
             "method": method,
             "pretrained": self.pretrained,
             "verbose": self.verbose,
-            "metagene_groups": self.metagene_groups,
             "spatial_affinity_groups": self.spatial_affinity_groups,
             "superresolution_lr": self.superresolution_lr,
             "sample_key": self.sample_key,
@@ -410,7 +376,6 @@ class Popari(nn.Module):
         self,
         update_spatial_affinities: bool = True,
         differentiate_spatial_affinities: bool = True,
-        differentiate_metagenes: bool = True,
         simplex_projection_mode: bool = "exact",
         edge_subsample_rate: Optional[float] = None,
         synchronize: bool = True,
@@ -441,10 +406,7 @@ class Popari(nn.Module):
         if self.verbose:
             print(f"{get_datetime()} Updating metagenes")
 
-        self.parameter_optimizer.update_metagenes(
-            differentiate_metagenes=differentiate_metagenes,
-            simplex_projection_mode=simplex_projection_mode,
-        )
+        self.parameter_optimizer.update_metagenes(simplex_projection_mode=simplex_projection_mode)
 
         if self.verbose:
             print(f"{get_datetime()} Updating sigma_yx")
@@ -681,18 +643,21 @@ def load_pretrained(
 
     saved_hyperparameters = copy.deepcopy(adata.uns["popari_hyperparameters"])
 
-    metagene_groups = saved_hyperparameters["metagene_groups"]
-    for group in metagene_groups:
-        metagene_groups[group] = list(metagene_groups[group])
-
     spatial_affinity_groups = saved_hyperparameters["spatial_affinity_groups"]
     for group in spatial_affinity_groups:
         spatial_affinity_groups[group] = list(spatial_affinity_groups[group])
 
     new_kwargs = saved_hyperparameters | popari_kwargs
 
-    for noninitial_hyperparameter in ["prior_x", "metagene_tags", "spatial_affinity_tags"]:
-        new_kwargs.pop(noninitial_hyperparameter)
+    for noninitial_hyperparameter in [
+        "prior_x",
+        "metagene_groups",
+        "metagene_tags",
+        "metagene_mode",
+        "lambda_M",
+        "spatial_affinity_tags",
+    ]:
+        new_kwargs.pop(noninitial_hyperparameter, None)
 
     trained_model = Popari(
         adata=adata,
@@ -719,7 +684,6 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
         adata,
         reloaded_hierarchy=reloaded_hierarchy,
         hierarchical_levels=pretrained_model.hierarchical_levels,
-        metagene_mode="differential",
         spatial_affinity_mode="differential lookup",
         context=popari_context,
         lambda_Sigma_bar=lambda_Sigma_bar,

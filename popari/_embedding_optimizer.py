@@ -84,7 +84,7 @@ class EmbeddingOptimizer(nn.Module):
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
             X = self.embedding_state[sample].to(self.context["device"])
-            M = self.parameter_optimizer.metagene_state[sample].to(self.context["device"])
+            M = self.parameter_optimizer.metagenes.to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
             if not use_neighbors:
@@ -117,7 +117,7 @@ class EmbeddingOptimizer(nn.Module):
                 sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
                 Y = self.Ys[dataset_index].to(self.context["device"])
                 X = self.embedding_state[sample].to(self.context["device"])
-                M = self.parameter_optimizer.metagene_state[sample].to(self.context["device"])
+                M = self.parameter_optimizer.metagenes.to(self.context["device"])
                 prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
                 prior_x = self.parameter_optimizer.prior_xs[dataset_index]
                 if not use_neighbors:

@@ -8,12 +8,12 @@ from popari import tl
 @pytest.mark.baseline
 def test_shared_parameter_updates_are_finite(shared_model_factory, gpu_context):
     model = shared_model_factory(torch_context=gpu_context, initial_context=gpu_context)
-    initial_m = model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy().copy()
+    initial_m = model.parameter_optimizer.metagenes.detach().cpu().numpy().copy()
     initial_sigma = model.parameter_optimizer.sigma_yxs.detach().cpu().numpy().copy()
 
     model.estimate_parameters()
 
-    updated_m = model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy()
+    updated_m = model.parameter_optimizer.metagenes.detach().cpu().numpy()
     updated_sigma = model.parameter_optimizer.sigma_yxs.detach().cpu().numpy()
     assert np.isfinite(updated_m).all()
     assert np.isfinite(updated_sigma).all()
@@ -45,7 +45,7 @@ def test_shared_nll_components_are_numerically_stable(trained_shared_model, shar
     assert model.nll(level=0)[0] == pytest.approx(metrics["nll"], abs=1e-6)
     assert model.parameter_optimizer.sigma_yxs[0].item() == pytest.approx(metrics["sigma_yx"][0], abs=1e-6)
     assert model.parameter_optimizer.sigma_yxs[1].item() == pytest.approx(metrics["sigma_yx"][1], abs=1e-6)
-    assert model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy().sum() == pytest.approx(
+    assert model.parameter_optimizer.metagenes.detach().cpu().numpy().sum() == pytest.approx(
         metrics["metagene_sum"],
     )
     assert model.embedding_optimizer.embedding_state["0"].detach().cpu().numpy().sum() == pytest.approx(

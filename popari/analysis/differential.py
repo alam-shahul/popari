@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 import anndata as ad
 import numpy as np
@@ -19,7 +19,6 @@ def compute_metagene_signature_expression(
     dataset: ad.AnnData,
     metagene_index: int,
     *,
-    sample: str | None = None,
     reference_dataset: ad.AnnData | None = None,
     categories: Sequence | None = None,
     category_key: str = "domain",
@@ -32,8 +31,6 @@ def compute_metagene_signature_expression(
             comparison expression values.
         metagene_index: Column of ``dataset.uns["M"]`` used to select signature
             genes.
-        sample: Sample whose metagenes define the signature. May be omitted
-            when all sample-specific metagene matrices are equal.
         reference_dataset: Optional reference whose category means are
             subtracted from those in ``dataset``.
         categories: Optional category order. By default, preserve the order
@@ -47,8 +44,8 @@ def compute_metagene_signature_expression(
 
     Raises:
         KeyError: If required annotations or metagenes are missing.
-        ValueError: If sample-specific metagenes differ, genes do not match, a
-            requested category is absent, or ``metagene_index`` is invalid.
+        ValueError: If genes do not match, a requested category is absent, or
+            ``metagene_index`` is invalid.
 
     """
 
@@ -60,22 +57,9 @@ def compute_metagene_signature_expression(
         if not dataset.var_names.equals(reference_dataset.var_names):
             raise ValueError("dataset and reference_dataset must contain the same genes in the same order.")
 
-    metagenes_by_sample = dataset.uns.get("M")
-    if not isinstance(metagenes_by_sample, Mapping) or not metagenes_by_sample:
-        raise KeyError('dataset.uns["M"] must contain sample-specific metagene matrices.')
-
-    if sample is not None:
-        try:
-            metagenes = np.asarray(metagenes_by_sample[str(sample)])
-        except KeyError as error:
-            raise KeyError(f"Missing metagenes for sample {sample!r}.") from error
-    else:
-        metagene_matrices = [np.asarray(matrix) for matrix in metagenes_by_sample.values()]
-        metagenes = metagene_matrices[0]
-        if any(
-            matrix.shape != metagenes.shape or not np.allclose(matrix, metagenes) for matrix in metagene_matrices[1:]
-        ):
-            raise ValueError("sample must be specified when sample-specific metagene matrices differ.")
+    if "M" not in dataset.uns:
+        raise KeyError('dataset.uns["M"] is missing.')
+    metagenes = np.asarray(dataset.uns["M"])
     if not 0 <= metagene_index < metagenes.shape[1]:
         raise ValueError(f"metagene_index must be between 0 and {metagenes.shape[1] - 1}.")
 
@@ -201,7 +185,6 @@ def compute_category_marker_scores(
         sample_axis = SampleAxis.from_anndata(
             dataset,
             sample_key=sample_key or dataset.popari.sample_key,
-            adjacency_key=None,
         )
         category_means = {sample: aggregate(dataset[sample_axis.indices(sample)])[0] for sample in sample_axis.names}
         column_index = pd.MultiIndex.from_product(

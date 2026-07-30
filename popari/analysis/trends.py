@@ -12,26 +12,6 @@ from popari._sample_axis import SampleAxis
 from popari.util import smooth_labels
 
 
-def find_differential_genes(
-    dataset: ad.AnnData,
-    top_gene_limit: int = 1,
-):
-    """Return genes with the largest replicate-to-group metagene deviations."""
-
-    if "M_bar" not in dataset.uns:
-        raise ValueError("The dataset was not trained in differential metagene mode.")
-
-    metagene_tags = dataset.uns["popari_hyperparameters"]["metagene_tags"]
-    genes_of_interest = set()
-    for sample, metagenes in dataset.uns["M"].items():
-        for group_name in metagene_tags[sample]:
-            difference = np.asarray(metagenes) - np.asarray(dataset.uns["M_bar"][group_name])
-            top_indices = np.argpartition(np.abs(difference), -top_gene_limit, axis=0)[-top_gene_limit:]
-            genes_of_interest.update(dataset.var_names[top_indices.ravel()])
-
-    return genes_of_interest
-
-
 def normalized_affinity_trends(
     dataset: ad.AnnData,
     timepoint_values: Sequence[float],
@@ -47,7 +27,6 @@ def normalized_affinity_trends(
     sample_axis = SampleAxis.from_anndata(
         dataset,
         sample_key=sample_key or dataset.popari.sample_key,
-        adjacency_key=None,
     )
     timepoint_values = np.asarray(timepoint_values, dtype=float)
     if len(timepoint_values) != len(sample_axis):

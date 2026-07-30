@@ -13,28 +13,6 @@ from scipy.stats import false_discovery_control, fisher_exact
 from popari.util import get_metagene_signature
 
 
-def _resolve_metagenes(
-    dataset: ad.AnnData,
-    *,
-    metagene_key: str = "M",
-    sample: str | None = None,
-) -> np.ndarray:
-    metagenes_by_sample = dataset.uns.get(metagene_key)
-    if not isinstance(metagenes_by_sample, Mapping) or not metagenes_by_sample:
-        raise KeyError(f"dataset.uns[{metagene_key!r}] must contain sample-specific metagene matrices.")
-    if sample is not None:
-        try:
-            return np.asarray(metagenes_by_sample[str(sample)])
-        except KeyError as error:
-            raise KeyError(f"Missing metagenes for sample {sample!r}.") from error
-
-    matrices = [np.asarray(matrix) for matrix in metagenes_by_sample.values()]
-    metagenes = matrices[0]
-    if any(matrix.shape != metagenes.shape or not np.allclose(matrix, metagenes) for matrix in matrices[1:]):
-        raise ValueError("sample must be specified when sample-specific metagene matrices differ.")
-    return metagenes
-
-
 def _resolve_gene_set_libraries(gene_sets, *, organism: str, gseapy) -> list[dict[str, set[str]]]:
     """Resolve named and custom gene-set libraries to term memberships."""
 
@@ -151,7 +129,6 @@ def compute_metagene_enrichment(
     sensitivity: float = 0.5,
     signature_type: str = "upregulated",
     background: Iterable[str] | None = None,
-    sample: str | None = None,
 ) -> pd.DataFrame:
     """Run Enrichr on signatures derived from learned Popari metagenes.
 
@@ -165,15 +142,15 @@ def compute_metagene_enrichment(
         sensitivity: Knee-detection sensitivity used to define signatures.
         signature_type: Select the upregulated or downregulated signature.
         background: Enrichment universe. By default, use measured genes.
-        sample: Sample whose metagenes define signatures. May be omitted when
-            all sample-specific matrices are equal.
 
     Returns:
         Combined Enrichr results with a leading ``metagene`` column.
 
     """
 
-    metagenes = _resolve_metagenes(dataset, sample=sample)
+    if "M" not in dataset.uns:
+        raise KeyError('dataset.uns["M"] is missing.')
+    metagenes = np.asarray(dataset.uns["M"])
     indices = range(metagenes.shape[1]) if metagene_indices is None else metagene_indices
     measured_genes = list(dataset.var_names if background is None else background)
     results = []
@@ -217,19 +194,15 @@ def compute_gene_set_auroc(
     dataset,
     gene_sets,
     metagene_key: str = "M",
-    *,
-    sample: str | None = None,
 ):
     """Compute metagene correspondence to gene-set columns."""
 
     from scipy.stats import mannwhitneyu
     from sklearn.metrics import auc, roc_curve
 
-    metagenes = _resolve_metagenes(
-        dataset,
-        metagene_key=metagene_key,
-        sample=sample,
-    )
+    if metagene_key not in dataset.uns:
+        raise KeyError(f"dataset.uns[{metagene_key!r}] is missing.")
+    metagenes = np.asarray(dataset.uns[metagene_key])
     _, num_metagenes = metagenes.shape
     num_gene_sets = len(gene_sets.columns)
 

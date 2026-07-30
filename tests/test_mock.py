@@ -43,7 +43,7 @@ def test_popari_registers_parameters_and_state_dict_roundtrip(shared_model_facto
     parameter_names = dict(model.named_parameters())
     buffer_names = dict(model.named_buffers())
 
-    assert any(name.endswith("metagene_state.metagenes") for name in parameter_names)
+    assert any(name.endswith("parameter_optimizer.metagenes") for name in parameter_names)
     assert any(name.endswith("embedding_state.embedding") for name in parameter_names)
     assert any("spatial_affinity.spatial_affinity_dict" in name for name in parameter_names)
     assert any(name.endswith("parameter_optimizer.sigma_yxs") for name in buffer_names)
@@ -56,8 +56,8 @@ def test_popari_registers_parameters_and_state_dict_roundtrip(shared_model_facto
         model.parameter_optimizer.sigma_yxs.detach().cpu().numpy(),
         abs=1e-9,
     )
-    assert reloaded_model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy() == pytest.approx(
-        model.parameter_optimizer.metagene_state.metagenes.detach().cpu().numpy(),
+    assert reloaded_model.parameter_optimizer.metagenes.detach().cpu().numpy() == pytest.approx(
+        model.parameter_optimizer.metagenes.detach().cpu().numpy(),
         abs=1e-9,
     )
     assert reloaded_model.embedding_optimizer.embedding_state["0"].detach().cpu().numpy() == pytest.approx(

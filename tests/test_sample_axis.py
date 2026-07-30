@@ -42,7 +42,7 @@ def test_sample_axis_can_index_samples_before_graph_construction():
     adata = _canonical_adata()
     del adata.obsp["adjacency_matrix"]
 
-    axis = SampleAxis.from_anndata(adata, adjacency_key=None)
+    axis = SampleAxis.from_anndata(adata)
 
     assert axis.names == ("sample_a", "sample_b")
     np.testing.assert_array_equal(axis.indices("sample_a"), [1, 3])
@@ -75,11 +75,6 @@ def test_sample_axis_can_index_samples_before_graph_construction():
         ),
         (lambda adata: setattr(adata, "obs_names", ["a", "a", "b", "c"]), ValueError, "Observation names"),
         (lambda adata: setattr(adata, "var_names", ["a", "a", "b"]), ValueError, "Variable names"),
-        (
-            lambda adata: adata.obsp.__delitem__("adjacency_matrix"),
-            KeyError,
-            "Missing spatial graph",
-        ),
     ],
 )
 def test_sample_axis_validates_schema(mutation, error, message):
@@ -90,7 +85,15 @@ def test_sample_axis_validates_schema(mutation, error, message):
         SampleAxis.from_anndata(adata)
 
 
-def test_sample_axis_rejects_cross_sample_edges():
+def test_namespace_rejects_missing_spatial_graph():
+    adata = _canonical_adata()
+    del adata.obsp["adjacency_matrix"]
+
+    with pytest.raises(KeyError, match="Missing spatial graph"):
+        adata.popari.validate_spatial_graph()
+
+
+def test_namespace_rejects_cross_sample_edges():
     adata = _canonical_adata()
     adata.obsp["adjacency_matrix"] = csr_array(
         (np.ones(2), ([0, 1], [1, 0])),
@@ -98,4 +101,4 @@ def test_sample_axis_rejects_cross_sample_edges():
     )
 
     with pytest.raises(ValueError, match="cross-sample edges"):
-        SampleAxis.from_anndata(adata)
+        adata.popari.validate_spatial_graph()

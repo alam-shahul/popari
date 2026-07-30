@@ -34,8 +34,6 @@ from popari.util import convert_adjacency_matrix_to_awkward_array
 
 LEVEL_FILE_PATTERN = re.compile(r"^level_(\d+)\.h5ad$")
 _SAMPLE_PARAMETER_KEYS = (
-    METAGENE_KEY,
-    "M_bar",
     SPATIAL_AFFINITY_KEY,
     "Sigma_x_inv_bar",
 )
@@ -163,6 +161,46 @@ def _restore_none_sentinels(adata: AnnData) -> None:
         }
 
 
+def _collapse_shared_matrix(adata: AnnData, key: str) -> None:
+    value = adata.uns.get(key)
+    if value is None:
+        return
+
+    if isinstance(value, Mapping):
+        if not value:
+            raise ValueError(f"`uns[{key!r}]` contains no matrices.")
+        matrices = [np.asarray(matrix) for matrix in value.values()]
+        matrix = matrices[0]
+        if any(
+            candidate.shape != matrix.shape or not np.allclose(candidate, matrix, rtol=1e-5, atol=1e-8)
+            for candidate in matrices[1:]
+        ):
+            raise ValueError(
+                f"Legacy `uns[{key!r}]` contains unequal sample-specific matrices. "
+                "Differential metagenes are no longer supported.",
+            )
+        value = matrix
+
+    matrix = np.asarray(value)
+    if matrix.ndim != 2 or matrix.shape[0] != adata.n_vars:
+        raise ValueError(
+            f"`uns[{key!r}]` must have shape (n_vars, K); found {matrix.shape}.",
+        )
+    if not np.isfinite(matrix).all():
+        raise ValueError(f"`uns[{key!r}]` must contain only finite values.")
+    adata.uns[key] = matrix
+
+
+def _remove_legacy_metagene_hyperparameters(adata: AnnData) -> None:
+    hyperparameters = adata.uns.get(HYPERPARAMETERS_KEY)
+    if not isinstance(hyperparameters, Mapping):
+        return
+    hyperparameters = dict(hyperparameters)
+    for key in ("metagene_groups", "metagene_tags", "metagene_mode", "lambda_M"):
+        hyperparameters.pop(key, None)
+    adata.uns[HYPERPARAMETERS_KEY] = hyperparameters
+
+
 def convert_legacy_anndata(
     adata: AnnData,
     *,
@@ -179,10 +217,10 @@ def convert_legacy_anndata(
     result = adata.copy() if copy else adata
     resolved_sample_key = _resolved_sample_key(result, sample_key)
     stored_version = result.uns.get(SCHEMA_VERSION_KEY)
-    is_legacy = stored_version is None
-    if stored_version is not None and int(stored_version) != SCHEMA_VERSION:
+    is_legacy = stored_version is None or int(stored_version) < SCHEMA_VERSION
+    if stored_version is not None and int(stored_version) not in {1, SCHEMA_VERSION}:
         raise ValueError(
-            f"Unsupported Popari schema version {stored_version!r}; expected {SCHEMA_VERSION}.",
+            f"Unsupported Popari schema version {stored_version!r}; expected 1 or {SCHEMA_VERSION}.",
         )
 
     sample_names = _normalize_sample_labels(result, resolved_sample_key)
@@ -204,17 +242,17 @@ def convert_legacy_anndata(
     result.uns.pop(ADJACENCY_MATRIX_KEY, None)
     result.obsm.pop(ADJACENCY_LIST_KEY, None)
     _restore_none_sentinels(result)
+    _collapse_shared_matrix(result, METAGENE_KEY)
+    _collapse_shared_matrix(result, "ground_truth_M")
+    result.uns.pop("M_bar", None)
+    _remove_legacy_metagene_hyperparameters(result)
 
     result.uns[SAMPLE_KEY_KEY] = resolved_sample_key
     result.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
     if DATASET_NAME_KEY not in result.uns:
         result.uns[DATASET_NAME_KEY] = sample_names[0] if len(sample_names) == 1 else "multisample"
 
-    SampleAxis.from_anndata(
-        result,
-        sample_key=resolved_sample_key,
-        adjacency_key=ADJACENCY_MATRIX_KEY,
-    )
+    result.popari.validate_spatial_graph()
     return result
 
 
@@ -352,7 +390,7 @@ def _filter_hyperparameter_groups(hyperparameters: Mapping[str, Any], sample: st
     name_parts = sample.rsplit("_level_", maxsplit=1)
     level = int(name_parts[1]) if len(name_parts) == 2 and name_parts[1].isdigit() else 0
 
-    for key in ("spatial_affinity_groups", "metagene_groups"):
+    for key in ("spatial_affinity_groups",):
         groups = filtered.get(key)
         if not isinstance(groups, Mapping):
             continue
@@ -384,6 +422,7 @@ def unmerge_anndata(
         copy=True,
     )
     axis = SampleAxis.from_anndata(canonical, sample_key=canonical.popari.sample_key)
+    canonical.popari.validate_spatial_graph()
     datasets = []
     for sample in axis.names:
         dataset = canonical[axis.indices(sample)].copy()
@@ -541,10 +580,12 @@ def _normalize_hierarchy_bin_assignments(
         previous_adata,
         sample_key=sample_key,
     )
+    previous_adata.popari.validate_spatial_graph()
     axis = SampleAxis.from_anndata(
         adata,
         sample_key=sample_key,
     )
+    adata.popari.validate_spatial_graph()
     row_parts = []
     column_parts = []
     data_parts = []
@@ -605,6 +646,7 @@ def normalize_anndata_hierarchy(
         result[0],
         sample_key=resolved_sample_key,
     )
+    result[0].popari.validate_spatial_graph()
     base_names = base_axis.names
 
     for level, adata in result.items():
@@ -612,6 +654,7 @@ def normalize_anndata_hierarchy(
             raise ValueError("All hierarchy levels must use the same sample key.")
 
         axis = SampleAxis.from_anndata(adata, sample_key=resolved_sample_key)
+        adata.popari.validate_spatial_graph()
         if axis.names != base_names:
             legacy_names = tuple(f"{sample}_level_{level}" for sample in base_names)
             if axis.names != legacy_names:
@@ -637,23 +680,20 @@ def normalize_anndata_hierarchy(
                 prior_x = hyperparameters.get("prior_x")
                 if isinstance(prior_x, Mapping):
                     hyperparameters["prior_x"] = _rename_mapping_keys(prior_x, renames)
-                for key in ("metagene_groups", "spatial_affinity_groups"):
+                for key in ("spatial_affinity_groups",):
                     groups = hyperparameters.get(key)
                     if isinstance(groups, Mapping):
                         hyperparameters[key] = {
                             group: [renames.get(str(sample), str(sample)) for sample in samples]
                             for group, samples in groups.items()
                         }
-                for key in ("metagene_tags", "spatial_affinity_tags"):
+                for key in ("spatial_affinity_tags",):
                     tags = hyperparameters.get(key)
                     if isinstance(tags, Mapping):
                         hyperparameters[key] = _rename_mapping_keys(tags, renames)
                 adata.uns[HYPERPARAMETERS_KEY] = hyperparameters
 
-        SampleAxis.from_anndata(
-            adata,
-            sample_key=resolved_sample_key,
-        )
+        adata.popari.validate_spatial_graph()
         if level > 0:
             _normalize_hierarchy_bin_assignments(
                 result[level - 1],

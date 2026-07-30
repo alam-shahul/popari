@@ -14,7 +14,7 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
 from popari.analysis.interactions import EdgeInteractions
-from popari.plotting._samples import resolve_samples, sample_view
+from popari.plotting._samples import resolve_samples
 from popari.plotting.heatmaps import matrix_heatmap
 from popari.plotting.utils import setup_squarish_axes
 
@@ -185,7 +185,7 @@ def edge_interactions_panel(
 
     selected_values = []
     for sample in selected_samples:
-        dataset = sample_view(adata, sample_axis, sample)
+        dataset = adata[sample_axis.indices(sample)]
         result = interactions[sample]
         if not result.obs_names.equals(dataset.obs_names):
             raise ValueError(f"Edge interactions for {sample!r} are not aligned to that sample.")

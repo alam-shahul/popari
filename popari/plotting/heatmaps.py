@@ -338,7 +338,7 @@ def multireplicate_heatmap(
     uns: str | None = None,
     label_values: bool = False,
     label_font_size: int = None,
-    nested: bool = True,
+    nested: bool | None = None,
     mask: np.ndarray | None = None,
     **heatmap_kwargs,
 ):
@@ -354,7 +354,8 @@ def multireplicate_heatmap(
         obsm: Key in ``obsm`` containing an observation-by-feature matrix.
         obsp: Key in ``obsp`` containing an observation-by-observation matrix.
         uns: Key in ``uns`` containing either a sample-keyed mapping or one matrix.
-        nested: Whether ``uns`` contains a matrix for each sample.
+        nested: Whether ``uns`` contains a matrix for each sample. By default,
+            infer this from whether the stored value is a mapping.
         **heatmap_kwargs: Arguments passed to :func:`matrix_heatmap_panel`.
 
     """
@@ -381,7 +382,7 @@ def multireplicate_heatmap(
         elif uns:
             image = adata.uns[uns]
 
-        if uns and nested:
+        if uns and (isinstance(image, Mapping) if nested is None else nested):
             image = image[sample]
         if mask is not None:
             image = np.ma.masked_where(mask, image)

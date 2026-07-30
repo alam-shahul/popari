@@ -266,8 +266,6 @@ def plot_metagene_gene_set_aurocs(
     dataset,
     gene_sets,
     metagene_key: str = "M",
-    *,
-    sample: str | None = None,
 ):
     """Plot metagene-by-gene-set AUROC scores."""
 
@@ -277,7 +275,6 @@ def plot_metagene_gene_set_aurocs(
         dataset,
         gene_sets,
         metagene_key=metagene_key,
-        sample=sample,
     )
     num_metagenes = aurocs.shape[1]
     sorted_indices = order_columns_by_best_row(aurocs)

@@ -89,8 +89,6 @@ def main():
     )
 
     with mlflow_trainer:
-        if "metagene_groups" in filtered_args:
-            mlflow.set_tag("disjoint_metagenes", (filtered_args["metagene_groups"] == "disjoint"))
         if "spatial_affinity_groups" in filtered_args:
             mlflow.set_tag("disjoint_spatial_affinities", (filtered_args["spatial_affinity_groups"] == "disjoint"))
 

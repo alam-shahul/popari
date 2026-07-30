@@ -224,10 +224,12 @@ def _scaled_embeddings(dataset, embedding_key: str, rescale: bool):
 
 
 def _sample_axis(dataset, sample_key: str | None = None) -> SampleAxis:
-    return SampleAxis.from_anndata(
+    sample_axis = SampleAxis.from_anndata(
         dataset,
         sample_key=sample_key or dataset.popari.sample_key,
     )
+    dataset.popari.validate_spatial_graph()
+    return sample_axis
 
 
 def _resolve_sample(sample_axis: SampleAxis, sample: str | None) -> str:

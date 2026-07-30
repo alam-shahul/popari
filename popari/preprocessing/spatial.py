@@ -51,7 +51,7 @@ def compute_spatial_neighbors(
         dataset.obs[sample_key] = dataset.obs[sample_key].cat.remove_unused_categories()
     dataset.uns[SAMPLE_KEY_KEY] = sample_key
 
-    sample_axis = SampleAxis.from_anndata(dataset, sample_key=sample_key, adjacency_key=None)
+    sample_axis = SampleAxis.from_anndata(dataset, sample_key=sample_key)
     graph_keys = ("spatial_distances", "spatial_connectivities")
     graph_blocks = {key: [] for key in graph_keys}
 
@@ -85,3 +85,4 @@ def compute_spatial_neighbors(
     dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(
         dataset.obsp["adjacency_matrix"],
     )
+    dataset.popari.validate_spatial_graph()

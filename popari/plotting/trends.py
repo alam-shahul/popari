@@ -14,47 +14,6 @@ from popari.plotting._samples import resolve_samples
 from popari.plotting.utils import setup_squarish_axes
 
 
-def _group_metagene_images(adata, gene_subset):
-    gene_indices = adata.var_names.get_indexer(gene_subset)
-    metagene_groups = adata.uns["popari_hyperparameters"]["metagene_groups"]
-    images = np.stack(
-        [adata.uns["M_bar"][group_name][gene_indices] for group_name in metagene_groups],
-        axis=-1,
-    )
-    return images
-
-
-def gene_activations(
-    adata: ad.AnnData,
-    gene_subset: Sequence[str],
-):
-    """Plot group-level metagene weights for selected genes."""
-
-    images = _group_metagene_images(adata, gene_subset)
-    fig, axes = setup_squarish_axes(len(gene_subset), figsize=(10, 10))
-    for ax, image, gene in zip(axes.flat, images, gene_subset):
-        plotted = ax.imshow(image, interpolation="nearest", aspect=0.1)
-        ax.set_title(gene)
-        fig.colorbar(plotted, ax=ax, orientation="vertical")
-    return fig
-
-
-def gene_trajectories(
-    adata: ad.AnnData,
-    gene_subset: Sequence[str],
-    covariate_values: Sequence[float],
-):
-    """Plot total metagene weight across differential groups."""
-
-    trends = _group_metagene_images(adata, gene_subset).sum(axis=1)
-    fig, axes = setup_squarish_axes(len(gene_subset), figsize=(10, 10))
-    for ax, trend, gene in zip(axes.flat, trends, gene_subset):
-        correlation = np.corrcoef(covariate_values, trend)[0, 1]
-        ax.plot(covariate_values, trend)
-        ax.set_title(f"{gene}, R = {correlation:.2f}")
-    return fig
-
-
 def affinity_magnitude_vs_difference(
     adata: ad.AnnData,
     *,

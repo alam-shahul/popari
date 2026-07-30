@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 import scanpy as sc
 from matplotlib import pyplot as plt
+from matplotlib.collections import LineCollection, PathCollection
 from matplotlib.figure import Figure
 from scipy.sparse import csr_matrix
 
@@ -520,6 +521,128 @@ def test_in_situ_supports_categorical_observation_values():
     try:
         assert isinstance(figure, Figure)
         assert figure.axes[0].collections
+        point_collections = [collection for collection in figure.axes[0].collections if len(collection.get_offsets())]
+        assert point_collections
+        assert all(len(collection.get_edgecolors()) == 0 for collection in point_collections)
+        assert all(np.all(collection.get_linewidths() == 0) for collection in point_collections)
+    finally:
+        _close_figures(figure)
+
+
+def _multisample_spatial_dataset():
+    dataset = ad.AnnData(
+        X=np.ones((8, 1)),
+        obs=pd.DataFrame(
+            {
+                "batch": pd.Categorical(["sample_a"] * 4 + ["sample_b"] * 4),
+                "distance": [0.0, 1.0, 2.0, 3.0, 10.0, 11.0, 12.0, 13.0],
+                "domain": pd.Categorical(["A", "B", "A", "B"] * 2),
+            },
+            index=[f"cell_{index}" for index in range(8)],
+        ),
+    )
+    dataset.obsm["spatial"] = np.tile(
+        np.array(
+            [
+                [0.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 0.0],
+                [1.0, 1.0],
+            ],
+        ),
+        (2, 1),
+    )
+    dataset.obsp["adjacency_matrix"] = csr_matrix(
+        (
+            np.ones(8),
+            (
+                np.arange(8),
+                [1, 0, 3, 2, 5, 4, 7, 6],
+            ),
+        ),
+        shape=(8, 8),
+    )
+    return dataset
+
+
+def test_in_situ_restores_publication_plotting_defaults(monkeypatch):
+    dataset = _multisample_spatial_dataset()
+    captured = {}
+
+    def fake_spatial_scatter(adata, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("popari.plotting.spatial.sq.pl.spatial_scatter", fake_spatial_scatter)
+
+    figure = pl.in_situ(
+        dataset,
+        samples="sample_a",
+        color="domain",
+        edges_width=0,
+        size=2,
+        shape=None,
+    )
+
+    try:
+        assert captured["size"] == pytest.approx(2 * 5000 / 4)
+        assert captured["legend_fontsize"] == "xx-small"
+        expected_colors = np.asarray(sc.pl.palettes.godsnot_102)[[0, -1]]
+        np.testing.assert_array_equal(captured["palette"].colors, expected_colors)
+    finally:
+        _close_figures(figure)
+
+
+def test_in_situ_facets_selected_samples_with_total_figure_size():
+    dataset = _multisample_spatial_dataset()
+
+    figure = pl.in_situ(
+        dataset,
+        samples=["sample_b", "sample_a"],
+        color="distance",
+        edges_width=0,
+        colorbar=False,
+        figsize=(8, 3),
+        shape=None,
+    )
+
+    try:
+        np.testing.assert_allclose(figure.get_size_inches(), (8, 3))
+        assert [axis.get_title() for axis in figure.axes[:2]] == ["sample_b", "sample_a"]
+        for axis in figure.axes[:2]:
+            norms = [collection.norm for collection in axis.collections if collection.norm is not None]
+            assert norms
+            assert all(norm.vmin == pytest.approx(0.0) for norm in norms)
+            assert all(norm.vmax == pytest.approx(13.0) for norm in norms)
+    finally:
+        _close_figures(figure)
+
+
+def test_in_situ_uses_shared_categorical_palette_and_spatial_edges():
+    dataset = _multisample_spatial_dataset()
+
+    figure = pl.in_situ(
+        dataset,
+        color="domain",
+        edges_width=1,
+        colorbar=False,
+        figsize=(8, 3),
+        shape=None,
+    )
+
+    try:
+        axes = figure.axes[:2]
+        assert all(any(isinstance(collection, LineCollection) for collection in axis.collections) for axis in axes)
+        palettes = []
+        for axis in axes:
+            colors = np.concatenate(
+                [
+                    collection.get_facecolors()
+                    for collection in axis.collections
+                    if isinstance(collection, PathCollection) and len(collection.get_facecolors())
+                ],
+            )
+            palettes.append(np.unique(colors, axis=0))
+        np.testing.assert_allclose(palettes[0], palettes[1])
     finally:
         _close_figures(figure)
 
@@ -650,7 +773,7 @@ def test_affinity_trend_plot(analyzed_shared_model):
 
 @pytest.mark.gpu
 @pytest.mark.expensive
-def test_multigroup_heatmap_with_differential_model(differential_model_factory, gpu_context):
+def test_multigroup_heatmap_with_differential_affinities(differential_model_factory, gpu_context):
     model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     for _ in range(2):
         model.estimate_parameters()
@@ -658,8 +781,8 @@ def test_multigroup_heatmap_with_differential_model(differential_model_factory, 
 
     figure = pl.multigroup_heatmap(
         model.adata,
-        groups=model.metagene_groups,
-        key="M_bar",
+        groups=model.spatial_affinity_groups,
+        key="spatial_affinity_bar",
     )
 
     try:

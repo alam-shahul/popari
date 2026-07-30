@@ -110,7 +110,6 @@ class MLFlowTrainer(Trainer):
             synchronize = not (self.nmf_iterations % self.parameters.synchronization_frequency)
             self.model.estimate_parameters(
                 update_spatial_affinities=False,
-                differentiate_metagenes=False,
                 synchronize=synchronize,
             )
             self.model.estimate_weights(use_neighbors=False, synchronize=synchronize)

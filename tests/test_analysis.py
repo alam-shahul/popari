@@ -6,9 +6,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.sparse import csr_array, csr_matrix
-from scipy.stats import false_discovery_control, fisher_exact
+from scipy.stats import false_discovery_control, fisher_exact, zscore
 
 from popari import pl, tl
+from popari._sample_axis import SampleAxis
 
 
 def test_run_enrichr_returns_sorted_table(monkeypatch):
@@ -122,10 +123,7 @@ def signature_expression_datasets():
         obs=pd.DataFrame({"domain": ["A", "A", "B", "B"]}),
     )
     comparison.var_names = ["gene_0", "gene_1", "gene_2"]
-    comparison.uns["M"] = {
-        "sample_0": np.array([[1.0], [2.0], [3.0]]),
-        "sample_1": np.array([[1.0], [2.0], [3.0]]),
-    }
+    comparison.uns["M"] = np.array([[1.0], [2.0], [3.0]])
 
     reference = comparison.copy()
     reference.X = comparison.X - 1
@@ -160,11 +158,11 @@ def test_metagene_signature_expression_returns_labeled_means_and_differences(
     np.testing.assert_array_equal(differences.to_numpy(), np.ones((2, 2)))
 
 
-def test_metagene_signature_expression_requires_shared_metagenes(signature_expression_datasets):
+def test_metagene_signature_expression_requires_metagenes(signature_expression_datasets):
     comparison, _ = signature_expression_datasets
-    comparison.uns["M"]["sample_1"][0, 0] = 2
+    del comparison.uns["M"]
 
-    with pytest.raises(ValueError, match="sample must be specified"):
+    with pytest.raises(KeyError, match="is missing"):
         tl.compute_metagene_signature_expression(comparison, 0)
 
 
@@ -383,6 +381,103 @@ def test_propagate_labels_mutates_hierarchy_and_returns_none():
     assert fine.obs["domain"].tolist() == ["A", "A", "B"]
 
 
+def test_postprocess_embeddings_is_sample_local_and_preserves_observation_order(monkeypatch):
+    sample_a = np.column_stack(
+        [
+            np.arange(6, dtype=float),
+            np.arange(6, dtype=float) ** 2,
+        ],
+    )
+    sample_b = sample_a * np.array([10.0, 0.1]) + np.array([100.0, -20.0])
+    embeddings = np.empty((12, 2))
+    embeddings[::2] = sample_a
+    embeddings[1::2] = sample_b
+
+    dataset = ad.AnnData(
+        X=np.ones((12, 1)),
+        obs=pd.DataFrame(
+            {"sample": pd.Categorical(["a", "b"] * 6, categories=["b", "a"])},
+            index=[f"cell_{index}" for index in range(12)],
+        ),
+    )
+    dataset.uns["popari_sample_key"] = "sample"
+    dataset.obsm["X"] = embeddings
+
+    def fake_neighbors(sample_dataset, use_rep):
+        num_observations = sample_dataset.n_obs
+        rows = np.arange(num_observations - 1)
+        columns = rows + 1
+        graph = csr_matrix(
+            (np.ones(num_observations - 1), (rows, columns)),
+            shape=(num_observations, num_observations),
+        )
+        sample_dataset.obsp["distances"] = graph
+        sample_dataset.obsp["connectivities"] = graph + graph.T
+        sample_dataset.uns["neighbors"] = {
+            "connectivities_key": "connectivities",
+            "distances_key": "distances",
+            "params": {"use_rep": use_rep},
+        }
+
+    monkeypatch.setattr("popari.analysis.embeddings.sc.pp.neighbors", fake_neighbors)
+
+    tl.postprocess_embeddings(dataset)
+
+    expected = np.empty_like(embeddings)
+    expected[::2] = zscore(sample_a, axis=0)
+    expected[1::2] = zscore(sample_b, axis=0)
+    np.testing.assert_allclose(dataset.obsm["normalized_X"], expected)
+
+    sample_axis = SampleAxis.from_anndata(dataset, sample_key=dataset.popari.sample_key)
+    rows, columns = dataset.obsp["connectivities"].nonzero()
+    assert np.all(sample_axis.codes[rows] == sample_axis.codes[columns])
+    assert dataset.uns["neighbors"]["params"]["use_rep"] == "normalized_X"
+
+
+def test_cluster_domains_thresholds_each_sample(monkeypatch):
+    sample_a = np.array(
+        [
+            [1.0, 4.0],
+            [2.0, 3.0],
+            [3.0, 2.0],
+            [4.0, 1.0],
+        ],
+    )
+    sample_b = sample_a * np.array([10.0, 0.1]) + np.array([100.0, 20.0])
+    normalized_embeddings = np.empty((8, 2))
+    normalized_embeddings[::2] = sample_a
+    normalized_embeddings[1::2] = sample_b
+
+    dataset = ad.AnnData(
+        X=np.ones((8, 1)),
+        obs=pd.DataFrame(
+            {"sample": pd.Categorical(["a", "b"] * 4)},
+            index=[f"cell_{index}" for index in range(8)],
+        ),
+    )
+    dataset.uns["popari_sample_key"] = "sample"
+    dataset.obsm["normalized_X"] = normalized_embeddings
+    dataset.obsp["adjacency_matrix"] = csr_matrix(np.eye(dataset.n_obs))
+
+    def fake_cluster(clustered_dataset, **kwargs):
+        clustered_dataset.obs["leiden"] = pd.Categorical(["0"] * clustered_dataset.n_obs)
+
+    monkeypatch.setattr("popari.analysis.clustering.cluster", fake_cluster)
+
+    tl.cluster_domains(dataset, skip_thresholding=False)
+
+    def threshold_normalize(values):
+        thresholds = np.percentile(values, 99, axis=0)
+        total_expression = (thresholds * (values > thresholds)).sum(axis=0)
+        return values / total_expression
+
+    expected = np.empty_like(normalized_embeddings)
+    expected[::2] = threshold_normalize(sample_a)
+    expected[1::2] = threshold_normalize(sample_b)
+    np.testing.assert_allclose(dataset.obsm["normalized_thresholded_expression"], expected)
+    assert dataset.obs["smoothed_domain"].tolist() == ["0"] * dataset.n_obs
+
+
 def _fit_model(model, n_steps: int = 2):
     for _ in range(n_steps):
         model.estimate_parameters()
@@ -433,17 +528,12 @@ def test_embedding_and_spatial_summaries(analyzed_shared_model):
 
 @pytest.mark.gpu
 @pytest.mark.expensive
-def test_differential_analysis_helpers(differential_model_factory, gpu_context):
+def test_differential_affinity_analysis_helpers(differential_model_factory, gpu_context):
     model = _fit_model(
         differential_model_factory(torch_context=gpu_context, initial_context=gpu_context),
         n_steps=1,
     )
 
-    genes = tl.find_differential_genes(model.adata, top_gene_limit=2)
-    assert genes
-
-    pl.gene_trajectories(model.adata, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
-    pl.gene_activations(model.adata, list(genes)[:2])
     top_pairs, correlations, variances = tl.normalized_affinity_trends(
         model.adata,
         timepoint_values=list(range(len(model.adata.popari.sample_names))),

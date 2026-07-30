@@ -22,7 +22,6 @@ def calculate_dataset_similarity_matrix(
     sample_axis = SampleAxis.from_anndata(
         dataset,
         sample_key=sample_key or dataset.popari.sample_key,
-        adjacency_key=None,
     )
     embeddings = np.asarray(dataset.obsm[feature_key])
     feature_vectors = [embeddings[sample_axis.indices(sample)].mean(axis=0) for sample in sample_axis.names]

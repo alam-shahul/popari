@@ -17,7 +17,7 @@ from matplotlib.colors import ListedColormap
 
 from popari.analysis.gene_sets import order_columns_by_best_row
 from popari.analysis.metrics import score_marker_expression
-from popari.plotting._samples import resolve_samples, sample_view
+from popari.plotting._samples import resolve_samples
 from popari.plotting.utils import setup_squarish_axes
 
 
@@ -69,7 +69,7 @@ def metagene_embedding(
     scatterplot_kwargs.setdefault("hue_norm", (selected_values.min(), selected_values.max()))
 
     for sample, ax in zip(selected_samples, axes.flat):
-        dataset = sample_view(adata, sample_axis, sample)
+        dataset = adata[sample_axis.indices(sample)]
         if default_s is None:
             s = round(10000 / len(dataset))
         else:
@@ -112,8 +112,6 @@ def in_situ(
     *,
     samples: str | Sequence[str] | None = None,
     sample_key: str | None = None,
-    axes=None,
-    fig=None,
     color="leiden",
     figsize=None,
     **spatial_kwargs,
@@ -128,9 +126,7 @@ def in_situ(
         samples: Sample names to plot. By default, plot every sample.
         sample_key: Observation column containing sample identities.
         color: Key in ``obs`` containing categorical or continuous values.
-        axes: A predefined set of matplotlib axes to plot on.
-        fig: Figure containing ``axes``.
-        figsize: Figure size used when creating axes internally.
+        figsize: Size of the complete figure.
         **spatial_kwargs: Additional arguments for Squidpy's spatial scatter plot.
 
     """
@@ -142,39 +138,29 @@ def in_situ(
     )
     spatial_kwargs.pop("joint", None)
 
-    sharex = spatial_kwargs.pop("sharex", False)
-    sharey = spatial_kwargs.pop("sharey", False)
     dpi = spatial_kwargs.pop("dpi", 100)
-
-    if axes is None:
-        fig, axes = setup_squarish_axes(
-            len(selected_samples),
-            sharex=sharex,
-            sharey=sharey,
-            dpi=dpi,
-            figsize=figsize,
-        )
-    else:
-        axes = np.asarray(axes, dtype=object)
-        if fig is None:
-            fig = axes.flat[0].get_figure()
-    if axes.size < len(selected_samples):
-        raise ValueError("axes must provide at least one axis per selected sample.")
+    fig, axes = setup_squarish_axes(
+        len(selected_samples),
+        sharex=spatial_kwargs.pop("sharex", False),
+        sharey=spatial_kwargs.pop("sharey", False),
+        dpi=dpi,
+        figsize=figsize,
+    )
     for index in range(len(selected_samples), axes.size):
         axes.flat[index].axis("off")
 
     edges_width = spatial_kwargs.pop("edges_width", 0.2)
     default_size = spatial_kwargs.pop("size", None)
     palette = spatial_kwargs.pop("palette", None)
-
     legend_fontsize = spatial_kwargs.pop("legend_fontsize", "xx-small")
-    edgecolors = spatial_kwargs.pop("edgecolors", "none")
     connectivity_key = spatial_kwargs.pop("connectivity_key", "adjacency_matrix")
     if not edges_width or connectivity_key not in adata.obsp:
         connectivity_key = None
     shape = spatial_kwargs.pop("shape", None)
     library_key = spatial_kwargs.pop("library_key", sample_axis.sample_key)
     spatial_kwargs.pop("neighbors_key", None)
+    spatial_kwargs.setdefault("edgecolors", "none")
+    spatial_kwargs.setdefault("linewidths", 0)
 
     selected_indices = np.concatenate([sample_axis.indices(sample) for sample in selected_samples])
     size = 5000 / len(selected_indices)
@@ -182,44 +168,38 @@ def in_situ(
         size *= default_size
 
     categorical = isinstance(adata.obs[color].dtype, pd.CategoricalDtype)
-    category_colors = None
     if categorical and palette is None:
-        categories = list(adata.obs[color].cat.categories)
+        categories = adata.obs[color].cat.categories
         colors = np.asarray(sc.pl.palettes.godsnot_102)
         color_indices = np.linspace(0, len(colors) - 1, len(categories), dtype=int)
-        category_colors = dict(zip(categories, colors[color_indices]))
+        palette = ListedColormap(colors[color_indices])
     if not categorical:
         values = adata.obs.iloc[selected_indices][color].to_numpy(dtype=float)
         finite_values = values[np.isfinite(values)]
         if finite_values.size:
             spatial_kwargs.setdefault("vmin", finite_values.min())
             spatial_kwargs.setdefault("vmax", finite_values.max())
+    spatial_kwargs.setdefault("title", list(selected_samples))
 
-    for sample, ax in zip(selected_samples, axes.flat):
-        dataset = sample_view(adata, sample_axis, sample)
-        dataset_palette = palette
-        if category_colors is not None:
-            dataset_palette = ListedColormap(
-                [category_colors[category] for category in dataset.obs[color].cat.categories],
-            )
+    selected_axes = list(axes.flat[: len(selected_samples)])
+    if len(selected_axes) == 1:
+        selected_axes = selected_axes[0]
 
-        sq.pl.spatial_scatter(
-            dataset,
-            shape=shape,
-            size=size,
-            connectivity_key=connectivity_key,
-            color=color,
-            edges_width=edges_width,
-            legend_fontsize=legend_fontsize,
-            ax=ax,
-            title=sample,
-            fig=fig,
-            palette=dataset_palette,
-            edgecolors=edgecolors,
-            library_key=library_key,
-            library_id=sample,
-            **spatial_kwargs,
-        )
+    sq.pl.spatial_scatter(
+        adata,
+        shape=shape,
+        color=color,
+        library_key=library_key,
+        library_id=list(selected_samples),
+        connectivity_key=connectivity_key,
+        edges_width=edges_width,
+        size=size,
+        palette=palette,
+        legend_fontsize=legend_fontsize,
+        ax=selected_axes,
+        fig=fig,
+        **spatial_kwargs,
+    )
 
     return fig
 
@@ -280,7 +260,7 @@ def umap(
 
     for sample, ax in zip(selected_samples, axes.flat):
         sc.pl.umap(
-            sample_view(adata, sample_axis, sample),
+            adata[sample_axis.indices(sample)],
             size=size,
             neighbors_key=neighbors_key,
             color=color,
@@ -376,7 +356,7 @@ def all_embeddings(
     ]
 
     for sample_index, sample in enumerate(selected_samples):
-        dataset = sample_view(adata, sample_axis, sample)
+        dataset = adata[sample_axis.indices(sample)]
         extracted = sq.pl.extract(dataset, embedding_key, prefix=embedding_key)
         size = 5000 / dataset.n_obs
         if default_size is not None:
