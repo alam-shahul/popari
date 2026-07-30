@@ -7,11 +7,13 @@ from popari._sample_axis import SampleAxis
 
 DATASET_NAME_KEY = "dataset_name"
 DEFAULT_SAMPLE_KEY = "batch"
+SAMPLE_KEY_KEY = "popari_sample_key"
 EMBEDDING_KEY = "X"
 METAGENE_KEY = "M"
 SPATIAL_AFFINITY_KEY = "Sigma_x_inv"
 ADJACENCY_MATRIX_KEY = "adjacency_matrix"
 ADJACENCY_LIST_KEY = "adjacency_list"
+BIN_ASSIGNMENTS_KEY = "bin_assignments"
 HYPERPARAMETERS_KEY = "popari_hyperparameters"
 SCHEMA_VERSION_KEY = "popari_schema_version"
 SCHEMA_VERSION = 1
@@ -37,17 +39,23 @@ class PopariNamespace:
     def sample_names(self) -> tuple[str, ...]:
         """Ordered sample names from the canonical sample axis."""
 
-        return SampleAxis.from_anndata(self._adata, sample_key=DEFAULT_SAMPLE_KEY).names
+        return SampleAxis.from_anndata(self._adata, sample_key=self.sample_key).names
 
-    def sample_mask(self, sample: str, sample_key: str = DEFAULT_SAMPLE_KEY) -> np.ndarray:
+    @property
+    def sample_key(self) -> str:
+        """Observation column containing sample identities."""
+
+        return str(self._adata.uns.get(SAMPLE_KEY_KEY, DEFAULT_SAMPLE_KEY))
+
+    def sample_mask(self, sample: str, sample_key: str | None = None) -> np.ndarray:
         """Return an observation mask for a named sample."""
 
-        return SampleAxis.from_anndata(self._adata, sample_key=sample_key).mask(sample)
+        return SampleAxis.from_anndata(self._adata, sample_key=sample_key or self.sample_key).mask(sample)
 
-    def sample_indices(self, sample: str, sample_key: str = DEFAULT_SAMPLE_KEY) -> np.ndarray:
+    def sample_indices(self, sample: str, sample_key: str | None = None) -> np.ndarray:
         """Return observation indices for a named sample."""
 
-        return SampleAxis.from_anndata(self._adata, sample_key=sample_key).indices(sample)
+        return SampleAxis.from_anndata(self._adata, sample_key=sample_key or self.sample_key).indices(sample)
 
     def _single_sample_name(self) -> str:
         if DEFAULT_SAMPLE_KEY in self._adata.obs:

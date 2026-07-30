@@ -16,7 +16,7 @@ from torch import nn
 from tqdm import trange
 
 from popari._hierarchical_view import HierarchicalView, Hierarchy
-from popari.io import load_anndata, merge_anndata, save_anndata, unmerge_anndata
+from popari.io import load_anndata, load_anndata_hierarchy, save_anndata, unmerge_anndata
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
 
@@ -283,7 +283,8 @@ class Popari(nn.Module):
 
         dataset_path = Path(dataset_path)
 
-        datasets, replicate_names = load_anndata(dataset_path)
+        merged_dataset = load_anndata(dataset_path)
+        datasets, replicate_names = unmerge_anndata(merged_dataset)
         self.load_anndata_datasets(datasets, replicate_names)
 
     def _initialize(
@@ -608,30 +609,9 @@ def load_trained_model(
     dataset_path = Path(dataset_path)
     path_without_extension = dataset_path.parent / dataset_path.stem
 
-    datasets = reloaded_hierarchy = hierarchical_levels = None
-    reloaded_hierarchy = {}
-    if Path(f"{path_without_extension}.h5ad").exists():
-        level = 0
-        merged_dataset = ad.read_h5ad(dataset_path)
-        datasets, replicate_names = unmerge_anndata(merged_dataset)
-        reloaded_hierarchy[level] = datasets
-
-        popari_kwargs["hierarchical_levels"] = 1
-
-    elif path_without_extension.is_dir():
-        for level_path in path_without_extension.iterdir():
-            path_parts = level_path.stem.split("_")
-            if len(path_parts) != 2:
-                continue
-
-            level = int(path_parts[-1])
-            merged_dataset = ad.read_h5ad(level_path)
-            datasets, replicate_names = unmerge_anndata(merged_dataset)
-            reloaded_hierarchy[level] = datasets
-
-        popari_kwargs["hierarchical_levels"] = len(reloaded_hierarchy)
-    else:
-        raise FileNotFoundError(f"No Popari model saved at {path_without_extension}.")
+    canonical_hierarchy = load_anndata_hierarchy(path_without_extension)
+    reloaded_hierarchy = {level: unmerge_anndata(level_adata)[0] for level, level_adata in canonical_hierarchy.items()}
+    popari_kwargs["hierarchical_levels"] = len(reloaded_hierarchy)
 
     datasets = reloaded_hierarchy[0]
     replicate_names = [dataset.popari.name for dataset in datasets]
