@@ -66,7 +66,7 @@ def test_module_to_updates_adjacency_parameters(shared_model_factory):
 def test_load_pretrained_preserves_adjacency_parameters(shared_model_factory, context):
     trained_model = shared_model_factory(torch_context=context, initial_context=context)
     trained_model.synchronize_datasets()
-    datasets = [dataset.copy().popari.ensure_name(dataset.popari.name) for dataset in trained_model.datasets]
+    datasets = [dataset.copy() for dataset in trained_model.datasets]
     reloaded_model = load_pretrained(
         datasets,
         [dataset.popari.name for dataset in datasets],

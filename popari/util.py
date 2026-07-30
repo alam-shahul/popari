@@ -9,7 +9,6 @@ from typing import Optional, Sequence
 
 import anndata as ad
 import awkward as ak
-import gseapy as gp
 import matplotlib
 import matplotlib.patches as patches
 import networkx as nx
@@ -88,11 +87,10 @@ def unconcatenate(merged_dataset: ad.AnnData, batch_key: str = "batch"):
     datasets = [merged_dataset[index].copy() for index in indices]
 
     replicate_names = [dataset.obs[batch_key].unique()[0] for dataset in datasets]
-    unmerged_datasets = [
-        dataset.popari.ensure_name(name, batch_key=batch_key) for dataset, name in zip(datasets, replicate_names)
-    ]
+    for dataset, name in zip(datasets, replicate_names):
+        dataset.popari.name = name
 
-    return unmerged_datasets
+    return datasets
 
 
 def calc_modularity(adjacency_matrix, label, resolution=1):
@@ -606,18 +604,19 @@ def smooth_metagene_expression(
     return smoothed_expression
 
 
-def spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=10, smoothing_threshold=0.5):
+def spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=1, smoothing_threshold=0.5):
     """"""
+    labels = np.asarray(labels)
     num_entities = len(labels)
 
     smoothed_labels = labels.copy()
     for _ in range(max_smoothing_rounds):
         new_labels = smoothed_labels.copy()
         for entity in np.arange(num_entities):
-            current_cluster = labels[entity]
+            current_cluster = smoothed_labels[entity]
 
             adjacencies = adjacency_list[entity]
-            neighbor_labels = labels[adjacencies]
+            neighbor_labels = smoothed_labels[adjacencies]
             num_neighbors = len(neighbor_labels)
             if num_neighbors == 0:
                 new_labels[entity] = current_cluster
@@ -647,85 +646,23 @@ def smooth_labels(
     label_key: str = "leiden",
     output_key: str = "smoothed_leiden",
     smoothing_threshold: float = 0.5,
-    max_smoothing_rounds: int = 10,
+    max_smoothing_rounds: int = 1,
     adjacency_list_key: str = "adjacency_list",
 ):
     """"""
     adjacency_list = dataset.obsm[adjacency_list_key]
 
     labels = dataset.obs[label_key]
-    dataset.obs[output_key] = spatially_smooth_feature(
-        labels,
-        adjacency_list,
-        max_smoothing_rounds,
-        smoothing_threshold,
+    dataset.obs[output_key] = pd.Categorical(
+        spatially_smooth_feature(
+            labels,
+            adjacency_list,
+            max_smoothing_rounds,
+            smoothing_threshold,
+        ),
     )
 
     return dataset.obs[output_key]
-
-
-def run_gsea(
-    gene_list: Sequence[str],
-    name: str,
-    background: Sequence[str],
-    output_name=None,
-    mode: str = "dotplot",
-    **enrichr_kwargs,
-):
-    """GSEApy analysis.
-
-    Args:
-        gene_list: list of gene names to check for enrichment
-        background: list of background genes to use to for comparison
-        name: title for analysis plot
-        output_name: path where plot figure will be saved
-        enrichr_kwargs: keyword arguments for the call to `gp.enrichr`
-        mode: what type of plot to produce. Default: `"dotplot"`
-
-    """
-
-    organism = enrichr_kwargs.pop("organism", "mouse")
-    gene_sets = enrichr_kwargs.pop("gene_sets", ["GO_Biological_Process_2023"])
-
-    enrichment_result = gp.enrichr(
-        gene_list=gene_list,
-        gene_sets=gene_sets,
-        organism=organism,
-        background=background,
-        outdir=None,
-        **enrichr_kwargs,
-    )
-
-    enrichment_result.results.sort_values(by="Adjusted P-value")
-
-    if mode == "dotplot":
-        ax = gp.dotplot(
-            enrichment_result.results,
-            column="Adjusted P-value",
-            x="Gene_set",  # set x axis, so you could do a multi-sample/library comparsion
-            size=2,
-            top_term=5,
-            figsize=(3, 5),
-            title=f"{name} GSEA Enrichment",
-            xticklabels_rot=45,  # rotate xtick labels
-            show_ring=True,  # set to False to revmove outer ring
-            ofname=output_name,
-            marker="o",
-        )
-    elif mode == "barplot":
-        ax = gp.barplot(
-            enrichment_result.results,
-            column="Adjusted P-value",
-            group="Gene_set",  # set group, so you could do a multi-sample/library comparsion
-            size=10,
-            top_term=5,
-            figsize=(3, 5),
-            color=["red", "green", "blue"],
-            title=f"{name} GSEA Enrichment",
-            ofname=output_name,
-        )
-
-    return enrichment_result, ax
 
 
 def get_metagene_signature(

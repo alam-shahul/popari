@@ -18,6 +18,7 @@ from popari.initialization import (
     initialize_leiden,
     initialize_svd,
 )
+from popari.preprocessing import compute_spatial_neighbors
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
@@ -389,16 +390,17 @@ class HierarchicalView(nn.Module):
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
 
             # Precomputing quantities
-            MTM = M.T @ M / (sigma_yx**2)
+            MTM = (M.T @ M / (sigma_yx**2)).detach()
             BTB = convert_numpy_to_pytorch_sparse_coo((B.T @ B).tocoo(), context=self.context)
-            YM = Y @ M / (sigma_yx**2)
+            YM = (Y @ M / (sigma_yx**2)).detach()
             BTX_B = torch.from_numpy(B.T @ X_B).to(self.context["device"]).to(self.context["dtype"])
 
             linear_term_gradient = YM + BTX_B
             if prior_x_mode == "exponential shared fixed":
                 linear_term_gradient = linear_term_gradient - prior_x[0][None]
+            linear_term_gradient = linear_term_gradient.detach()
 
-            Ynorm = torch.square(Y).sum() / (sigma_yx**2)
+            Ynorm = (torch.square(Y).sum() / (sigma_yx**2)).detach()
             X_Bnorm = np.linalg.norm(X_B, ord="fro").item() ** 2
             loss_prev, loss = np.inf, np.nan
 
@@ -458,7 +460,7 @@ class HierarchicalView(nn.Module):
 
                 # del quadratic_term_gradient
 
-                return loss
+                return loss.detach().item()
 
             progress_bar = trange(n_epochs, leave=True, disable=(verbose < 5), miniters=10000)
             for epoch in progress_bar:
@@ -489,7 +491,7 @@ class HierarchicalView(nn.Module):
             progress_bar.close()
             self.embedding_optimizer.embedding_state[dataset.popari.name] = X.clone().detach()
 
-            final_losses[dataset_index] = loss.cpu().detach().numpy()
+            final_losses[dataset_index] = loss
 
             # Delete dangling reference
             # TODO: can probably delete all this?
@@ -545,7 +547,7 @@ class HierarchicalView(nn.Module):
                 self.parameter_optimizer.metagene_state[dataset.popari.name].cpu().detach().numpy()
             )
             dataset.obsm["X"] = self.embedding_optimizer.embedding_state[dataset.popari.name].cpu().detach().numpy()
-            dataset.uns["sigma_yx"] = self.parameter_optimizer.sigma_yxs[dataset_index]
+            dataset.uns["sigma_yx"] = self.parameter_optimizer.sigma_yxs[dataset_index].item()
             with torch.no_grad():
                 dataset.uns["Sigma_x_inv"][dataset.popari.name][:] = (
                     self.parameter_optimizer.spatial_affinity[dataset.popari.name].cpu().detach().numpy()
@@ -751,8 +753,8 @@ class Hierarchy:
                     bin_assignments_key=bin_assignments_key,
                     **effective_kwargs,
                 )
-                binned_dataset = binned_dataset.popari.ensure_name(binned_dataset_name)
-                binned_dataset.popari.compute_spatial_neighbors()
+                binned_dataset.popari.name = binned_dataset_name
+                compute_spatial_neighbors(binned_dataset)
 
                 print(
                     f"{get_datetime()} Downsized dataset from {len(previous_dataset)} to {len(binned_dataset)} spots.",

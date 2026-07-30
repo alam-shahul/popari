@@ -349,10 +349,10 @@ class SimulationEvaluation:
                 metric_names.extend(["affinity_correlation", "affinity_coherence"])
 
         if self.is_spatial:
-            from popari._dataset_utils import _compute_empirical_correlations
+            from popari.analysis import compute_empirical_correlations
 
-            _compute_empirical_correlations(datasets, scaling=10)
-            _compute_empirical_correlations(
+            compute_empirical_correlations(datasets, scaling=10)
+            compute_empirical_correlations(
                 datasets,
                 scaling=10,
                 feature="ground_truth_X",

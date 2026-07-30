@@ -979,7 +979,7 @@ class MetageneState(nn.Module):
     Metagene state can be shared across replicates or maintained separately for each replicate.
 
     Attributes:
-        datasets: A reference to the list of PopariDatasets that are being optimized.
+        datasets: A reference to the AnnData objects being optimized.
         context: Parameters to define the context for PyTorch tensor instantiation.
         metagenes: A PyTorch tensor containing all metagene parameters.
 

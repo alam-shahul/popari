@@ -266,11 +266,11 @@ class Popari(nn.Module):
 
         """
         if replicate_names is None:
-            self._datasets = [dataset.popari.ensure_name() for dataset in datasets]
+            self._datasets = list(datasets)
         else:
-            self._datasets = [
-                dataset.popari.ensure_name(replicate_name) for dataset, replicate_name in zip(datasets, replicate_names)
-            ]
+            self._datasets = list(datasets)
+            for dataset, replicate_name in zip(self._datasets, replicate_names):
+                dataset.popari.name = replicate_name
         self.num_replicates = len(self.datasets)
 
     def load_dataset(self, dataset_path: Union[str, Path]):
@@ -374,6 +374,7 @@ class Popari(nn.Module):
         simplex_projection_mode: bool = "exact",
         edge_subsample_rate: Optional[float] = None,
         synchronize: bool = True,
+        spatial_affinity_epochs: int = 1000,
     ):
         """Update parameters for each replicate.
 
@@ -382,6 +383,8 @@ class Popari(nn.Module):
                 this iteration. Default: ``True``
             edge_subsample_rate: Fraction of adjacency matrix edges that will be included in
                 optimization of ``Sigma_x_inv``.
+            spatial_affinity_epochs: Maximum number of inner optimization epochs for
+                ``Sigma_x_inv``. Default: ``1000``.
 
         """
         logging.info(f"{get_datetime()}Updating model parameters")
@@ -392,6 +395,7 @@ class Popari(nn.Module):
             self.parameter_optimizer.update_spatial_affinity(
                 differentiate_spatial_affinities=differentiate_spatial_affinities,
                 subsample_rate=edge_subsample_rate,
+                n_epochs=spatial_affinity_epochs,
             )
 
         if self.verbose:
@@ -693,7 +697,7 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
     """Initialize Popari object from a SpiceMix pretrained model."""
 
     pretrained_datasets = pretrained_model.hierarchy[0].datasets
-    datasets = [dataset.copy().popari.ensure_name(dataset.popari.name) for dataset in pretrained_datasets]
+    datasets = [dataset.copy() for dataset in pretrained_datasets]
     replicate_names = [dataset.popari.name for dataset in datasets]
 
     reloaded_hierarchy = None
@@ -701,9 +705,7 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
     reloaded_hierarchy = {}
     for level in range(pretrained_model.hierarchical_levels):
         level_datasets = pretrained_model.hierarchy[level].datasets
-        reloaded_hierarchy[level] = [
-            level_dataset.copy().popari.ensure_name(level_dataset.popari.name) for level_dataset in level_datasets
-        ]
+        reloaded_hierarchy[level] = [level_dataset.copy() for level_dataset in level_datasets]
 
     return load_pretrained(
         datasets,

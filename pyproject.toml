@@ -30,6 +30,7 @@ dependencies = [
     "pymetis",
     "awkward",
     "ortools",
+    "upsetplot>=0.9",
 ]
 description = "Popari: a probabilistic graphical model for integrated spatial transcriptomics analysis"
 readme = "README.md"

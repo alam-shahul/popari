@@ -37,11 +37,10 @@ def test_shared_embedding_updates_preserve_nonnegativity(shared_model_factory, g
     assert not np.allclose(initial_x, updated_x)
 
 
-@pytest.mark.gpu
 @pytest.mark.baseline
-def test_shared_nll_components_are_numerically_stable(trained_shared_model, shared_reference_metrics):
+def test_shared_nll_components_are_numerically_stable(trained_shared_model, shared_model_expected_metrics):
     model = trained_shared_model
-    metrics = shared_reference_metrics
+    metrics = shared_model_expected_metrics
 
     assert model.nll(level=0)[0] == pytest.approx(metrics["nll"], abs=1e-6)
     assert model.parameter_optimizer.sigma_yxs[0].item() == pytest.approx(metrics["sigma_yx"][0], abs=1e-6)
@@ -60,9 +59,9 @@ def test_shared_nll_components_are_numerically_stable(trained_shared_model, shar
 
 
 @pytest.mark.expensive
-def test_shared_analysis_pipeline_sets_expected_annotations(clustered_shared_model, shared_reference_metrics):
+def test_shared_analysis_pipeline_sets_expected_annotations(clustered_shared_model, shared_model_expected_metrics):
     model = clustered_shared_model
-    metrics = shared_reference_metrics
+    metrics = shared_model_expected_metrics
 
     for dataset in model.datasets:
         assert "normalized_X" in dataset.obsm
@@ -99,7 +98,7 @@ def test_shared_confusion_matrix_requires_aligned_categories(clustered_shared_mo
     model = clustered_shared_model
 
     try:
-        tl.compute_confusion_matrix(model, labels="cell_type", predictions="leiden", joint=True)
+        tl.compute_confusion_matrix(model.datasets, labels="cell_type", predictions="leiden", joint=True)
     except ValueError:
         return
 

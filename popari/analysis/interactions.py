@@ -8,10 +8,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
-from scipy.sparse import csr_matrix
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-from popari._dataset_utils import _compute_empirical_correlations
+from popari._datasets import as_datasets
+from popari.analysis.metrics import compute_empirical_correlations
 from popari.util import convert_adjacency_matrix_to_awkward_array
 
 SPATIAL_COLOCALIZATION_OUTPUTS = {
@@ -24,22 +24,195 @@ SPATIAL_COLOCALIZATION_OUTPUTS = {
 
 @dataclass(frozen=True)
 class EdgeInteractions:
-    """Affinity-weighted interaction scores on directed graph edges."""
+    """Lazy affinity-weighted interaction analysis on directed graph edges."""
 
     source: np.ndarray
     target: np.ndarray
-    source_embeddings: np.ndarray
-    target_embeddings: np.ndarray
-    aligned_source_embeddings: np.ndarray
-    scores: np.ndarray
-    metagene_pair_scores: np.ndarray
+    edge_weights: np.ndarray
+    embeddings: np.ndarray
+    affinity: np.ndarray
+    obs_names: pd.Index
 
+    @property
+    def edges(self) -> np.ndarray:
+        """Return graph edges as an ``(E, 2)`` integer array."""
 
-def _affinity_matrix(dataset, affinity_key: str, reference_affinity=None):
-    affinity_by_name = dataset.uns[affinity_key]
-    if reference_affinity is None:
-        reference_affinity = 0
-    return next(iter(affinity_by_name.values())) - reference_affinity
+        return np.column_stack([self.source, self.target])
+
+    @property
+    def scores(self) -> np.ndarray:
+        """Return total scores ``-z_i @ affinity @ z_j`` for every edge."""
+
+        aligned_source = -self.embeddings[self.source] @ self.affinity
+        return np.einsum("ij,ij->i", aligned_source, self.embeddings[self.target])
+
+    def metagene_pair_scores(
+        self,
+        first_metagene: int,
+        second_metagene: int,
+        *,
+        mode: str = "affinity",
+    ) -> np.ndarray:
+        """Return one metagene-pair contribution for every edge."""
+
+        source_values = self.embeddings[self.source, first_metagene]
+        target_values = self.embeddings[self.target, second_metagene]
+        if mode == "affinity":
+            return -source_values * self.affinity[first_metagene, second_metagene] * target_values
+        if mode == "cooccurrence":
+            return 1 - source_values * target_values
+        raise ValueError("mode must be either 'affinity' or 'cooccurrence'.")
+
+    def mean_metagene_pair_scores(self, edge_mask=None) -> np.ndarray:
+        """Return the mean contribution of every metagene pair."""
+
+        if edge_mask is None:
+            edge_mask = np.ones(len(self.source), dtype=bool)
+        source = self.embeddings[self.source[edge_mask]]
+        target = self.embeddings[self.target[edge_mask]]
+        if len(source) == 0:
+            return np.zeros_like(self.affinity, dtype=float)
+        return -self.affinity * (source.T @ target / len(source))
+
+    def category_mask(
+        self,
+        labels,
+        category_pair: tuple,
+        *,
+        directed: bool = True,
+    ) -> np.ndarray:
+        """Select edges joining a requested category pair."""
+
+        labels = self._aligned_labels(labels)
+        first_category, second_category = category_pair
+        forward = (labels[self.source] == first_category) & (labels[self.target] == second_category)
+        if directed or first_category == second_category:
+            return forward
+        reverse = (labels[self.source] == second_category) & (labels[self.target] == first_category)
+        return forward | reverse
+
+    def category_summary(self, labels, *, categories=None) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Return directed category-pair mean scores and edge counts."""
+
+        labels = self._aligned_labels(labels)
+        if categories is None:
+            categories = list(pd.unique(labels))
+        scores = np.zeros((len(categories), len(categories)))
+        counts = np.zeros((len(categories), len(categories)), dtype=int)
+        edge_scores = self.scores
+        for source_index, source_category in enumerate(categories):
+            for target_index, target_category in enumerate(categories):
+                mask = self.category_mask(labels, (source_category, target_category))
+                counts[source_index, target_index] = mask.sum()
+                if counts[source_index, target_index]:
+                    scores[source_index, target_index] = edge_scores[mask].mean()
+        return (
+            pd.DataFrame(scores, index=categories, columns=categories),
+            pd.DataFrame(counts, index=categories, columns=categories),
+        )
+
+    def cell_summary(self, *, reduction: str = "mean") -> pd.Series:
+        """Aggregate outgoing edge scores for each cell."""
+
+        score_sums = np.zeros(len(self.obs_names))
+        edge_counts = np.zeros(len(self.obs_names), dtype=int)
+        np.add.at(score_sums, self.source, self.scores)
+        np.add.at(edge_counts, self.source, 1)
+        if reduction == "sum":
+            values = score_sums
+        elif reduction == "mean":
+            values = np.divide(
+                score_sums,
+                edge_counts,
+                out=np.zeros_like(score_sums),
+                where=edge_counts != 0,
+            )
+        else:
+            raise ValueError("reduction must be 'mean' or 'sum'.")
+        return pd.Series(values, index=self.obs_names, name=f"edge_score_{reduction}")
+
+    def cell_category_summary(
+        self,
+        labels,
+        *,
+        source_category,
+        target_categories,
+        reduction: str = "mean",
+    ) -> pd.DataFrame:
+        """Aggregate outgoing edge scores by source cell and target category.
+
+        Args:
+            labels: Category labels aligned to the analyzed observations.
+            source_category: Category whose cells define the output rows.
+            target_categories: Neighbor categories to include as columns.
+            reduction: Edge-score reduction, either ``"mean"`` or ``"sum"``.
+
+        Returns:
+            Source cells by target categories. Missing category-specific
+            neighborhoods are represented by ``NaN``.
+
+        """
+
+        if reduction not in {"mean", "sum"}:
+            raise ValueError("reduction must be 'mean' or 'sum'.")
+
+        labels = self._aligned_labels(labels)
+        target_categories = list(dict.fromkeys(target_categories))
+        source_cells = np.flatnonzero(labels == source_category)
+        summary = pd.DataFrame(
+            np.nan,
+            index=self.obs_names[source_cells],
+            columns=target_categories,
+            dtype=float,
+        )
+
+        for target_category in target_categories:
+            edge_mask = (labels[self.source] == source_category) & (labels[self.target] == target_category)
+            selected_sources = self.source[edge_mask]
+            score_sums = np.zeros(len(self.obs_names))
+            edge_counts = np.zeros(len(self.obs_names), dtype=int)
+            np.add.at(score_sums, selected_sources, self.scores[edge_mask])
+            np.add.at(edge_counts, selected_sources, 1)
+
+            observed_sources = source_cells[edge_counts[source_cells] > 0]
+            if reduction == "mean":
+                values = score_sums[observed_sources] / edge_counts[observed_sources]
+            else:
+                values = score_sums[observed_sources]
+            summary.loc[self.obs_names[observed_sources], target_category] = values
+
+        return summary
+
+    def to_frame(self, labels=None) -> pd.DataFrame:
+        """Return a tidy edge table, optionally including endpoint labels."""
+
+        frame = pd.DataFrame(
+            {
+                "source": self.source,
+                "target": self.target,
+                "source_obs": self.obs_names[self.source],
+                "target_obs": self.obs_names[self.target],
+                "edge_weight": self.edge_weights,
+                "score": self.scores,
+            },
+        )
+        if labels is not None:
+            labels = self._aligned_labels(labels)
+            frame["source_category"] = labels[self.source]
+            frame["target_category"] = labels[self.target]
+        return frame
+
+    def _aligned_labels(self, labels) -> np.ndarray:
+        if isinstance(labels, pd.Series):
+            missing = self.obs_names.difference(labels.index)
+            if len(missing):
+                raise ValueError("labels are missing observations present in the edge interactions.")
+            labels = labels.reindex(self.obs_names).to_numpy()
+        else:
+            labels = np.asarray(labels)
+        if len(labels) != len(self.obs_names):
+            raise ValueError("labels must contain one value per observation.")
+        return labels
 
 
 def _scaled_embeddings(dataset, embedding_key: str, rescale: bool):
@@ -49,12 +222,6 @@ def _scaled_embeddings(dataset, embedding_key: str, rescale: bool):
 
     size_factor = np.linalg.norm(embeddings, axis=1, ord=1, keepdims=True)
     return np.divide(embeddings, size_factor, out=np.zeros_like(embeddings, dtype=float), where=size_factor != 0)
-
-
-def _as_dataset_sequence(datasets):
-    if isinstance(datasets, (list, tuple)):
-        return datasets
-    return (datasets,)
 
 
 def _graph_edges(dataset, neighbor_key: str):
@@ -104,7 +271,7 @@ def compute_spatial_colocalization(
     symmetrize: bool = True,
     zero_center: bool = True,
     scaling: float = 1,
-):
+) -> None:
     """Compute one post-hoc factor co-localization matrix on spatial graph
     edges.
 
@@ -123,17 +290,18 @@ def compute_spatial_colocalization(
     if method == "empirical":
         if not symmetrize or not zero_center:
             raise ValueError("method='empirical' uses the legacy helper, which always symmetrizes and zero-centers.")
-        for dataset in _as_dataset_sequence(datasets):
+        for dataset in as_datasets(datasets):
             if "adjacency_list" not in dataset.obsm and neighbor_key in dataset.obsp:
                 dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(dataset.obsp[neighbor_key])
-        return _compute_empirical_correlations(
-            tuple(_as_dataset_sequence(datasets)),
+        compute_empirical_correlations(
+            datasets,
             scaling=scaling,
             feature=feature,
             output=output,
         )
+        return
 
-    for dataset in _as_dataset_sequence(datasets):
+    for dataset in as_datasets(datasets):
         embeddings = np.asarray(dataset.obsm[feature])
         source, target, weight = _graph_edges(dataset, neighbor_key)
         source_embeddings = embeddings[source]
@@ -180,8 +348,6 @@ def compute_spatial_colocalization(
             ),
         }
 
-    return datasets
-
 
 def compute_posthoc_colocalization(
     datasets,
@@ -193,7 +359,7 @@ def compute_posthoc_colocalization(
     zero_center: bool = True,
     scaling: float = 1,
     outputs: dict[str, str] | None = None,
-):
+) -> None:
     """Compute multiple post-hoc factor co-localization baselines.
 
     This is the public AnnData-level API for reviewer-style baselines. It works
@@ -215,51 +381,69 @@ def compute_posthoc_colocalization(
             zero_center=zero_center,
             scaling=scaling,
         )
-    return datasets
 
 
 def compute_edge_interactions(
     dataset,
     *,
-    affinity_dataset=None,
+    affinity=None,
     embedding_key: str = "X",
-    affinity_key: str = "Sigma_x_inv",
     neighbor_key: str = "adjacency_matrix",
     rescale: bool = True,
-    reference_affinity=None,
 ) -> EdgeInteractions:
     """Compute affinity-weighted interaction scores on every graph edge.
 
     The canonical edge score is ``-z_i @ Sigma @ z_j``, where ``z`` is the
-    optionally L1-normalized embedding. The returned edge order follows
-    ``dataset.obsp[neighbor_key].nonzero()`` exactly.
+    optionally L1-normalized embedding. Self-edges are excluded.
 
     """
 
-    if affinity_dataset is None:
-        affinity_dataset = dataset
-
     scaled_embeddings = _scaled_embeddings(dataset, embedding_key, rescale)
-    affinity_matrix = _affinity_matrix(affinity_dataset, affinity_key, reference_affinity)
-    aligned_embeddings = -scaled_embeddings @ affinity_matrix
-
-    adjacency_matrix = dataset.obsp[neighbor_key]
-    source, target = adjacency_matrix.nonzero()
-    source_embeddings = scaled_embeddings[source]
-    target_embeddings = scaled_embeddings[target]
-    aligned_source_embeddings = aligned_embeddings[source]
-
-    metagene_pair_scores = -source_embeddings[:, :, None] * affinity_matrix[None, :, :] * target_embeddings[:, None, :]
-    scores = np.einsum("ij,ij->i", aligned_source_embeddings, target_embeddings)
+    if affinity is None:
+        affinity = dataset.popari.spatial_affinity
+    affinity = np.asarray(affinity)
+    expected_shape = (scaled_embeddings.shape[1], scaled_embeddings.shape[1])
+    if affinity.shape != expected_shape:
+        raise ValueError(
+            f"Affinity matrix has shape {affinity.shape}; expected {expected_shape} "
+            f"for embeddings with {scaled_embeddings.shape[1]} factors.",
+        )
+    source, target, edge_weights = _graph_edges(dataset, neighbor_key)
 
     return EdgeInteractions(
         source=np.asarray(source),
         target=np.asarray(target),
-        source_embeddings=source_embeddings,
-        target_embeddings=target_embeddings,
-        aligned_source_embeddings=aligned_source_embeddings,
-        scores=scores,
-        metagene_pair_scores=metagene_pair_scores,
+        edge_weights=np.asarray(edge_weights),
+        embeddings=np.asarray(scaled_embeddings).copy(),
+        affinity=affinity.copy(),
+        obs_names=dataset.obs_names.copy(),
+    )
+
+
+def compute_differential_edge_interactions(
+    dataset,
+    *,
+    affinity_dataset,
+    comparison: str,
+    reference: str,
+    embedding_key: str = "X",
+    affinity_key: str = "Sigma_x_inv",
+    neighbor_key: str = "adjacency_matrix",
+    rescale: bool = True,
+) -> EdgeInteractions:
+    """Compute edge interactions from a named spatial-affinity contrast."""
+
+    affinity = affinity_dataset.popari.affinity_difference(
+        comparison,
+        reference,
+        spatial_affinity_key=affinity_key,
+    )
+    return compute_edge_interactions(
+        dataset,
+        affinity=affinity,
+        embedding_key=embedding_key,
+        neighbor_key=neighbor_key,
+        rescale=rescale,
     )
 
 
@@ -272,96 +456,6 @@ def average_category_interaction(embeddings, aligned_embeddings, category_mask, 
     neighbor_sum = adjacency_matrix @ embeddings[other_category_mask]
     average_interaction = np.sum(aligned_embeddings[category_mask] * neighbor_sum, axis=1, keepdims=True)
     return average_interaction, edge_count
-
-
-def compute_category_interaction(
-    affinity_datasets,
-    embedding_datasets=None,
-    category_key=None,
-    categories=None,
-    rescale: bool = True,
-    embedding_key: str = "X",
-    affinity_key: str = "Sigma_x_inv",
-    reference_dataset_index: int | None = None,
-    reference_dataset_group=None,
-    level: int = 0,
-    neighbor_key: str = "adjacency_matrix",
-    output_key: str = "aligned",
-):
-    """Compute cell-category interaction scores from embeddings and spatial
-    affinities."""
-
-    model_mode = embedding_datasets is None and hasattr(affinity_datasets, "hierarchy")
-    if model_mode:
-        model = affinity_datasets
-        embedding_datasets = model.hierarchy[level].datasets
-        affinity_datasets = embedding_datasets
-    elif embedding_datasets is None:
-        raise TypeError("embedding_datasets must be provided unless the first argument is a Popari model.")
-
-    if category_key is None:
-        raise TypeError("category_key must be provided.")
-
-    if categories is None:
-        categories = sorted({category for dataset in embedding_datasets for category in dataset.obs[category_key]})
-
-    first_affinity_matrix = next(iter(affinity_datasets[0].uns[affinity_key].values()))
-    reference_affinity_matrix = np.zeros_like(first_affinity_matrix)
-    if reference_dataset_index is not None:
-        reference_affinity_matrix = next(iter(affinity_datasets[reference_dataset_index].uns[affinity_key].values()))
-    elif reference_dataset_group is not None:
-        raise NotImplementedError("reference_dataset_group requires merged affinity groups and is not available here.")
-
-    num_categories = len(categories)
-    for affinity_dataset, embedding_dataset in zip(affinity_datasets, embedding_datasets):
-        labels = embedding_dataset.obs[category_key]
-        label_interactions = np.zeros((num_categories, num_categories))
-        edge_frequencies = np.zeros((num_categories, num_categories))
-
-        edge_interactions = compute_edge_interactions(
-            embedding_dataset,
-            affinity_dataset=affinity_dataset,
-            embedding_key=embedding_key,
-            affinity_key=affinity_key,
-            neighbor_key=neighbor_key,
-            rescale=rescale,
-            reference_affinity=reference_affinity_matrix,
-        )
-        scaled_embeddings = _scaled_embeddings(embedding_dataset, embedding_key, rescale)
-        affinity_matrix = _affinity_matrix(affinity_dataset, affinity_key, reference_affinity_matrix)
-        embedding_dataset.obsm[f"{output_key}_{embedding_key}"] = -scaled_embeddings @ affinity_matrix
-
-        for other_category_index, other_category in enumerate(categories):
-            if model_mode:
-                embedding_dataset.obs[f"{other_category}_interaction"] = 0.0
-            for category_index, category in enumerate(categories):
-                category_mask = np.asarray(labels == category)
-                other_mask = np.asarray(labels == other_category)
-                edge_mask = category_mask[edge_interactions.source] & other_mask[edge_interactions.target]
-                edge_count = edge_mask.sum()
-                if edge_count > 0:
-                    source_cells = edge_interactions.source[edge_mask]
-                    category_interaction = np.zeros(category_mask.sum())
-                    source_positions = np.searchsorted(np.flatnonzero(category_mask), source_cells)
-                    np.add.at(category_interaction, source_positions, edge_interactions.scores[edge_mask])
-                    if model_mode:
-                        embedding_dataset.obs.loc[category_mask, f"{other_category}_interaction"] = (
-                            category_interaction.ravel()
-                        )
-                    label_interactions[category_index, other_category_index] = np.sum(category_interaction)
-                    edge_frequencies[category_index, other_category_index] = edge_count
-
-        label_interactions = np.divide(
-            label_interactions,
-            edge_frequencies,
-            out=np.zeros_like(label_interactions),
-            where=edge_frequencies != 0,
-        )
-        embedding_dataset.uns[f"{category_key}_interaction"] = label_interactions
-        embedding_dataset.uns[f"{category_key}_edge_frequencies"] = edge_frequencies
-        embedding_dataset.uns[f"{category_key}_categories"] = categories
-
-    return categories
 
 
 def compute_category_edge_rates(
@@ -506,8 +600,8 @@ def compute_pair_edge_classification_scores(
 
     edge_interactions = compute_edge_interactions(
         dataset,
+        affinity=np.asarray(dataset.uns[affinity_key][dataset.popari.name]),
         embedding_key=embedding_key,
-        affinity_key=affinity_key,
         neighbor_key=neighbor_key,
         rescale=rescale,
     )
@@ -520,7 +614,7 @@ def compute_pair_edge_classification_scores(
         positives = (labels[edge_interactions.source] == source_category) & (
             labels[edge_interactions.target] == target_category
         )
-        scores = edge_interactions.metagene_pair_scores[:, source_factor, target_factor]
+        scores = edge_interactions.metagene_pair_scores(source_factor, target_factor)
 
         if positives.any() and (~positives).any():
             auroc = roc_auc_score(positives, scores)
@@ -592,10 +686,9 @@ def summarize_matrix_correlations(
 
 
 def compute_cell_average_interaction(
-    model,
+    affinity_datasets,
+    embedding_datasets=None,
     *,
-    affinity_level: int = 0,
-    embedding_level: int = 0,
     rescale: bool = True,
     embedding_key: str = "X",
     affinity_key: str = "Sigma_x_inv",
@@ -604,20 +697,19 @@ def compute_cell_average_interaction(
 ):
     """Store each cell's degree-normalized average neighbor interaction."""
 
-    affinity_datasets = model.hierarchy[affinity_level].datasets
-    embedding_datasets = model.hierarchy[embedding_level].datasets
+    affinity_datasets = as_datasets(affinity_datasets)
+    embedding_datasets = affinity_datasets if embedding_datasets is None else as_datasets(embedding_datasets)
     for affinity_dataset, embedding_dataset in zip(affinity_datasets, embedding_datasets):
+        affinity = np.asarray(affinity_dataset.uns[affinity_key][affinity_dataset.popari.name])
         edge_interactions = compute_edge_interactions(
             embedding_dataset,
-            affinity_dataset=affinity_dataset,
+            affinity=affinity,
             embedding_key=embedding_key,
-            affinity_key=affinity_key,
             neighbor_key=neighbor_key,
             rescale=rescale,
         )
         scaled_embeddings = _scaled_embeddings(embedding_dataset, embedding_key, rescale)
-        affinity_matrix = _affinity_matrix(affinity_dataset, affinity_key)
-        embedding_dataset.obsm[f"{output_key}_{embedding_key}"] = -scaled_embeddings @ affinity_matrix
+        embedding_dataset.obsm[f"{output_key}_{embedding_key}"] = -scaled_embeddings @ affinity
 
         degree = np.asarray(embedding_dataset.obsp[neighbor_key].sum(axis=1)).reshape(-1)
         interaction_sum = np.zeros(embedding_dataset.n_obs)
@@ -628,49 +720,6 @@ def compute_cell_average_interaction(
             out=np.zeros_like(interaction_sum, dtype=float),
             where=degree != 0,
         )
-
-
-def compute_cell_type_pair_interaction(
-    embedding_dataset,
-    affinity_dataset,
-    cell_type_pair: tuple,
-    cell_type_key: str,
-    *,
-    rescale: bool = True,
-    embedding_key: str = "X",
-    affinity_key: str = "Sigma_x_inv",
-    neighbor_key: str = "adjacency_matrix",
-    interaction_key: str = "interaction",
-):
-    """Store edge interactions for one cell-type pair as a sparse cell
-    matrix."""
-
-    edge_interactions = compute_edge_interactions(
-        embedding_dataset,
-        affinity_dataset=affinity_dataset,
-        embedding_key=embedding_key,
-        affinity_key=affinity_key,
-        neighbor_key=neighbor_key,
-        rescale=rescale,
-    )
-    labels = embedding_dataset.obs[cell_type_key]
-    first_cell_type, second_cell_type = cell_type_pair
-    first_mask = np.asarray(labels == first_cell_type)
-    second_mask = np.asarray(labels == second_cell_type)
-
-    edge_mask = (first_mask[edge_interactions.source] & second_mask[edge_interactions.target]) | (
-        second_mask[edge_interactions.source] & first_mask[edge_interactions.target]
-    )
-    interaction_matrix = csr_matrix(
-        (
-            edge_interactions.scores[edge_mask],
-            (edge_interactions.source[edge_mask], edge_interactions.target[edge_mask]),
-        ),
-        shape=(embedding_dataset.n_obs, embedding_dataset.n_obs),
-    )
-    first_label, second_label = cell_type_pair
-    embedding_dataset.obsp[f"{first_label}_{second_label}_{interaction_key}"] = interaction_matrix
-    return interaction_matrix
 
 
 def compute_metagene_pair_interaction(
@@ -688,14 +737,14 @@ def compute_metagene_pair_interaction(
 
     edge_interactions = compute_edge_interactions(
         dataset,
+        affinity=np.asarray(dataset.uns[affinity_key][dataset.popari.name]),
         embedding_key=embedding_key,
-        affinity_key=affinity_key,
         neighbor_key=neighbor_key,
         rescale=rescale,
     )
 
     if category_key is None:
-        dataset.uns[output_key] = edge_interactions.metagene_pair_scores.mean(axis=0)
+        dataset.uns[output_key] = edge_interactions.mean_metagene_pair_scores()
         dataset.uns[f"{output_key}_edge_count"] = len(edge_interactions.source)
         return dataset.uns[output_key]
 
@@ -710,7 +759,7 @@ def compute_metagene_pair_interaction(
             edge_mask = source_mask & np.asarray(labels == target_category)[edge_interactions.target]
             edge_counts[source_index, target_index] = edge_mask.sum()
             if edge_counts[source_index, target_index] > 0:
-                interaction[source_index, target_index] = edge_interactions.metagene_pair_scores[edge_mask].mean(axis=0)
+                interaction[source_index, target_index] = edge_interactions.mean_metagene_pair_scores(edge_mask)
 
     dataset.uns[output_key] = interaction
     dataset.uns[f"{output_key}_edge_frequencies"] = edge_counts
@@ -718,52 +767,11 @@ def compute_metagene_pair_interaction(
     return interaction
 
 
-def metagene_pair_edge_values(
-    dataset,
-    first_metagene: int,
-    second_metagene: int,
-    *,
-    mode: str = "affinity",
-    embedding_key: str = "X",
-    affinity_key: str = "Sigma_x_inv",
-    neighbor_key: str = "adjacency_matrix",
-    rescale: bool = True,
-):
-    """Return graph edges and edge colors for one metagene pair.
-
-    ``mode="affinity"`` returns Popari affinity-weighted interactions
-    ``-z_i[k] * Sigma[k, l] * z_j[l]``. ``mode="cooccurrence"`` returns the
-    older exploratory score ``1 - z_i[k] * z_j[l]``.
-
-    """
-
-    edge_interactions = compute_edge_interactions(
-        dataset,
-        embedding_key=embedding_key,
-        affinity_key=affinity_key,
-        neighbor_key=neighbor_key,
-        rescale=rescale,
-    )
-    edges = np.column_stack([edge_interactions.source, edge_interactions.target])
-    if mode == "affinity":
-        values = edge_interactions.metagene_pair_scores[:, first_metagene, second_metagene]
-    elif mode == "cooccurrence":
-        values = (
-            1
-            - edge_interactions.source_embeddings[:, first_metagene]
-            * edge_interactions.target_embeddings[:, second_metagene]
-        )
-    else:
-        raise ValueError("mode must be either 'affinity' or 'cooccurrence'.")
-
-    return edges, values
-
-
 __all__ = [
     EdgeInteractions.__name__,
     compute_edge_interactions.__name__,
+    compute_differential_edge_interactions.__name__,
     average_category_interaction.__name__,
-    compute_category_interaction.__name__,
     compute_category_edge_rates.__name__,
     match_categories_to_factors.__name__,
     compute_pair_edge_classification_scores.__name__,
@@ -772,7 +780,5 @@ __all__ = [
     frequency_weighted_interaction_matrix.__name__,
     summarize_matrix_correlations.__name__,
     compute_cell_average_interaction.__name__,
-    compute_cell_type_pair_interaction.__name__,
     compute_metagene_pair_interaction.__name__,
-    metagene_pair_edge_values.__name__,
 ]

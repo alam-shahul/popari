@@ -1,16 +1,13 @@
-from types import SimpleNamespace
-
 import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
 from scipy.sparse import csr_matrix
 
-from popari.analysis_utils import (
+from popari.analysis import (
     compute_category_edge_rates,
-    compute_category_interaction,
     compute_cell_average_interaction,
-    compute_cell_type_pair_interaction,
+    compute_differential_edge_interactions,
     compute_edge_interactions,
     compute_metagene_pair_interaction,
     compute_pair_edge_classification_scores,
@@ -18,13 +15,13 @@ from popari.analysis_utils import (
     compute_spatial_colocalization,
     frequency_weighted_interaction_matrix,
     match_categories_to_factors,
-    metagene_pair_edge_values,
     summarize_matrix_correlations,
 )
 
 
 def _interaction_dataset():
     dataset = ad.AnnData(X=np.ones((3, 2)))
+    dataset.popari.name = "replicate_0"
     dataset.obsm["X"] = np.array(
         [
             [1.0, 0.0],
@@ -51,35 +48,112 @@ def test_compute_edge_interactions_uses_affinity_weighted_edge_scores():
 
     assert interactions.source.tolist() == [0, 1, 2]
     assert interactions.target.tolist() == [1, 2, 0]
+    assert interactions.edge_weights.tolist() == [1.0, 1.0, 1.0]
     assert interactions.scores.tolist() == pytest.approx([0.0, -3.0, -2.0])
-    assert interactions.metagene_pair_scores.shape == (3, 2, 2)
-    np.testing.assert_allclose(
-        interactions.metagene_pair_scores[1],
-        np.array(
-            [
-                [0.0, 0.0],
-                [0.0, -3.0],
-            ],
-        ),
+    assert "metagene_pair_scores" not in interactions.__dataclass_fields__
+    assert not hasattr(interactions, "source_embeddings")
+    assert not hasattr(interactions, "target_embeddings")
+    assert interactions.metagene_pair_scores(1, 1).tolist() == pytest.approx([0.0, -3.0, 0.0])
+    reconstructed_scores = sum(
+        interactions.metagene_pair_scores(first, second) for first in range(2) for second in range(2)
     )
+    np.testing.assert_allclose(reconstructed_scores, interactions.scores)
 
 
-def test_compute_category_interaction_normalizes_by_category_pair_edges():
+def test_compute_edge_interactions_excludes_self_edges():
+    dataset = _interaction_dataset()
+    dataset.obsp["adjacency_matrix"][0, 0] = 1
+
+    interactions = compute_edge_interactions(dataset)
+
+    assert not np.any(interactions.source == interactions.target)
+
+
+def test_compute_edge_interactions_accepts_explicit_affinity():
+    dataset = _interaction_dataset()
+    affinity = np.diag([5.0, 7.0])
+
+    interactions = compute_edge_interactions(dataset, affinity=affinity, rescale=False)
+
+    np.testing.assert_array_equal(interactions.affinity, affinity)
+    assert interactions.scores.tolist() == pytest.approx([0.0, -7.0, -5.0])
+
+
+def test_compute_edge_interactions_rejects_incompatible_affinity_shape():
     dataset = _interaction_dataset()
 
-    categories = compute_category_interaction([dataset], [dataset], "cell_type", rescale=False)
+    with pytest.raises(ValueError, match=r"expected \(2, 2\)"):
+        compute_edge_interactions(dataset, affinity=np.eye(3))
 
-    assert categories == ["A", "B"]
-    assert dataset.uns["cell_type_edge_frequencies"].tolist() == [[1.0, 1.0], [1.0, 0.0]]
-    np.testing.assert_allclose(
-        dataset.uns["cell_type_interaction"],
-        np.array(
-            [
-                [-2.0, 0.0],
-                [-3.0, 0.0],
-            ],
-        ),
+
+def test_compute_differential_edge_interactions_uses_named_contrast():
+    dataset = _interaction_dataset()
+    affinity_dataset = ad.AnnData(X=np.ones((1, 1)))
+    affinity_dataset.uns["average_Sigma_x_inv"] = {
+        "comparison": np.diag([5.0, 7.0]),
+        "reference": np.diag([2.0, 3.0]),
+    }
+
+    interactions = compute_differential_edge_interactions(
+        dataset,
+        affinity_dataset=affinity_dataset,
+        comparison="comparison",
+        reference="reference",
+        affinity_key="average_Sigma_x_inv",
+        rescale=False,
     )
+
+    np.testing.assert_array_equal(interactions.affinity, np.diag([3.0, 4.0]))
+    assert interactions.scores.tolist() == pytest.approx([0.0, -4.0, -3.0])
+
+
+def test_edge_interactions_support_category_and_cell_summaries():
+    dataset = _interaction_dataset()
+    interactions = compute_edge_interactions(dataset, rescale=False)
+
+    directed = interactions.category_mask(dataset.obs["cell_type"], ("A", "B"))
+    undirected = interactions.category_mask(dataset.obs["cell_type"], ("A", "B"), directed=False)
+    np.testing.assert_array_equal(directed, [True, False, False])
+    np.testing.assert_array_equal(undirected, [True, True, False])
+
+    scores, counts = interactions.category_summary(dataset.obs["cell_type"], categories=["A", "B"])
+    pd.testing.assert_frame_equal(
+        counts,
+        pd.DataFrame([[1, 1], [1, 0]], index=["A", "B"], columns=["A", "B"]),
+    )
+    pd.testing.assert_frame_equal(
+        scores,
+        pd.DataFrame([[-2.0, 0.0], [-3.0, 0.0]], index=["A", "B"], columns=["A", "B"]),
+    )
+    assert interactions.cell_summary().tolist() == pytest.approx([0.0, -3.0, -2.0])
+    cell_category_scores = interactions.cell_category_summary(
+        dataset.obs["cell_type"].iloc[::-1],
+        source_category="A",
+        target_categories=["A", "B"],
+    )
+    assert cell_category_scores.index.tolist() == ["0", "2"]
+    assert np.isnan(cell_category_scores.loc["0", "A"])
+    assert cell_category_scores.loc["0", "B"] == 0.0
+    assert cell_category_scores.loc["2", "A"] == -2.0
+    assert np.isnan(cell_category_scores.loc["2", "B"])
+    assert interactions.to_frame(dataset.obs["cell_type"]).columns.tolist() == [
+        "source",
+        "target",
+        "source_obs",
+        "target_obs",
+        "edge_weight",
+        "score",
+        "source_category",
+        "target_category",
+    ]
+
+    with pytest.raises(ValueError, match="reduction must be"):
+        interactions.cell_category_summary(
+            dataset.obs["cell_type"],
+            source_category="A",
+            target_categories=["B"],
+            reduction="median",
+        )
 
 
 def test_compute_category_edge_rates_source_normalizes_edges():
@@ -221,6 +295,7 @@ def test_match_categories_to_factors_uses_mean_factor_activity():
 
 def test_compute_pair_edge_classification_scores_uses_matched_factor_pair_scores():
     dataset = ad.AnnData(X=np.ones((4, 2)))
+    dataset.popari.name = "replicate_0"
     dataset.obsm["X"] = np.array(
         [
             [1.0, 0.0],
@@ -275,10 +350,7 @@ def test_compute_pair_edge_classification_scores_returns_nan_without_positive_ed
 
 def test_compute_cell_average_interaction_stores_degree_normalized_scores():
     dataset = _interaction_dataset()
-    level = SimpleNamespace(datasets=[dataset])
-    model = SimpleNamespace(hierarchy={0: level})
-
-    compute_cell_average_interaction(model, rescale=False)
+    compute_cell_average_interaction(dataset, rescale=False)
 
     assert dataset.obs["aligned_X_average_interaction"].to_numpy().tolist() == pytest.approx([0.0, -3.0, -2.0])
 
@@ -301,38 +373,19 @@ def test_compute_metagene_pair_interaction_can_summarize_by_category_pair():
     )
 
 
-def test_compute_cell_type_pair_interaction_replaces_notebook_helper():
+def test_edge_interactions_returns_plot_ready_metagene_pair_vectors():
     dataset = _interaction_dataset()
+    interactions = compute_edge_interactions(dataset, rescale=False)
 
-    interaction = compute_cell_type_pair_interaction(dataset, dataset, ("A", "B"), "cell_type", rescale=False)
-
-    assert interaction.shape == (3, 3)
-    assert dataset.obsp["A_B_interaction"] is interaction
-    np.testing.assert_allclose(
-        interaction.toarray(),
-        np.array(
-            [
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0, -3.0],
-                [0.0, 0.0, 0.0],
-            ],
-        ),
-    )
-
-
-def test_metagene_pair_edge_values_returns_plot_ready_vectors():
-    dataset = _interaction_dataset()
-
-    edges, values = metagene_pair_edge_values(dataset, 1, 1, mode="affinity", rescale=False)
-
-    np.testing.assert_array_equal(edges, np.array([[0, 1], [1, 2], [2, 0]]))
+    np.testing.assert_array_equal(interactions.edges, np.array([[0, 1], [1, 2], [2, 0]]))
+    values = interactions.metagene_pair_scores(1, 1, mode="affinity")
     np.testing.assert_allclose(values, np.array([0.0, -3.0, -0.0]))
 
-    _, cooccurrence_values = metagene_pair_edge_values(dataset, 1, 1, mode="cooccurrence", rescale=False)
+    cooccurrence_values = interactions.metagene_pair_scores(1, 1, mode="cooccurrence")
     np.testing.assert_allclose(cooccurrence_values, np.array([1.0, 0.0, 1.0]))
 
     with pytest.raises(ValueError, match="mode must be"):
-        metagene_pair_edge_values(dataset, 1, 1, mode="invalid", rescale=False)
+        interactions.metagene_pair_scores(1, 1, mode="invalid")
 
 
 def test_summarize_matrix_correlations_uses_all_and_off_diagonal_entries():

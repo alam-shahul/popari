@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 from matplotlib import pyplot as plt
 
-from popari.plotting import _highlight_cell
+from popari.plotting import all_embeddings, multireplicate_heatmap, spatial_affinity_heatmap
+from popari.plotting.utils import _highlight_cell
 
 
 def plot_pairwise_comparison(
@@ -98,8 +99,6 @@ def plot_best_in_situ_result(
 ):
     """Plot in situ embeddings from preloaded single-level results."""
 
-    from popari._dataset_utils import _plot_all_embeddings
-
     overall_fig = plt.figure(constrained_layout=True, figsize=(14, 2 * (2 + len(other_evaluations))), dpi=600)
     subfigs = overall_fig.subfigures(nrows=len(other_evaluations) + 2, ncols=1)
 
@@ -108,24 +107,26 @@ def plot_best_in_situ_result(
 
     _, num_features = primary_dataset.obsm["truncated_ground_truth_X"].shape
     first_row = np.atleast_1d(subfigs[0].subplots(nrows=1, ncols=num_features, squeeze=True))
-    _plot_all_embeddings.__wrapped__(
+    all_embeddings(
         primary_dataset,
         fig=subfigs[0],
         embedding_key="truncated_ground_truth_X",
         ax=first_row,
         colorbar=False,
+        connectivity_key=None,
         edgecolors="none",
         cmap="Reds",
         size=size,
     )
 
     second_row = np.atleast_1d(subfigs[1].subplots(nrows=1, ncols=num_features, squeeze=True))
-    _plot_all_embeddings.__wrapped__(
+    all_embeddings(
         primary_dataset,
         fig=subfigs[1],
         embedding_key="truncated_matched_X",
         ax=second_row,
         colorbar=False,
+        connectivity_key=None,
         edgecolors="none",
         cmap="Reds",
         size=size,
@@ -143,12 +144,13 @@ def plot_best_in_situ_result(
 
         _, num_features = dataset.obsm["X"].shape
         row = np.atleast_1d(subfig.subplots(nrows=1, ncols=num_features, squeeze=True))
-        _plot_all_embeddings.__wrapped__(
+        all_embeddings(
             dataset,
             fig=subfig,
             embedding_key="truncated_matched_X",
             ax=row,
             colorbar=False,
+            connectivity_key=None,
             edgecolors="none",
             cmap="Reds",
             size=size,
@@ -188,8 +190,6 @@ def plot_best_affinity_correlation_result(
 
     from scipy.stats import rankdata
 
-    from popari._dataset_utils import _multireplicate_heatmap, _spatial_affinity_heatmap
-
     overall_fig = plt.figure(constrained_layout=True, dpi=600)
     subfigs = np.atleast_1d(overall_fig.subfigures(nrows=len(other_evaluations) + 2, ncols=1))
 
@@ -211,7 +211,7 @@ def plot_best_affinity_correlation_result(
     if use_residuals:
         truth_rank_key = f"{correlation_truth_key}_rank"
         store_ranked_affinities(primary_datasets, affinity_key=correlation_truth_key, output_key=truth_rank_key)
-        _multireplicate_heatmap(
+        multireplicate_heatmap(
             primary_datasets,
             uns=truth_rank_key,
             label_font_size=1.5,
@@ -221,7 +221,7 @@ def plot_best_affinity_correlation_result(
             vmin=0,
         )
     else:
-        _spatial_affinity_heatmap(
+        spatial_affinity_heatmap(
             primary_datasets,
             spatial_affinity_key=correlation_truth_key,
             label_values=False,
@@ -238,7 +238,7 @@ def plot_best_affinity_correlation_result(
             affinity_key=spatial_affinity_key,
             output_key=affinity_rank_key,
         )
-        _multireplicate_heatmap(
+        multireplicate_heatmap(
             primary_datasets,
             uns=affinity_rank_key,
             label_font_size=1.5,
@@ -248,7 +248,7 @@ def plot_best_affinity_correlation_result(
             vmin=0,
         )
     else:
-        _spatial_affinity_heatmap(
+        spatial_affinity_heatmap(
             primary_datasets,
             spatial_affinity_key=spatial_affinity_key,
             label_values=False,
@@ -271,7 +271,7 @@ def plot_best_affinity_correlation_result(
                 affinity_key=spatial_affinity_key,
                 output_key=affinity_rank_key,
             )
-            _multireplicate_heatmap(
+            multireplicate_heatmap(
                 other_datasets,
                 uns=affinity_rank_key,
                 label_font_size=1.5,
@@ -281,7 +281,7 @@ def plot_best_affinity_correlation_result(
                 vmin=0,
             )
         else:
-            _spatial_affinity_heatmap(
+            spatial_affinity_heatmap(
                 other_datasets,
                 spatial_affinity_key=spatial_affinity_key,
                 label_values=False,

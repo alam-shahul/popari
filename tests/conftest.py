@@ -5,7 +5,7 @@ import pytest
 import torch
 from scipy.sparse import csr_array
 
-from popari import tl
+from popari import pp, tl
 from popari.model import Popari
 
 matplotlib.use("Agg")
@@ -38,7 +38,7 @@ def _make_dataset(
     dataset.obs["domain"] = np.where(assignments % 2 == 0, "left", "right")
     dataset.obsm["spatial"] = _grid_coordinates(num_cells)
     dataset.var_names = [f"gene_{index}" for index in range(num_genes)]
-    dataset.popari.compute_spatial_neighbors()
+    pp.compute_spatial_neighbors(dataset)
     return dataset
 
 
@@ -178,14 +178,14 @@ def tmp_h5_path(tmp_path):
 
 
 @pytest.fixture(scope="session")
-def trained_shared_model(shared_model_factory, dataset_factory, gpu_context):
+def trained_shared_model(shared_model_factory, dataset_factory, context):
     model = shared_model_factory(
         datasets=dataset_factory(num_cells=48),
-        torch_context=gpu_context,
-        initial_context=gpu_context,
+        torch_context=context,
+        initial_context=context,
     )
     for _ in range(2):
-        model.estimate_parameters()
+        model.estimate_parameters(spatial_affinity_epochs=50)
         model.estimate_weights()
     return model
 
@@ -198,41 +198,41 @@ def initialized_shared_model(shared_model_factory, dataset_factory):
 @pytest.fixture(scope="session")
 def preprocessed_shared_model(initialized_shared_model):
     model = initialized_shared_model
-    tl.preprocess_embeddings(model)
-    tl.pca(model, joint=False, n_comps=3)
-    tl.pca(model, joint=True, n_comps=3)
+    tl.postprocess_embeddings(model.datasets)
+    pp.pca(model.datasets, joint=False, n_comps=3)
+    pp.pca(model.datasets, joint=True, n_comps=3)
     return model
 
 
 @pytest.fixture(scope="session")
 def analyzed_shared_model(preprocessed_shared_model):
     model = preprocessed_shared_model
-    tl.compute_columnwise_autocorrelation(model, uns="M")
-    tl.compute_empirical_correlations(model, output="empirical_correlation")
-    tl.compute_spatial_gene_correlation(model)
-    tl.cluster_domains(model, target_domains=2)
+    tl.compute_columnwise_autocorrelation(model.datasets, uns="M")
+    tl.compute_empirical_correlations(model.datasets, output="empirical_correlation")
+    tl.compute_spatial_gene_correlation(model.datasets)
+    tl.cluster_domains(model.datasets, target_domains=2)
     return model
 
 
 @pytest.fixture(scope="session")
 def clustered_shared_model(preprocessed_shared_model):
     model = preprocessed_shared_model
-    tl.leiden(model, joint=True, target_clusters=3)
-    tl.compute_ari_scores(model, labels="cell_type", predictions="leiden")
-    tl.compute_silhouette_scores(model, labels="cell_type", embeddings="normalized_X")
-    tl.evaluate_classification_task(model, labels="cell_type", embeddings="normalized_X", joint=False)
-    tl.evaluate_classification_task(model, labels="cell_type", embeddings="normalized_X", joint=True)
+    tl.leiden(model.datasets, joint=True, target_clusters=3)
+    tl.compute_ari_scores(model.datasets, labels="cell_type", predictions="leiden")
+    tl.compute_silhouette_scores(model.datasets, labels="cell_type", embeddings="normalized_X")
+    tl.evaluate_classification_task(model.datasets, labels="cell_type", embeddings="normalized_X", joint=False)
+    tl.evaluate_classification_task(model.datasets, labels="cell_type", embeddings="normalized_X", joint=True)
     return model
 
 
 @pytest.fixture(scope="session")
 def shared_model_expected_metrics():
     return {
-        "nll": -657.06558928,
-        "sigma_yx": [0.14147329, 0.13269758],
+        "nll": -704.4400195133358,
+        "sigma_yx": [0.15010631381825246, 0.14708547226059387],
         "metagene_sum": 3.0,
-        "embedding_sum_0": 140.5735742798036,
-        "spatial_affinity_sum_0": 25.172290296280824,
+        "embedding_sum_0": 139.86554004948852,
+        "spatial_affinity_sum_0": 2.866319315960922,
         "pca_norms": [30.21869468688965, 32.63429260253906],
         "ari": [1.0, 1.0],
         "silhouette": [0.9852840340378157, 0.955100150059938],

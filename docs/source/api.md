@@ -47,24 +47,9 @@ Entry points for implementations of the Popari algorithm.
     model.load_trained_model
 ```
 
-## Components
-
-Objects that are helpful for working with Popari.
-
-```{eval-rst}
-.. module:: popari.components
-.. currentmodule:: popari
-
-.. autosummary::
-    :toctree: api/
-    :recursive:
-
-    components.PopariDataset
-```
-
 ## Analysis: `tl`
 
-Functions for visualizing and evaluating Popari results.
+Functions for postprocessing and evaluating synchronized Popari results.
 
 ```{eval-rst}
 .. module:: popari.tl
@@ -74,19 +59,38 @@ Functions for visualizing and evaluating Popari results.
     :toctree: api/
     :recursive:
 
-    tl.preprocess_embeddings
+    tl.postprocess_embeddings
+    tl.cluster
     tl.leiden
+    tl.umap
     tl.compute_ari_scores
     tl.compute_silhouette_scores
     tl.compute_empirical_correlations
     tl.propagate_labels
-    tl.metagene_gsea
     tl.find_differential_genes
-    tl.plot_gene_activations
-    tl.plot_gene_trajectories
+    tl.compute_metagene_signature_expression
     tl.evaluate_classification_task
     tl.compute_confusion_matrix
     tl.compute_columnwise_autocorrelation
+    tl.compute_posthoc_colocalization
+    tl.compute_edge_interactions
+```
+
+## Preprocessing: `pp`
+
+Functions that prepare expression data and spatial graphs.
+
+```{eval-rst}
+.. module:: popari.pp
+.. currentmodule:: popari
+
+.. autosummary::
+    :toctree: api/
+    :recursive:
+
+    pp.pca
+    pp.compute_spatial_neighbors
+    pp.remove_connectivity_artifacts
 ```
 
 ## Plotting: `pl`
@@ -107,8 +111,12 @@ Functions for visualizing and evaluating Popari results.
     pl.multireplicate_heatmap
     pl.multigroup_heatmap
     pl.confusion_matrix
-    pl.metagene_signature_enrichment
+    pl.spatial_affinity_heatmap
+    pl.matrix_heatmap
+    pl.metagene_gsea
     pl.clusters_to_categories
+    pl.gene_activations
+    pl.gene_trajectories
 ```
 
 ## Simulation
@@ -117,14 +125,12 @@ Tools to generate simulated (multisample) spatially-resolved transcriptomics, or
 
 ```{eval-rst}
 
-.. module:: popari.simulation_framework
+.. module:: popari.simulation
 .. currentmodule:: popari
 
 .. autosummary::
     :toctree: api/
     :recursive:
 
-    simulation_framework.SimulationParameters
-    simulation_framework.SyntheticDataset
-    simulation_framework.MultiReplicateSyntheticDataset
+    simulation
 ```

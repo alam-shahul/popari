@@ -141,7 +141,7 @@ def merge_anndata(datasets: Sequence[AnnData], ignore_raw_data: bool = False):
         replicate = dataset.popari.name
         replicate_string = f"{replicate}"
         dataset_copy = dataset.copy()
-        dataset_copy.popari.ensure_name(replicate)
+        dataset_copy.popari.name = replicate
         if ignore_raw_data:
             dataset_copy.X = csr_array(dataset_copy.X.shape)
         else:

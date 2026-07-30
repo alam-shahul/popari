@@ -5,15 +5,22 @@ import pytest
 import popari  # noqa: F401
 
 
-def test_popari_name_property_getter_and_setter_updates_batch():
+@pytest.mark.parametrize(
+    "batch",
+    [
+        ["old", "old"],
+        ["replicate_a", "replicate_b"],
+    ],
+)
+def test_popari_name_property_getter_and_setter_preserves_batch(batch):
     dataset = ad.AnnData(X=np.ones((2, 3)))
-    dataset.obs["batch"] = "old"
+    dataset.obs["batch"] = batch
 
     dataset.popari.name = "sample_a"
 
     assert dataset.popari.name == "sample_a"
     assert dataset.uns["dataset_name"] == "sample_a"
-    assert dataset.obs["batch"].tolist() == ["sample_a", "sample_a"]
+    assert dataset.obs["batch"].tolist() == batch
 
 
 def test_popari_name_property_requires_dataset_name():
@@ -32,6 +39,28 @@ def test_spatial_affinity_property_getter_and_setter():
 
     np.testing.assert_array_equal(dataset.popari.spatial_affinity, spatial_affinity)
     np.testing.assert_array_equal(dataset.uns["Sigma_x_inv"]["sample_a"], spatial_affinity)
+
+
+def test_learned_result_properties_use_canonical_anndata_keys():
+    dataset = ad.AnnData(X=np.ones((2, 3)))
+    dataset.popari.name = "sample_a"
+    embedding = np.arange(4).reshape(2, 2)
+    metagenes = np.arange(6).reshape(3, 2)
+    adjacency_matrix = np.eye(2)
+    adjacency_list = np.array([[1], [0]])
+    hyperparameters = {"K": 2}
+
+    dataset.popari.embedding = embedding
+    dataset.popari.metagenes = metagenes
+    dataset.popari.adjacency_matrix = adjacency_matrix
+    dataset.popari.adjacency_list = adjacency_list
+    dataset.popari.hyperparameters = hyperparameters
+
+    np.testing.assert_array_equal(dataset.popari.embedding, embedding)
+    np.testing.assert_array_equal(dataset.popari.metagenes, metagenes)
+    np.testing.assert_array_equal(dataset.popari.adjacency_matrix, adjacency_matrix)
+    np.testing.assert_array_equal(dataset.popari.adjacency_list, adjacency_list)
+    assert dataset.popari.hyperparameters == hyperparameters
 
 
 def test_affinity_difference_subtracts_named_matrices():

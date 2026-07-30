@@ -7,7 +7,7 @@ import popari  # noqa: F401
 
 def make_dataset(name: str = "replicate"):
     dataset = ad.AnnData(X=np.ones((2, 3)))
-    dataset.popari.ensure_name(name)
+    dataset.popari.name = name
     return dataset
 
 

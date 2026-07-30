@@ -10,11 +10,12 @@ from popari.train import Trainer, TrainParameters
 
 from . import analysis as tl
 from . import plotting as pl
+from . import preprocessing as pp
 from .__about__ import __version__
-from ._popari_dataset import PopariNamespace
+from .schema import PopariNamespace
 from .simulation.schema import MetageneSimulationNamespace
 
-sys.modules.update({f"{__name__}.{m}": globals()[m] for m in ["tl", "pl"]})
+sys.modules.update({f"{__name__}.{m}": globals()[m] for m in ["tl", "pl", "pp"]})
 
 
 def get_parser():

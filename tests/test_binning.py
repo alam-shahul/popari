@@ -59,7 +59,7 @@ def test_hierarchical_superresolution_is_finite(hierarchical_model_factory, gpu_
     model.estimate_parameters()
     model.estimate_weights()
 
-    model.superresolve(n_epochs=2, tol=1e-6)
+    model.superresolve(n_epochs=2, tol=1e-6, use_manual_gradients=False)
 
     for level in range(model.hierarchical_levels):
         assert np.isfinite(model.nll(level=level)).all()

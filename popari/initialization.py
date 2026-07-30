@@ -8,7 +8,8 @@ from scipy import sparse as sp
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA, TruncatedSVD
 
-from popari._dataset_utils import _cluster, _pca
+from popari.analysis import cluster
+from popari.preprocessing import pca
 from popari.util import concatenate
 
 
@@ -84,12 +85,12 @@ def initialize_leiden(
 
     assert "random_state" in kwargs_leiden
 
-    _pca(datasets, n_comps=n_components, joint=True)
+    pca(datasets, n_comps=n_components, joint=True)
 
     # Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
 
     while True:
-        _cluster(
+        cluster(
             datasets,
             joint=True,
             method="leiden",

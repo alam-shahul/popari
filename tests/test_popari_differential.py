@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from popari import tl
+from popari import pl, tl
 
 
 @pytest.mark.gpu
@@ -54,10 +54,10 @@ def test_differential_analysis_pipeline_runs(differential_model_factory, gpu_con
         model.estimate_parameters()
         model.estimate_weights()
 
-    genes = tl.find_differential_genes(model, top_gene_limit=2)
+    genes = tl.find_differential_genes(model.datasets, top_gene_limit=2)
     assert genes
     assert set(genes).issubset(set(model.datasets[0].var_names))
 
-    tl.plot_gene_trajectories(model, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
-    tl.plot_gene_activations(model, list(genes)[:2])
-    tl.normalized_affinity_trends(model, timepoint_values=list(range(len(model.datasets))))
+    pl.gene_trajectories(model.datasets, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
+    pl.gene_activations(model.datasets, list(genes)[:2])
+    tl.normalized_affinity_trends(model.datasets, timepoint_values=list(range(len(model.datasets))))
