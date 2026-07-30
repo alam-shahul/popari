@@ -319,9 +319,15 @@ def test_matrix_heatmap_panel_center_zero_without_shared_scale():
         _close_figures(figure)
 
 
-def _edge_interaction_dataset():
-    dataset = ad.AnnData(X=np.ones((3, 2)))
-    dataset.popari.name = "replicate_0"
+def _edge_interaction_dataset(sample="replicate_0"):
+    dataset = ad.AnnData(
+        X=np.ones((3, 2)),
+        obs=pd.DataFrame(
+            {"batch": pd.Categorical([sample] * 3, categories=[sample])},
+            index=[f"{sample}_cell_{index}" for index in range(3)],
+        ),
+    )
+    dataset.popari.name = sample
     dataset.obsm["spatial"] = np.array(
         [
             [0.0, 0.0],
@@ -344,7 +350,7 @@ def _edge_interaction_dataset():
             [1, 0, 0],
         ],
     )
-    dataset.uns["Sigma_x_inv"] = {"replicate_0": np.diag([2.0, 3.0])}
+    dataset.uns["Sigma_x_inv"] = {sample: np.diag([2.0, 3.0])}
     return dataset
 
 
@@ -384,15 +390,30 @@ def test_edge_interactions_plot_returns_figure():
 
 
 def test_edge_interactions_panel_uses_shared_category_pair_scale():
-    datasets = [_edge_interaction_dataset(), _edge_interaction_dataset()]
-    datasets[0].popari.name = "first"
-    datasets[1].popari.name = "second"
-    datasets[0].popari.spatial_affinity = np.diag([2.0, 3.0])
-    datasets[1].popari.spatial_affinity = np.diag([2.0, 3.0])
-    interactions = [tl.compute_edge_interactions(dataset) for dataset in datasets]
+    first = _edge_interaction_dataset("first")
+    second = _edge_interaction_dataset("second")
+    dataset = ad.concat(
+        {"first": first, "second": second},
+        label="batch",
+        index_unique=None,
+        merge="same",
+        pairwise=True,
+    )
+    dataset.obs["batch"] = pd.Categorical(
+        dataset.obs["batch"],
+        categories=["first", "second"],
+        ordered=True,
+    )
+    dataset.uns["Sigma_x_inv"] = {
+        "first": np.diag([2.0, 3.0]),
+        "second": np.diag([2.0, 3.0]),
+    }
+    interactions = {
+        sample: tl.compute_edge_interactions(dataset, sample=sample) for sample in dataset.obs["batch"].cat.categories
+    }
 
     figure = pl.edge_interactions_panel(
-        datasets,
+        dataset,
         interactions,
         category_key="cell_type",
         category_pair=("A", "B"),
@@ -403,13 +424,19 @@ def test_edge_interactions_panel_uses_shared_category_pair_scale():
     try:
         assert isinstance(figure, Figure)
         assert [axis.get_title() for axis in figure.axes[:2]] == ["first", "second"]
-        assert figure.axes[-1].get_ylabel() == "Edge interaction score"
+        assert figure.axes[-1].get_ylabel() == "Edge accordance score"
     finally:
         _close_figures(figure)
 
 
 def test_all_embeddings_without_adjacency_returns_figure():
-    dataset = ad.AnnData(X=np.ones((4, 3)))
+    dataset = ad.AnnData(
+        X=np.ones((4, 3)),
+        obs=pd.DataFrame(
+            {"batch": pd.Categorical(["replicate"] * 4)},
+            index=[f"cell_{index}" for index in range(4)],
+        ),
+    )
     dataset.obsm["spatial"] = np.array(
         [
             [0.0, 0.0],
@@ -501,17 +528,17 @@ def test_in_situ_supports_categorical_observation_values():
 def test_plotting_wrappers_return_figures(analyzed_shared_model):
     model = analyzed_shared_model
     marker_genes = {
-        "type_0": [model.datasets[0].var_names[0], model.datasets[0].var_names[1]],
-        "type_1": [model.datasets[0].var_names[2], model.datasets[0].var_names[3]],
+        "type_0": [model.adata.var_names[0], model.adata.var_names[1]],
+        "type_1": [model.adata.var_names[2], model.adata.var_names[3]],
     }
 
-    metagene_figure = pl.metagene_embedding(model.datasets, metagene_index=0)
-    heatmap_figure = pl.multireplicate_heatmap(model.datasets, uns="M")
-    affinity_figure = pl.spatial_affinity_heatmap(model.datasets)
-    embeddings_figure = pl.all_embeddings(model.datasets)
-    cell_type_figure, medians = pl.cell_type_to_metagene(model.datasets[0], marker_genes)
+    metagene_figure = pl.metagene_embedding(model.adata, metagene_index=0)
+    heatmap_figure = pl.multireplicate_heatmap(model.adata, uns="M")
+    affinity_figure = pl.spatial_affinity_heatmap(model.adata)
+    embeddings_figure = pl.all_embeddings(model.adata)
+    cell_type_figure, medians = pl.cell_type_to_metagene(model.adata, marker_genes)
     difference_figure, difference_medians = pl.cell_type_to_metagene_difference(
-        model.datasets[0],
+        model.adata,
         marker_genes,
         first_metagene=0,
         second_metagene=1,
@@ -546,19 +573,19 @@ def test_plotting_wrappers_return_figures(analyzed_shared_model):
 @pytest.mark.expensive
 def test_embedding_category_and_umap_plots(clustered_shared_model):
     model = clustered_shared_model
-    tl.umap(model.datasets, use_rep="normalized_X", joint=False)
-    tl.compute_confusion_matrix(model.datasets, labels="cell_type", predictions="cell_type", joint=False)
+    tl.umap(model.adata, use_rep="normalized_X")
+    tl.compute_confusion_matrix(model.adata, labels="cell_type", predictions="cell_type")
     marker_genes = {
-        "type_0": [model.datasets[0].var_names[0], model.datasets[0].var_names[1]],
-        "type_1": [model.datasets[0].var_names[2], model.datasets[0].var_names[3]],
+        "type_0": [model.adata.var_names[0], model.adata.var_names[1]],
+        "type_1": [model.adata.var_names[2], model.adata.var_names[3]],
     }
 
-    in_situ_figure = pl.in_situ(model.datasets, color="leiden")
-    umap_figure, _ = pl.umap(model.datasets, color="cell_type")
-    confusion_figure, _ = pl.confusion_matrix(model.datasets, labels="cell_type")
-    categories_figure = pl.clusters_to_categories(model.datasets, marker_genes)
+    in_situ_figure = pl.in_situ(model.adata, color="leiden")
+    umap_figure, _ = pl.umap(model.adata, color="cell_type")
+    confusion_figure, _ = pl.confusion_matrix(model.adata, labels="cell_type")
+    categories_figure = pl.clusters_to_categories(model.adata, marker_genes)
     label_heatmap_figure, label_heatmap = pl.embedding_label_heatmap(
-        model.datasets,
+        model.adata,
         embedding_key="normalized_X",
         label_key="cell_type",
     )
@@ -575,9 +602,8 @@ def test_embedding_category_and_umap_plots(clustered_shared_model):
             assert figure.axes
 
         assert label_heatmap.shape[1] == model.K
-        for dataset in model.datasets:
-            assert "X_umap" in dataset.obsm
-            assert "confusion_matrix" in dataset.uns
+        assert "X_umap" in model.adata.obsm
+        assert "confusion_matrix" in model.adata.uns
     finally:
         _close_figures(
             in_situ_figure,
@@ -596,12 +622,12 @@ def test_affinity_magnitude_plot(differential_model_factory, gpu_context):
         model.estimate_parameters()
         model.estimate_weights()
 
-    figure, top_pairs = pl.affinity_magnitude_vs_difference(model.datasets, n_best=2)
+    figure, top_pairs = pl.affinity_magnitude_vs_difference(model.adata, n_best=2)
 
     try:
         assert isinstance(figure, Figure)
         assert figure.axes
-        assert len(top_pairs) == len(model.datasets)
+        assert len(top_pairs) == len(model.adata.popari.sample_names)
         assert all(len(dataset_pairs) == 2 for dataset_pairs in top_pairs)
     finally:
         _close_figures(figure)
@@ -610,10 +636,10 @@ def test_affinity_magnitude_plot(differential_model_factory, gpu_context):
 @pytest.mark.expensive
 def test_affinity_trend_plot(analyzed_shared_model):
     model = analyzed_shared_model
-    timepoints = list(range(len(model.datasets)))
-    tl.normalized_affinity_trends(model.datasets, timepoint_values=timepoints, n_best=2)
+    timepoints = list(range(len(model.adata.popari.sample_names)))
+    tl.normalized_affinity_trends(model.adata, timepoint_values=timepoints, n_best=2)
 
-    trend_figure = pl.normalized_affinity_trends(model.datasets, timepoint_values=timepoints, n_best=2)
+    trend_figure = pl.normalized_affinity_trends(model.adata, timepoint_values=timepoints, n_best=2)
 
     try:
         assert isinstance(trend_figure, Figure)
@@ -631,7 +657,7 @@ def test_multigroup_heatmap_with_differential_model(differential_model_factory, 
         model.estimate_weights()
 
     figure = pl.multigroup_heatmap(
-        model.datasets,
+        model.adata,
         groups=model.metagene_groups,
         key="M_bar",
     )

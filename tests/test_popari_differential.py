@@ -58,8 +58,8 @@ def test_differential_analysis_pipeline_runs(differential_model_factory, gpu_con
     assert genes
     assert set(genes).issubset(set(model.adata.var_names))
 
-    pl.gene_trajectories(model.datasets, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
-    pl.gene_activations(model.datasets, list(genes)[:2])
+    pl.gene_trajectories(model.adata, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
+    pl.gene_activations(model.adata, list(genes)[:2])
     tl.normalized_affinity_trends(
         model.adata,
         timepoint_values=list(range(len(model.adata.popari.sample_names))),

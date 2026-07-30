@@ -15,7 +15,7 @@ from matplotlib.axes import Axes
 from matplotlib.colors import Normalize
 from matplotlib.ticker import FixedLocator
 
-from popari._datasets import as_datasets, broadcast_plottable
+from popari.plotting._samples import resolve_samples
 from popari.plotting.utils import setup_squarish_axes
 
 
@@ -327,7 +327,10 @@ def matrix_heatmap_panel(
 
 
 def multireplicate_heatmap(
-    datasets: ad.AnnData | Sequence[ad.AnnData],
+    adata: ad.AnnData,
+    *,
+    samples: str | Sequence[str] | None = None,
+    sample_key: str | None = None,
     title_font_size: int | None = None,
     axes: Sequence[Axes] | None = None,
     obsm: str | None = None,
@@ -339,40 +342,51 @@ def multireplicate_heatmap(
     mask: np.ndarray | None = None,
     **heatmap_kwargs,
 ):
-    r"""Plot 2D heatmap data across all datasets.
+    r"""Plot sample-specific 2D heatmap data from a unified AnnData.
 
-    Wrapper function to enable plotting of continuous 2D data across multiple replicates. Only
-    one of ``obsm``, ``obsp`` or ``uns`` should be used.
+    Exactly one of ``obsm``, ``obsp``, or ``uns`` must be provided.
+
     Args:
-        datasets: list of datasets to process
+        adata: Unified multisample AnnData object.
+        samples: Sample names to plot. By default, plot every sample.
+        sample_key: Observation column containing sample identities.
         axes: A predefined set of matplotlib axes to plot on.
-        obsm: the key in the ``.obsm`` dataframe to plot.
-        obsp: the key in the ``.obsp`` dataframe to plot.
-        uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
-        **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
+        obsm: Key in ``obsm`` containing an observation-by-feature matrix.
+        obsp: Key in ``obsp`` containing an observation-by-observation matrix.
+        uns: Key in ``uns`` containing either a sample-keyed mapping or one matrix.
+        nested: Whether ``uns`` contains a matrix for each sample.
+        **heatmap_kwargs: Arguments passed to :func:`matrix_heatmap_panel`.
 
     """
 
-    datasets = as_datasets(datasets)
+    provided_locations = [key is not None for key in (obsm, obsp, uns)]
+    if sum(provided_locations) != 1:
+        raise ValueError("Exactly one of obsm, obsp, or uns must be provided.")
+    sample_axis, selected_samples = resolve_samples(
+        adata,
+        samples=samples,
+        sample_key=sample_key,
+    )
     cmap = heatmap_kwargs.pop("cmap", "hot")
 
     matrices = {}
-    for dataset in datasets:
+    for sample in selected_samples:
+        sample_indices = sample_axis.indices(sample)
         if obsm:
-            image = dataset.obsm[obsm]
+            image = np.asarray(adata.obsm[obsm])[sample_indices]
         elif obsp:
-            image = dataset.obsp[obsp]
+            image = adata.obsp[obsp][sample_indices][:, sample_indices]
+            if hasattr(image, "toarray"):
+                image = image.toarray()
         elif uns:
-            image = dataset.uns[uns]
-        else:
-            raise ValueError("One of obsm, obsp, or uns must be provided.")
+            image = adata.uns[uns]
 
-        if nested:
-            image = image[dataset.popari.name]
+        if uns and nested:
+            image = image[sample]
         if mask is not None:
             image = np.ma.masked_where(mask, image)
 
-        matrices[dataset.popari.name] = image
+        matrices[sample] = image
 
     fig = matrix_heatmap_panel(
         matrices,
@@ -394,30 +408,36 @@ def multireplicate_heatmap(
 
 
 def spatial_affinity_heatmap(
-    datasets: ad.AnnData | Sequence[ad.AnnData],
+    adata: ad.AnnData,
+    *,
+    samples: str | Sequence[str] | None = None,
+    sample_key: str | None = None,
     spatial_affinity_key: str | None = "Sigma_x_inv",
     axes: Sequence[Axes] | None = None,
     metagene_order: Sequence[int] | None = None,
     **heatmap_kwargs,
 ):
-    r"""Plot Sigma_x_inv across all datasets.
-
-    Wrapper function to enable plotting of continuous 2D data across multiple replicates. Only
-    one of ``obsm``, ``obsp`` or ``uns`` should be used.
+    r"""Plot sample-specific spatial-affinity matrices.
 
     Args:
-        datasets: AnnData objects containing spatial-affinity matrices.
+        adata: Unified multisample AnnData containing spatial-affinity matrices.
+        samples: Sample names to plot. By default, plot every sample.
+        sample_key: Observation column containing sample identities.
         axes: A predefined set of matplotlib axes to plot on.
-        obsm: the key in the ``.obsm`` dataframe to plot.
-        obsp: the key in the ``.obsp`` dataframe to plot.
-        uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
-        **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
+        metagene_order: Optional permutation or subset of metagene indices.
+        **heatmap_kwargs: Arguments passed to :func:`matrix_heatmap_panel`.
 
     """
 
-    datasets = as_datasets(datasets)
+    _, selected_samples = resolve_samples(
+        adata,
+        samples=samples,
+        sample_key=sample_key,
+    )
     cmap = heatmap_kwargs.pop("cmap") if "cmap" in heatmap_kwargs else "bwr"
-    spatial_affinities = np.array([dataset.uns[spatial_affinity_key][dataset.popari.name] for dataset in datasets])
+    spatial_affinities = np.asarray(
+        [adata.uns[spatial_affinity_key][sample] for sample in selected_samples],
+    )
 
     _, K, _ = spatial_affinities.shape
 
@@ -428,9 +448,9 @@ def spatial_affinity_heatmap(
 
     metagene_labels = [f"m{k}" for k in metagene_order]
     matrices = {}
-    for dataset in datasets:
-        spatial_affinity = dataset.uns[spatial_affinity_key][dataset.popari.name]
-        matrices[dataset.popari.name] = pd.DataFrame(
+    for sample in selected_samples:
+        spatial_affinity = adata.uns[spatial_affinity_key][sample]
+        matrices[sample] = pd.DataFrame(
             spatial_affinity[metagene_order][:, metagene_order],
             index=metagene_labels,
             columns=metagene_labels,
@@ -457,7 +477,7 @@ def spatial_affinity_heatmap(
 
 
 def multigroup_heatmap(
-    datasets: ad.AnnData | Sequence[ad.AnnData],
+    adata: ad.AnnData,
     groups: dict,
     title_font_size: int | None = None,
     axes: Sequence[Axes] | None = None,
@@ -466,22 +486,19 @@ def multigroup_heatmap(
     label_font_size: int = None,
     **heatmap_kwargs,
 ):
-    r"""Plot 2D heatmap data across all datasets.
-
-    Wrapper function to enable plotting of continuous 2D data across multiple replicates. Only
-    one of ``obsm``, ``obsp`` or ``uns`` should be used.
+    r"""Plot one stored matrix for each differential group.
 
     Args:
-        datasets: list of datasets to process
+        adata: Unified AnnData containing group-keyed matrices in ``uns[key]``.
+        groups: Mapping from group names to their member samples.
         axes: A predefined set of matplotlib axes to plot on.
-        obsm: the key in the ``.obsm`` dataframe to plot.
-        obsp: the key in the ``.obsp`` dataframe to plot.
-        uns: the key in the ``.uns`` dataframe to plot. Unstructured data must be 2D in shape.
-        **heatmap_kwargs: arguments to pass to the `ax.imshow` call for each dataset
+        key: Key in ``uns`` containing matrices keyed by group name.
+        **heatmap_kwargs: Arguments passed to Matplotlib's image plot.
 
     """
 
-    datasets = as_datasets(datasets)
+    if key is None:
+        raise ValueError("key must identify a group-keyed mapping in adata.uns.")
     sharex = True if "sharex" not in heatmap_kwargs else heatmap_kwargs.pop("sharex", True)
     sharey = True if "sharey" not in heatmap_kwargs else heatmap_kwargs.pop("sharey", True)
 
@@ -496,14 +513,11 @@ def multigroup_heatmap(
     cmap = heatmap_kwargs.pop("cmap", "hot")
 
     for group_index, (ax, group_name) in enumerate(zip(axes.flat, groups)):
-        first_dataset_name = groups[group_name][0]
-        first_dataset = next(filter(lambda dataset: dataset.popari.name == first_dataset_name, datasets))
-
         if group_index > len(groups):
             ax.set_visible(False)
             continue
 
-        image = first_dataset.uns[key][group_name]
+        image = adata.uns[key][group_name]
 
         im = ax.imshow(image, cmap=cmap, interpolation="nearest", aspect=aspect, **heatmap_kwargs)
         if title_font_size is not None:
@@ -518,13 +532,18 @@ def multigroup_heatmap(
     return fig
 
 
-@broadcast_plottable
 def confusion_matrix(
     dataset: ad.AnnData,
     labels: str,
     ax=None,
     confusion_matrix_key: str = "confusion_matrix",
 ):
+    """Plot a confusion matrix stored on a unified AnnData object."""
+
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
     ordered_labels = sorted(dataset.obs[labels].unique())
     sns.heatmap(
         dataset.uns[confusion_matrix_key],
@@ -534,4 +553,4 @@ def confusion_matrix(
         ax=ax,
         fmt="3d",
     )
-    plt.show()
+    return fig, ax

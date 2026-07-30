@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Optional
 
 import anndata as ad
@@ -14,6 +14,7 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
 from popari.analysis.interactions import EdgeInteractions
+from popari.plotting._samples import resolve_samples, sample_view
 from popari.plotting.heatmaps import matrix_heatmap
 from popari.plotting.utils import setup_squarish_axes
 
@@ -59,7 +60,14 @@ def edge_interactions(
     """Plot total or metagene-pair scores on selected spatial edges."""
 
     if not interactions.obs_names.equals(dataset.obs_names):
-        raise ValueError("interactions and dataset must contain the same observations in the same order.")
+        missing_observations = interactions.obs_names.difference(dataset.obs_names)
+        if len(missing_observations):
+            raise ValueError(
+                "interactions contains observations absent from dataset: " f"{missing_observations.tolist()}.",
+            )
+        dataset = dataset[interactions.obs_names]
+    if not interactions.obs_names.equals(dataset.obs_names):
+        raise ValueError("Could not align interactions to dataset observations.")
     edge_values = _edge_score_values(interactions, score, metagene_pair)
 
     edge_mask = np.ones(len(interactions.source), dtype=bool)
@@ -137,7 +145,7 @@ def edge_interactions(
                 cmap=edge_cmap,
             ),
             ax=ax,
-            label="Edge interaction score",
+            label="Edge accordance score",
             fraction=0.046,
             pad=0.04,
         )
@@ -145,9 +153,11 @@ def edge_interactions(
 
 
 def edge_interactions_panel(
-    datasets: Sequence[ad.AnnData],
-    interactions: Sequence[EdgeInteractions],
+    adata: ad.AnnData,
+    interactions: Mapping[str, EdgeInteractions],
     *,
+    samples: str | Sequence[str] | None = None,
+    sample_key: str | None = None,
     score: str = "total",
     metagene_pair: tuple[int, int] | None = None,
     category_key: str | None = None,
@@ -155,22 +165,30 @@ def edge_interactions_panel(
     directed: bool = False,
     center_zero: bool = True,
     edge_cmap="bwr",
-    colorbar_label: str = "Edge interaction score",
+    colorbar_label: str = "Edge accordance score",
     figsize=None,
     dpi: int = 300,
     **plot_kwargs,
 ):
-    """Plot one edge-score selection across datasets with a shared scale."""
+    """Plot one edge-score selection across selected samples with a shared
+    scale."""
 
-    datasets = list(datasets)
-    interactions = list(interactions)
-    if len(datasets) != len(interactions):
-        raise ValueError("datasets and interactions must have the same length.")
-    if not datasets:
-        raise ValueError("datasets must contain at least one dataset.")
+    sample_axis, selected_samples = resolve_samples(
+        adata,
+        samples=samples,
+        sample_key=sample_key,
+        require_graph=True,
+    )
+    missing_results = [sample for sample in selected_samples if sample not in interactions]
+    if missing_results:
+        raise KeyError(f"Missing edge interactions for samples: {missing_results}.")
 
     selected_values = []
-    for dataset, result in zip(datasets, interactions):
+    for sample in selected_samples:
+        dataset = sample_view(adata, sample_axis, sample)
+        result = interactions[sample]
+        if not result.obs_names.equals(dataset.obs_names):
+            raise ValueError(f"Edge interactions for {sample!r} are not aligned to that sample.")
         values = _edge_score_values(result, score, metagene_pair)
         if category_pair is not None:
             if category_key is None:
@@ -195,17 +213,18 @@ def edge_interactions_panel(
         edge_vmax = max(values.max() for values in nonempty_values)
 
     fig, axes = setup_squarish_axes(
-        len(datasets),
+        len(selected_samples),
         dpi=dpi,
         figsize=figsize,
         constrained_layout=False,
     )
-    for dataset, result, values, ax in zip(datasets, interactions, selected_values, axes.flat):
+    for sample, values, ax in zip(selected_samples, selected_values, axes.flat):
+        result = interactions[sample]
         if not len(values):
             ax.set_visible(False)
             continue
         edge_interactions(
-            dataset,
+            adata,
             result,
             score=score,
             metagene_pair=metagene_pair,
@@ -217,14 +236,14 @@ def edge_interactions_panel(
             edge_vmin=edge_vmin,
             edge_vmax=edge_vmax,
             colorbar=False,
-            title=dataset.popari.name,
+            title=sample,
             ax=ax,
             **plot_kwargs,
         )
         ax.set_xlabel("")
         ax.set_ylabel("")
 
-    for ax in axes.flat[len(datasets) :]:
+    for ax in axes.flat[len(selected_samples) :]:
         ax.set_visible(False)
     visible_axes = [ax for ax in axes.flat if ax.get_visible()]
     fig.colorbar(

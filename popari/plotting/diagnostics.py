@@ -15,12 +15,15 @@ from mpl_toolkits.axisartist.grid_finder import DictFormatter, FixedLocator
 from scipy.sparse import issparse
 from scipy.stats import wilcoxon, zscore
 
-from popari._datasets import as_datasets
+from popari.plotting._samples import resolve_sample_matrix, resolve_samples
 from popari.plotting.heatmaps import multireplicate_heatmap
 
 
 def pretty_spatial_affinities(
-    datasets,
+    adata: ad.AnnData,
+    *,
+    samples: str | Sequence[str] | None = None,
+    sample_key: str | None = None,
     metagene_key: str = "M",
     metagene_label_key: str = "metagene_labels",
     spatial_affinity_key: str = "Sigma_x_inv",
@@ -28,21 +31,26 @@ def pretty_spatial_affinities(
     """Rotate and plot spatial affinities matrix.
 
     Args:
-        datasets:
+        adata: Unified multisample AnnData object.
+        samples: Sample names to plot. By default, plot every sample.
+        sample_key: Observation column containing sample identities.
 
     """
 
-    datasets = as_datasets(datasets)
+    _, selected_samples = resolve_samples(
+        adata,
+        samples=samples,
+        sample_key=sample_key,
+    )
     transform_skew = Affine2D().skew_deg(15, 15)
     transform_rotate = Affine2D().rotate_deg(-45)
     transform = transform_skew + transform_rotate
 
-    height = len(datasets) // 2 + len(datasets) % 2
+    height = len(selected_samples) // 2 + len(selected_samples) % 2
     width = 2
     fig = plt.figure(dpi=1200, figsize=(width, height))
 
-    first_dataset = datasets[0]
-    _, K = first_dataset.uns[metagene_key][first_dataset.popari.name].shape
+    _, K = adata.uns[metagene_key][selected_samples[0]].shape
 
     def setup_axes(fig, rect, metagene_ticks):
         """Setup axes for rotated heatmap plot."""
@@ -87,21 +95,25 @@ def pretty_spatial_affinities(
         return ax, aux_ax
 
     axes = []
-    for index, dataset in enumerate(datasets):
-        metagene_labels = dataset.uns[metagene_label_key]
+    for index, sample in enumerate(selected_samples):
+        metagene_labels = adata.uns[metagene_label_key]
+        if sample in metagene_labels and isinstance(metagene_labels[sample], dict):
+            metagene_labels = metagene_labels[sample]
 
         metagene_ticks = [(k, f"{metagene_labels[k]}" if k in metagene_labels else "N/A") for k in range(K)]
 
         rect = (height, width, index + 1)
         ax, aux_ax = setup_axes(fig, rect, metagene_ticks)
-        ax.set_title(dataset.popari.name, fontsize=2, y=0.5)
+        ax.set_title(sample, fontsize=2, y=0.5)
         axes.append(aux_ax)
 
     mask = np.ones((K, K), dtype=bool)
     mask[np.triu_indices_from(mask)] = 0
 
     multireplicate_heatmap(
-        datasets,
+        adata,
+        samples=selected_samples,
+        sample_key=sample_key,
         uns=spatial_affinity_key,
         cmap="bwr",
         label_values=False,
@@ -117,6 +129,7 @@ def pretty_spatial_affinities(
         cb.remove()
 
     fig.subplots_adjust(hspace=-0.5, wspace=-0.25)
+    return fig
 
 
 def sparsity(dataset: ad.AnnData):
@@ -155,6 +168,8 @@ def sparsity(dataset: ad.AnnData):
 def cell_type_to_metagene(
     dataset,
     cell_type_de_genes: dict,
+    *,
+    sample: str | None = None,
     rank_mode: str = "metagene",
     plot_type: str = "box",
     normalize: bool = False,
@@ -184,7 +199,7 @@ def cell_type_to_metagene(
     if cell_types is None:
         cell_types = cell_type_de_genes.keys()
 
-    metagenes = dataset.uns[metagene_key][dataset.popari.name]
+    metagenes = resolve_sample_matrix(dataset, metagene_key, sample=sample)
 
     if normalize:
         metagenes = zscore(metagenes, axis=1)
@@ -336,6 +351,8 @@ def cell_type_to_metagene_difference(
     cell_type_de_genes: dict,
     first_metagene: int,
     second_metagene: int,
+    *,
+    sample: str | None = None,
     rank_mode: str = "metagene",
     plot_type: str = "box",
     normalize: bool = False,
@@ -364,7 +381,7 @@ def cell_type_to_metagene_difference(
     if cell_types is None:
         cell_types = cell_type_de_genes.keys()
 
-    metagenes = dataset.uns[metagene_key][dataset.popari.name]
+    metagenes = resolve_sample_matrix(dataset, metagene_key, sample=sample)
 
     if normalize:
         metagenes = zscore(metagenes, axis=1)

@@ -442,8 +442,8 @@ def test_differential_analysis_helpers(differential_model_factory, gpu_context):
     genes = tl.find_differential_genes(model.adata, top_gene_limit=2)
     assert genes
 
-    pl.gene_trajectories(model.datasets, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
-    pl.gene_activations(model.datasets, list(genes)[:2])
+    pl.gene_trajectories(model.adata, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
+    pl.gene_activations(model.adata, list(genes)[:2])
     top_pairs, correlations, variances = tl.normalized_affinity_trends(
         model.adata,
         timepoint_values=list(range(len(model.adata.popari.sample_names))),

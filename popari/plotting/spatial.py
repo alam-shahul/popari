@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Optional
 
 import anndata as ad
 import matplotlib.gridspec as gridspec
@@ -16,29 +15,37 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 
-from popari._datasets import as_datasets, broadcast_plottable, enable_joint
 from popari.analysis.gene_sets import order_columns_by_best_row
 from popari.analysis.metrics import score_marker_expression
+from popari.plotting._samples import resolve_samples, sample_view
 from popari.plotting.utils import setup_squarish_axes
-from popari.util import concatenate, unconcatenate
 
 
 def metagene_embedding(
-    datasets: ad.AnnData | Sequence[ad.AnnData],
+    adata: ad.AnnData,
     metagene_index: int,
+    *,
+    samples: str | Sequence[str] | None = None,
+    sample_key: str | None = None,
     axes: Sequence[Axes] | None = None,
     **scatterplot_kwargs,
 ):
-    r"""Plot a single metagene in-situ across all datasets.
+    r"""Plot a single metagene in situ across selected samples.
 
     Args:
-        datasets: list of datasets to plot
-        metagene_index: the index of the metagene to plot.
+        adata: Unified multisample AnnData containing spatial coordinates and embeddings.
+        metagene_index: Index of the metagene to plot.
+        samples: Sample names to plot. By default, plot every sample.
+        sample_key: Observation column containing sample identities.
         axes: A predefined set of matplotlib axes to plot on.
 
     """
 
-    datasets = as_datasets(datasets)
+    sample_axis, selected_samples = resolve_samples(
+        adata,
+        samples=samples,
+        sample_key=sample_key,
+    )
     legend = scatterplot_kwargs.pop("legend", False)
     default_s = scatterplot_kwargs.pop("s", None)
     linewidth = scatterplot_kwargs.pop("linewidth", 0)
@@ -46,16 +53,23 @@ def metagene_embedding(
     dpi = scatterplot_kwargs.pop("dpi", 100)
 
     if axes is None:
-        fig, axes = setup_squarish_axes(len(datasets), sharex=False, sharey=False, dpi=dpi)
+        fig, axes = setup_squarish_axes(len(selected_samples), sharex=False, sharey=False, dpi=dpi)
 
     else:
         axes = np.asarray(axes, dtype=object)
         fig = axes.flat[0].get_figure()
 
-    for index in range(len(datasets), axes.size):
+    if axes.size < len(selected_samples):
+        raise ValueError("axes must provide at least one axis per selected sample.")
+    for index in range(len(selected_samples), axes.size):
         axes.flat[index].axis("off")
 
-    for dataset, ax in zip(datasets, axes.flat):
+    selected_indices = np.concatenate([sample_axis.indices(sample) for sample in selected_samples])
+    selected_values = np.asarray(adata.obsm["X"])[selected_indices, metagene_index]
+    scatterplot_kwargs.setdefault("hue_norm", (selected_values.min(), selected_values.max()))
+
+    for sample, ax in zip(selected_samples, axes.flat):
+        dataset = sample_view(adata, sample_axis, sample)
         if default_s is None:
             s = round(10000 / len(dataset))
         else:
@@ -86,6 +100,7 @@ def metagene_embedding(
             ax=ax,
             **scatterplot_kwargs,
         )
+        ax.set_title(sample)
 
     fig.suptitle(f"Metagene {metagene_index}")
 
@@ -93,19 +108,25 @@ def metagene_embedding(
 
 
 def in_situ(
-    data: ad.AnnData | Sequence[ad.AnnData],
+    adata: ad.AnnData,
+    *,
+    samples: str | Sequence[str] | None = None,
+    sample_key: str | None = None,
     axes=None,
     fig=None,
     color="leiden",
     figsize=None,
     **spatial_kwargs,
 ):
-    r"""Plot an observation annotation across all datasets in situ.
+    r"""Plot an observation annotation across selected samples in situ.
 
-    Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
+    Extends Squidpy's spatial scatter plot by faceting a unified AnnData object
+    over its sample axis.
 
     Args:
-        data: One AnnData object or a sequence of datasets.
+        adata: Unified multisample AnnData object.
+        samples: Sample names to plot. By default, plot every sample.
+        sample_key: Observation column containing sample identities.
         color: Key in ``obs`` containing categorical or continuous values.
         axes: A predefined set of matplotlib axes to plot on.
         fig: Figure containing ``axes``.
@@ -114,7 +135,11 @@ def in_situ(
 
     """
 
-    datasets = as_datasets(data)
+    sample_axis, selected_samples = resolve_samples(
+        adata,
+        samples=samples,
+        sample_key=sample_key,
+    )
     spatial_kwargs.pop("joint", None)
 
     sharex = spatial_kwargs.pop("sharex", False)
@@ -123,7 +148,7 @@ def in_situ(
 
     if axes is None:
         fig, axes = setup_squarish_axes(
-            len(datasets),
+            len(selected_samples),
             sharex=sharex,
             sharey=sharey,
             dpi=dpi,
@@ -133,6 +158,10 @@ def in_situ(
         axes = np.asarray(axes, dtype=object)
         if fig is None:
             fig = axes.flat[0].get_figure()
+    if axes.size < len(selected_samples):
+        raise ValueError("axes must provide at least one axis per selected sample.")
+    for index in range(len(selected_samples), axes.size):
+        axes.flat[index].axis("off")
 
     edges_width = spatial_kwargs.pop("edges_width", 0.2)
     default_size = spatial_kwargs.pop("size", None)
@@ -141,33 +170,33 @@ def in_situ(
     legend_fontsize = spatial_kwargs.pop("legend_fontsize", "xx-small")
     edgecolors = spatial_kwargs.pop("edgecolors", "none")
     connectivity_key = spatial_kwargs.pop("connectivity_key", "adjacency_matrix")
-    if not edges_width:
+    if not edges_width or connectivity_key not in adata.obsp:
         connectivity_key = None
     shape = spatial_kwargs.pop("shape", None)
-    library_key = spatial_kwargs.pop("library_key", "batch")
+    library_key = spatial_kwargs.pop("library_key", sample_axis.sample_key)
     spatial_kwargs.pop("neighbors_key", None)
 
-    size = 5000 / sum(dataset.n_obs for dataset in datasets)
+    selected_indices = np.concatenate([sample_axis.indices(sample) for sample in selected_samples])
+    size = 5000 / len(selected_indices)
     if default_size is not None:
         size *= default_size
 
-    categorical = isinstance(datasets[0].obs[color].dtype, pd.CategoricalDtype)
+    categorical = isinstance(adata.obs[color].dtype, pd.CategoricalDtype)
     category_colors = None
     if categorical and palette is None:
-        categories = list(
-            dict.fromkeys(category for dataset in datasets for category in dataset.obs[color].cat.categories),
-        )
+        categories = list(adata.obs[color].cat.categories)
         colors = np.asarray(sc.pl.palettes.godsnot_102)
         color_indices = np.linspace(0, len(colors) - 1, len(categories), dtype=int)
         category_colors = dict(zip(categories, colors[color_indices]))
     if not categorical:
-        values = np.concatenate([dataset.obs[color].to_numpy(dtype=float) for dataset in datasets])
+        values = adata.obs.iloc[selected_indices][color].to_numpy(dtype=float)
         finite_values = values[np.isfinite(values)]
         if finite_values.size:
             spatial_kwargs.setdefault("vmin", finite_values.min())
             spatial_kwargs.setdefault("vmax", finite_values.max())
 
-    for dataset, ax in zip(datasets, axes.flat):
+    for sample, ax in zip(selected_samples, axes.flat):
+        dataset = sample_view(adata, sample_axis, sample)
         dataset_palette = palette
         if category_colors is not None:
             dataset_palette = ListedColormap(
@@ -183,117 +212,197 @@ def in_situ(
             edges_width=edges_width,
             legend_fontsize=legend_fontsize,
             ax=ax,
-            title=dataset.popari.name,
+            title=sample,
             fig=fig,
             palette=dataset_palette,
             edgecolors=edgecolors,
             library_key=library_key,
+            library_id=sample,
             **spatial_kwargs,
         )
 
     return fig
 
 
-@enable_joint
-@broadcast_plottable
-def umap(dataset: ad.AnnData, color="leiden", ax=None, **kwargs):
-    r"""Plot a categorical label across all datasets in-situ.
-
-    Extends AnnData's ``sc.pl.spatial`` function to plot labels/values across multiple replicates.
+def umap(
+    adata: ad.AnnData,
+    color="leiden",
+    *,
+    samples: str | Sequence[str] | None = None,
+    sample_key: str | None = None,
+    axes=None,
+    **kwargs,
+):
+    r"""Plot a unified UMAP embedding faceted by sample.
 
     Args:
-        datasets: list of datasets to process
-        color: the key in the ``.obs`` dataframe to plot.
+        adata: Unified multisample AnnData containing ``obsm["X_umap"]``.
+        color: Observation annotation to plot.
+        samples: Sample names to plot. By default, plot every sample.
+        sample_key: Observation column containing sample identities.
         axes: A predefined set of matplotlib axes to plot on.
+        **kwargs: Additional arguments for :func:`scanpy.pl.umap`.
+
+    Returns:
+        Figure and the axes used for the sample facets.
 
     """
 
+    sample_axis, selected_samples = resolve_samples(
+        adata,
+        samples=samples,
+        sample_key=sample_key,
+    )
+    sharex = kwargs.pop("sharex", True)
+    sharey = kwargs.pop("sharey", True)
+    dpi = kwargs.pop("dpi", 100)
+    if axes is None:
+        fig, axes = setup_squarish_axes(
+            len(selected_samples),
+            sharex=sharex,
+            sharey=sharey,
+            dpi=dpi,
+        )
+    else:
+        axes = np.asarray(axes, dtype=object)
+        fig = axes.flat[0].get_figure()
+    if axes.size < len(selected_samples):
+        raise ValueError("axes must provide at least one axis per selected sample.")
+    for index in range(len(selected_samples), axes.size):
+        axes.flat[index].axis("off")
+
     edges_width = kwargs.pop("edges_width", 0.2)
     size = kwargs.pop("size", 0.04)
-    edges = kwargs.pop("edges", sc.pl.palettes.godsnot_102)
+    edges = kwargs.pop("edges", False)
     palette = kwargs.pop("palette", sc.pl.palettes.godsnot_102)
     legend_fontsize = kwargs.pop("legend_fontsize", "xx-small")
     neighbors_key = kwargs.pop("neighbors_key", "neighbors")
 
-    sc.pl.umap(
-        dataset,
-        size=size,
-        neighbors_key=neighbors_key,
-        color=color,
-        edges=edges,
-        edges_width=edges_width,
-        legend_fontsize=legend_fontsize,
-        ax=ax,
-        show=False,
-        palette=palette,
-        **kwargs,
-    )
+    for sample, ax in zip(selected_samples, axes.flat):
+        sc.pl.umap(
+            sample_view(adata, sample_axis, sample),
+            size=size,
+            neighbors_key=neighbors_key,
+            color=color,
+            edges=edges,
+            edges_width=edges_width,
+            legend_fontsize=legend_fontsize,
+            ax=ax,
+            show=False,
+            palette=palette,
+            title=sample,
+            **kwargs,
+        )
+    return fig, axes
 
 
 def all_embeddings(
-    dataset: ad.AnnData | Sequence[ad.AnnData],
+    adata: ad.AnnData,
     embedding_key: str = "X",
-    column_names: str | None = None,
+    column_names: Sequence[str] | None = None,
+    *,
+    samples: str | Sequence[str] | None = None,
+    sample_key: str | None = None,
+    axes=None,
     **spatial_kwargs,
 ):
-    r"""Plot all laerned metagenes in-situ across all replicates.
+    r"""Plot every embedding dimension in situ across selected samples.
 
-    Each replicate's metagenes are contained in a separate plot.
+    Rows correspond to samples and columns correspond to embedding dimensions.
 
     Args:
-        dataset: dataset to process
-        embedding_key: the key in the ``.obsm`` dataframe for the cell/spot embeddings.
-        column_names: a list of the suffixes for each latent feature. If ``None``, it is assumed
-            that these suffixes are just the indices of the latent features.
+        adata: Unified multisample AnnData object.
+        embedding_key: Key in ``obsm`` containing cell or spot embeddings.
+        column_names: Display names for embedding dimensions.
+        samples: Sample names to plot. By default, plot every sample.
+        sample_key: Observation column containing sample identities.
+        axes: A predefined array of axes with one cell per sample and embedding.
+        **spatial_kwargs: Additional arguments for Squidpy's spatial scatter plot.
 
     """
 
-    datasets = as_datasets(dataset)
-    dataset = datasets[0] if len(datasets) == 1 else concatenate(datasets)
-    if "ax" in spatial_kwargs:
-        axes = spatial_kwargs["ax"]
-        if isinstance(axes, np.flatiter):
-            spatial_kwargs["ax"] = np.asarray(list(axes), dtype=object)
+    sample_axis, selected_samples = resolve_samples(
+        adata,
+        samples=samples,
+        sample_key=sample_key,
+    )
+    if axes is None:
+        axes = spatial_kwargs.pop("ax", None)
+    else:
+        spatial_kwargs.pop("ax", None)
+    if isinstance(axes, np.flatiter):
+        axes = np.asarray(list(axes), dtype=object)
 
-    _, K = dataset.obsm[f"{embedding_key}"].shape
-    if column_names == None:
+    _, K = adata.obsm[embedding_key].shape
+    if column_names is None:
         column_names = [f"{embedding_key}_{index}" for index in range(K)]
+    elif len(column_names) != K:
+        raise ValueError(f"column_names must contain {K} labels.")
 
     edges_width = spatial_kwargs.pop("edges_width", 0.2)
     connectivity_key = spatial_kwargs.pop(
         "connectivity_key",
-        "adjacency_matrix" if "adjacency_matrix" in dataset.obsp else None,
+        "adjacency_matrix" if "adjacency_matrix" in adata.obsp else None,
     )
+    if not edges_width:
+        connectivity_key = None
     default_size = spatial_kwargs.pop("size", None)
-    palette = spatial_kwargs.pop("palette", ListedColormap(sc.pl.palettes.godsnot_102))
-
-    size = len(dataset) / 100
-    if default_size is not None:
-        size *= default_size
-
-    axes = sq.pl.spatial_scatter(
-        sq.pl.extract(dataset, embedding_key, prefix=f"{embedding_key}"),
-        shape=None,
-        color=column_names,
-        edges_width=edges_width,
-        connectivity_key=connectivity_key,
-        size=size,
-        wspace=0.2,
-        ncols=2,
-        return_ax=True,
-        **spatial_kwargs,
-    )
-
-    if isinstance(axes, np.ndarray):
-        return axes.flat[0].get_figure()
-
-    if isinstance(axes, list):
-        return axes[0].get_figure()
-
+    cmap = spatial_kwargs.pop("cmap", "viridis")
+    dpi = spatial_kwargs.pop("dpi", 100)
+    figsize = spatial_kwargs.pop("figsize", None)
+    expected_axes = len(selected_samples) * K
     if axes is None:
-        return plt.gcf()
+        fig, axes = plt.subplots(
+            len(selected_samples),
+            K,
+            squeeze=False,
+            dpi=dpi,
+            figsize=figsize,
+        )
+    else:
+        axes = np.asarray(axes, dtype=object)
+        if axes.size < expected_axes:
+            raise ValueError(
+                f"axes must provide at least {expected_axes} axes for "
+                f"{len(selected_samples)} samples and {K} embeddings.",
+            )
+        fig = axes.flat[0].get_figure()
+    axes = np.asarray(axes, dtype=object)
 
-    return axes.get_figure()
+    selected_indices = np.concatenate([sample_axis.indices(sample) for sample in selected_samples])
+    selected_embeddings = np.asarray(adata.obsm[embedding_key])[selected_indices]
+    limits = [
+        (np.nanmin(selected_embeddings[:, index]), np.nanmax(selected_embeddings[:, index])) for index in range(K)
+    ]
+
+    for sample_index, sample in enumerate(selected_samples):
+        dataset = sample_view(adata, sample_axis, sample)
+        extracted = sq.pl.extract(dataset, embedding_key, prefix=embedding_key)
+        size = 5000 / dataset.n_obs
+        if default_size is not None:
+            size *= default_size
+        for feature_index, column_name in enumerate(column_names):
+            ax = axes.flat[sample_index * K + feature_index]
+            vmin, vmax = limits[feature_index]
+            sq.pl.spatial_scatter(
+                extracted,
+                shape=None,
+                color=column_name,
+                edges_width=edges_width,
+                connectivity_key=connectivity_key,
+                size=size,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                library_key=sample_axis.sample_key,
+                library_id=sample,
+                title=column_name if len(selected_samples) == 1 else f"{sample}: {column_name}",
+                ax=ax,
+                **spatial_kwargs,
+            )
+    for index in range(expected_axes, axes.size):
+        axes.flat[index].axis("off")
+    return fig
 
 
 def embedding_label_dotplot(
@@ -358,7 +467,7 @@ def embedding_label_dotplot(
 
 
 def embedding_label_heatmap(
-    data: ad.AnnData | Sequence[ad.AnnData],
+    dataset: ad.AnnData,
     *,
     names: Sequence[str] | None = None,
     embedding_key: str = "normalized_X",
@@ -368,8 +477,6 @@ def embedding_label_heatmap(
 ):
     """Plot normalized mean embedding activity for each categorical label."""
 
-    datasets = as_datasets(data)
-    dataset = datasets[0] if len(datasets) == 1 else concatenate(datasets)
     if excluded_categories is not None:
         dataset = dataset[~dataset.obs[label_key].isin(excluded_categories)]
 
@@ -404,7 +511,7 @@ def embedding_label_heatmap(
 
 
 def clusters_to_categories(
-    datasets: ad.AnnData | Sequence[ad.AnnData],
+    dataset: ad.AnnData,
     category_de_genes: dict[str, Sequence[str]],
     output_key="marker_expression",
     **dotplot_kwargs,
@@ -416,11 +523,9 @@ def clusters_to_categories(
         category_de_genes: mapping from category to marker genes for that category
 
     """
-    datasets = as_datasets(datasets)
-    score_marker_expression(datasets, category_de_genes, output_key=output_key)
-    merged_dataset = datasets[0] if len(datasets) == 1 else concatenate(datasets)
+    score_marker_expression(dataset, category_de_genes, output_key=output_key)
     dotplot = embedding_label_dotplot(
-        merged_dataset,
+        dataset,
         names=list(category_de_genes.keys()),
         standard_scale=None,
         cmap="bwr",
