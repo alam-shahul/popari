@@ -13,10 +13,10 @@ def test_differential_parameter_updates_are_finite(differential_model_factory, g
         model.estimate_parameters()
         model.estimate_weights()
 
-    for dataset in model.datasets:
-        assert np.isfinite(model.parameter_optimizer.metagene_state[dataset.popari.name].detach().cpu().numpy()).all()
-        assert np.isfinite(model.embedding_optimizer.embedding_state[dataset.popari.name].detach().cpu().numpy()).all()
-        assert np.isfinite(model.parameter_optimizer.spatial_affinity[dataset.popari.name].detach().cpu().numpy()).all()
+    for sample in model.adata.popari.sample_names:
+        assert np.isfinite(model.parameter_optimizer.metagene_state[sample].detach().cpu().numpy()).all()
+        assert np.isfinite(model.embedding_optimizer.embedding_state[sample].detach().cpu().numpy()).all()
+        assert np.isfinite(model.parameter_optimizer.spatial_affinity[sample].detach().cpu().numpy()).all()
 
 
 @pytest.mark.gpu
@@ -54,10 +54,13 @@ def test_differential_analysis_pipeline_runs(differential_model_factory, gpu_con
         model.estimate_parameters()
         model.estimate_weights()
 
-    genes = tl.find_differential_genes(model.datasets, top_gene_limit=2)
+    genes = tl.find_differential_genes(model.adata, top_gene_limit=2)
     assert genes
-    assert set(genes).issubset(set(model.datasets[0].var_names))
+    assert set(genes).issubset(set(model.adata.var_names))
 
     pl.gene_trajectories(model.datasets, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
     pl.gene_activations(model.datasets, list(genes)[:2])
-    tl.normalized_affinity_trends(model.datasets, timepoint_values=list(range(len(model.datasets))))
+    tl.normalized_affinity_trends(
+        model.adata,
+        timepoint_values=list(range(len(model.adata.popari.sample_names))),
+    )

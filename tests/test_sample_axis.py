@@ -38,6 +38,16 @@ def test_sample_axis_rejects_unknown_samples():
         axis.indices("missing")
 
 
+def test_sample_axis_can_index_samples_before_graph_construction():
+    adata = _canonical_adata()
+    del adata.obsp["adjacency_matrix"]
+
+    axis = SampleAxis.from_anndata(adata, adjacency_key=None)
+
+    assert axis.names == ("sample_a", "sample_b")
+    np.testing.assert_array_equal(axis.indices("sample_a"), [1, 3])
+
+
 @pytest.mark.parametrize(
     ("mutation", "error", "message"),
     [

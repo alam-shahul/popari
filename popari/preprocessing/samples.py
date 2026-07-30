@@ -3,6 +3,9 @@
 from collections.abc import Mapping, Sequence
 
 import anndata as ad
+import pandas as pd
+
+from popari.schema import SAMPLE_KEY_KEY
 
 
 def subset_samples(
@@ -50,6 +53,11 @@ def subset_samples(
             )
 
         subset = dataset[sample_labels.isin(sample_names).to_numpy()].copy()
+        subset.obs[sample_key] = pd.Categorical(
+            subset.obs[sample_key].astype(str),
+            categories=sample_names,
+        )
+        subset.uns[SAMPLE_KEY_KEY] = sample_key
         subset.popari.name = str(group_name)
 
         for key in sample_parameter_keys:

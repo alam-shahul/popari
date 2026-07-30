@@ -2,7 +2,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.sparse import csr_matrix
+from scipy.sparse import block_diag, csr_matrix
 
 from popari.analysis import (
     compute_category_edge_rates,
@@ -22,6 +22,7 @@ from popari.analysis import (
 def _interaction_dataset():
     dataset = ad.AnnData(X=np.ones((3, 2)))
     dataset.popari.name = "replicate_0"
+    dataset.obs["batch"] = pd.Categorical(["replicate_0"] * dataset.n_obs)
     dataset.obsm["X"] = np.array(
         [
             [1.0, 0.0],
@@ -38,6 +39,36 @@ def _interaction_dataset():
         ],
     )
     dataset.uns["Sigma_x_inv"] = {"replicate_0": np.diag([2.0, 3.0])}
+    return dataset
+
+
+def _multisample_interaction_dataset():
+    first = _interaction_dataset()
+    first.obs_names = [f"first_{index}" for index in range(first.n_obs)]
+    first.obs["batch"] = pd.Categorical(["first"] * first.n_obs)
+
+    second = _interaction_dataset()
+    second.obs_names = [f"second_{index}" for index in range(second.n_obs)]
+    second.obs["batch"] = pd.Categorical(["second"] * second.n_obs)
+
+    dataset = ad.concat(
+        {"first": first, "second": second},
+        label="batch",
+        index_unique=None,
+        pairwise=True,
+    )
+    dataset.obs["batch"] = pd.Categorical(
+        dataset.obs["batch"],
+        categories=["first", "second"],
+    )
+    dataset.obsp["adjacency_matrix"] = block_diag(
+        [first.obsp["adjacency_matrix"], second.obsp["adjacency_matrix"]],
+        format="csr",
+    )
+    dataset.uns["Sigma_x_inv"] = {
+        "first": np.diag([2.0, 3.0]),
+        "second": np.diag([5.0, 7.0]),
+    }
     return dataset
 
 
@@ -58,6 +89,19 @@ def test_compute_edge_interactions_uses_affinity_weighted_edge_scores():
         interactions.metagene_pair_scores(first, second) for first in range(2) for second in range(2)
     )
     np.testing.assert_allclose(reconstructed_scores, interactions.scores)
+
+
+def test_compute_edge_interactions_requires_and_uses_a_multisample_selection():
+    dataset = _multisample_interaction_dataset()
+
+    with pytest.raises(ValueError, match="sample must be specified"):
+        compute_edge_interactions(dataset, rescale=False)
+
+    interactions = compute_edge_interactions(dataset, sample="second", rescale=False)
+
+    assert interactions.obs_names.tolist() == ["second_0", "second_1", "second_2"]
+    np.testing.assert_array_equal(interactions.affinity, np.diag([5.0, 7.0]))
+    assert interactions.scores.tolist() == pytest.approx([0.0, -7.0, -5.0])
 
 
 def test_compute_edge_interactions_excludes_self_edges():
@@ -88,15 +132,13 @@ def test_compute_edge_interactions_rejects_incompatible_affinity_shape():
 
 def test_compute_differential_edge_interactions_uses_named_contrast():
     dataset = _interaction_dataset()
-    affinity_dataset = ad.AnnData(X=np.ones((1, 1)))
-    affinity_dataset.uns["average_Sigma_x_inv"] = {
+    dataset.uns["average_Sigma_x_inv"] = {
         "comparison": np.diag([5.0, 7.0]),
         "reference": np.diag([2.0, 3.0]),
     }
 
     interactions = compute_differential_edge_interactions(
         dataset,
-        affinity_dataset=affinity_dataset,
         comparison="comparison",
         reference="reference",
         affinity_key="average_Sigma_x_inv",
@@ -194,6 +236,7 @@ def test_frequency_weighted_interaction_matrix_multiplies_by_edge_rate():
 def _colocalization_dataset():
     dataset = ad.AnnData(X=np.ones((3, 2)))
     dataset.popari.name = "replicate_0"
+    dataset.obs["batch"] = pd.Categorical(["replicate_0"] * dataset.n_obs)
     dataset.obsm["X"] = np.array(
         [
             [1.0, 0.0],
@@ -296,6 +339,7 @@ def test_match_categories_to_factors_uses_mean_factor_activity():
 def test_compute_pair_edge_classification_scores_uses_matched_factor_pair_scores():
     dataset = ad.AnnData(X=np.ones((4, 2)))
     dataset.popari.name = "replicate_0"
+    dataset.obs["batch"] = pd.Categorical(["replicate_0"] * dataset.n_obs)
     dataset.obsm["X"] = np.array(
         [
             [1.0, 0.0],
@@ -359,11 +403,15 @@ def test_compute_metagene_pair_interaction_can_summarize_by_category_pair():
     dataset = _interaction_dataset()
 
     interactions = compute_metagene_pair_interaction(dataset, category_key="cell_type", rescale=False)
+    sample_interactions = interactions["replicate_0"]
 
-    assert interactions.shape == (2, 2, 2, 2)
-    assert dataset.uns["metagene_pair_interaction_edge_frequencies"].tolist() == [[1.0, 1.0], [1.0, 0.0]]
+    assert sample_interactions.shape == (2, 2, 2, 2)
+    assert dataset.uns["metagene_pair_interaction_edge_frequencies"]["replicate_0"].tolist() == [
+        [1.0, 1.0],
+        [1.0, 0.0],
+    ]
     np.testing.assert_allclose(
-        interactions[1, 0],
+        sample_interactions[1, 0],
         np.array(
             [
                 [0.0, 0.0],

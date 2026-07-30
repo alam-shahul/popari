@@ -11,7 +11,7 @@ import scanpy as sc
 from scipy.sparse import csr_matrix, issparse
 from scipy.stats import zscore
 
-from popari._datasets import as_datasets
+from popari._sample_axis import SampleAxis
 from popari.util import get_metagene_signature
 
 
@@ -19,6 +19,7 @@ def compute_metagene_signature_expression(
     dataset: ad.AnnData,
     metagene_index: int,
     *,
+    sample: str | None = None,
     reference_dataset: ad.AnnData | None = None,
     categories: Sequence | None = None,
     category_key: str = "domain",
@@ -31,6 +32,8 @@ def compute_metagene_signature_expression(
             comparison expression values.
         metagene_index: Column of ``dataset.uns["M"]`` used to select signature
             genes.
+        sample: Sample whose metagenes define the signature. May be omitted
+            when all sample-specific metagene matrices are equal.
         reference_dataset: Optional reference whose category means are
             subtracted from those in ``dataset``.
         categories: Optional category order. By default, preserve the order
@@ -61,10 +64,18 @@ def compute_metagene_signature_expression(
     if not isinstance(metagenes_by_sample, Mapping) or not metagenes_by_sample:
         raise KeyError('dataset.uns["M"] must contain sample-specific metagene matrices.')
 
-    metagene_matrices = [np.asarray(matrix) for matrix in metagenes_by_sample.values()]
-    metagenes = metagene_matrices[0]
-    if any(matrix.shape != metagenes.shape or not np.allclose(matrix, metagenes) for matrix in metagene_matrices[1:]):
-        raise ValueError("All sample-specific metagene matrices in dataset.uns['M'] must be numerically equal.")
+    if sample is not None:
+        try:
+            metagenes = np.asarray(metagenes_by_sample[str(sample)])
+        except KeyError as error:
+            raise KeyError(f"Missing metagenes for sample {sample!r}.") from error
+    else:
+        metagene_matrices = [np.asarray(matrix) for matrix in metagenes_by_sample.values()]
+        metagenes = metagene_matrices[0]
+        if any(
+            matrix.shape != metagenes.shape or not np.allclose(matrix, metagenes) for matrix in metagene_matrices[1:]
+        ):
+            raise ValueError("sample must be specified when sample-specific metagene matrices differ.")
     if not 0 <= metagene_index < metagenes.shape[1]:
         raise ValueError(f"metagene_index must be between 0 and {metagenes.shape[1] - 1}.")
 
@@ -106,12 +117,13 @@ def compute_metagene_signature_expression(
 
 
 def compute_category_marker_scores(
-    data: ad.AnnData | Sequence[ad.AnnData],
+    dataset: ad.AnnData,
     groupby: str,
     n_genes: int = 10,
     categories: Sequence | None = None,
     layer: str | None = None,
     per_dataset: bool = False,
+    sample_key: str | None = None,
 ) -> pd.DataFrame:
     """Compute z-scored expression of category-specific marker genes.
 
@@ -120,13 +132,15 @@ def compute_category_marker_scores(
     category that selected each marker and the gene itself.
 
     Args:
-        data: One AnnData object or a sequence of replicate datasets.
+        dataset: Unified multisample AnnData.
         groupby: Observation column containing category labels.
         n_genes: Number of marker genes to select per category.
         categories: Optional category order. Must contain every observed category.
         layer: Expression layer to aggregate. By default, use ``X``.
         per_dataset: Whether columns should represent category-replicate pairs
             instead of pooled categories.
+        sample_key: Observation column defining samples. Defaults to the key
+            stored in the Popari namespace.
 
     Returns:
         Marker-by-category z-score matrix. Rows have ``marker_category`` and
@@ -135,15 +149,12 @@ def compute_category_marker_scores(
 
     """
 
-    datasets = as_datasets(data)
-    if n_genes < 1 or n_genes > datasets[0].n_vars:
+    if n_genes < 1 or n_genes > dataset.n_vars:
         raise ValueError("n_genes must be between 1 and the number of genes.")
-    if any(groupby not in dataset.obs for dataset in datasets):
-        raise KeyError(f"Observation key {groupby!r} must be present in every dataset.")
-    if any(not dataset.var_names.equals(datasets[0].var_names) for dataset in datasets[1:]):
-        raise ValueError("All datasets must contain the same genes in the same order.")
+    if groupby not in dataset.obs:
+        raise KeyError(f"Observation key {groupby!r} must be present in dataset.")
 
-    observed_categories = set().union(*(dataset.obs[groupby].dropna().unique() for dataset in datasets))
+    observed_categories = set(dataset.obs[groupby].dropna().unique())
     if categories is None:
         categories = sorted(observed_categories)
     else:
@@ -151,34 +162,28 @@ def compute_category_marker_scores(
         if set(categories) != observed_categories:
             raise ValueError("categories must contain exactly the observed categories.")
 
-    dataset_names = [dataset.popari.name for dataset in datasets]
-    if len(set(dataset_names)) != len(dataset_names):
-        raise ValueError("Dataset names must be unique.")
+    genes = dataset.var_names
 
-    genes = datasets[0].var_names
-    category_means = {}
-    category_sums = {}
-    category_counts = {}
-    for dataset, dataset_name in zip(datasets, dataset_names):
-        aggregated = sc.get.aggregate(dataset, by=groupby, func=["mean", "sum"], layer=layer)
+    def aggregate(source: ad.AnnData):
+        aggregated = sc.get.aggregate(source, by=groupby, func=["mean", "sum"], layer=layer)
         aggregate_index = pd.Index(aggregated.obs[groupby], name="category")
-        category_means[dataset_name] = pd.DataFrame(
+        means = pd.DataFrame(
             np.asarray(aggregated.layers["mean"]),
             index=aggregate_index,
             columns=genes,
         ).reindex(categories, fill_value=0.0)
-        category_sums[dataset_name] = pd.DataFrame(
+        sums = pd.DataFrame(
             np.asarray(aggregated.layers["sum"]),
             index=aggregate_index,
             columns=genes,
         ).reindex(categories, fill_value=0.0)
-        category_counts[dataset_name] = pd.Series(
+        counts = pd.Series(
             np.asarray(aggregated.obs["n_obs_aggregated"]),
             index=aggregate_index,
         ).reindex(categories, fill_value=0)
+        return means, sums, counts
 
-    pooled_sums = sum(category_sums.values())
-    pooled_counts = sum(category_counts.values())
+    _, pooled_sums, pooled_counts = aggregate(dataset)
     pooled_means = pooled_sums.div(pooled_counts, axis="index")
     pooled_zscores = pd.DataFrame(
         np.nan_to_num(zscore(pooled_means.to_numpy(), axis=0)),
@@ -193,8 +198,14 @@ def compute_category_marker_scores(
     marker_index = pd.MultiIndex.from_tuples(marker_rows, names=["marker_category", "gene"])
 
     if per_dataset:
+        sample_axis = SampleAxis.from_anndata(
+            dataset,
+            sample_key=sample_key or dataset.popari.sample_key,
+            adjacency_key=None,
+        )
+        category_means = {sample: aggregate(dataset[sample_axis.indices(sample)])[0] for sample in sample_axis.names}
         column_index = pd.MultiIndex.from_product(
-            [categories, dataset_names],
+            [categories, sample_axis.names],
             names=["category", "dataset"],
         )
         means = np.vstack(

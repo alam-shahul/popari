@@ -585,19 +585,24 @@ def smooth_metagene_expression(
     dataset,
     processed_key: str = "normalized_thresholded_expression",
     adjacency_list_key: str = "adjacency_list",
+    adjacency_key: str = "adjacency_matrix",
 ):
     """"""
-    adjacency_list = dataset.obsm[adjacency_list_key]
-
     processed_expression = dataset.obsm[processed_key]
-    smoothed_expression = np.zeros_like(processed_expression)
-    for entity in np.arange(len(dataset)):
-        adjacencies = adjacency_list[entity]
-        neighbor_expressions = processed_expression[adjacencies]
-        average_expression = (processed_expression[entity] + neighbor_expressions.sum(axis=0)) / (
-            len(neighbor_expressions) + 1
-        )
-        smoothed_expression[entity] = average_expression
+    if adjacency_key in dataset.obsp:
+        adjacency = csr_array(dataset.obsp[adjacency_key]).astype(bool).astype(float)
+        degree = np.asarray(adjacency.sum(axis=1)).reshape(-1, 1)
+        smoothed_expression = (processed_expression + adjacency @ processed_expression) / (degree + 1)
+    else:
+        adjacency_list = dataset.obsm[adjacency_list_key]
+        smoothed_expression = np.zeros_like(processed_expression)
+        for entity in np.arange(len(dataset)):
+            adjacencies = adjacency_list[entity]
+            neighbor_expressions = processed_expression[adjacencies]
+            average_expression = (processed_expression[entity] + neighbor_expressions.sum(axis=0)) / (
+                len(neighbor_expressions) + 1
+            )
+            smoothed_expression[entity] = average_expression
 
     dataset.obsm["smoothed_expression"] = smoothed_expression
 
@@ -648,9 +653,15 @@ def smooth_labels(
     smoothing_threshold: float = 0.5,
     max_smoothing_rounds: int = 1,
     adjacency_list_key: str = "adjacency_list",
+    adjacency_key: str = "adjacency_matrix",
 ):
     """"""
-    adjacency_list = dataset.obsm[adjacency_list_key]
+    if adjacency_list_key in dataset.obsm:
+        adjacency_list = dataset.obsm[adjacency_list_key]
+    else:
+        adjacency_list = convert_adjacency_matrix_to_awkward_array(
+            dataset.obsp[adjacency_key],
+        )
 
     labels = dataset.obs[label_key]
     dataset.obs[output_key] = pd.Categorical(

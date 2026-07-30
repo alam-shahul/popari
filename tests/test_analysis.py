@@ -164,7 +164,7 @@ def test_metagene_signature_expression_requires_shared_metagenes(signature_expre
     comparison, _ = signature_expression_datasets
     comparison.uns["M"]["sample_1"][0, 0] = 2
 
-    with pytest.raises(ValueError, match="numerically equal"):
+    with pytest.raises(ValueError, match="sample must be specified"):
         tl.compute_metagene_signature_expression(comparison, 0)
 
 
@@ -324,17 +324,24 @@ def test_category_marker_scores_are_cell_weighted_and_handle_missing_categories(
         obs=pd.DataFrame({"domain": pd.Categorical(["B"])}, index=["second_0"]),
     )
     first.var_names = second.var_names = ["gene_0", "gene_1"]
-    first.popari.name = "first"
-    second.popari.name = "second"
+    dataset = ad.concat(
+        {"first": first, "second": second},
+        label="batch",
+        index_unique=None,
+    )
+    dataset.obs["batch"] = pd.Categorical(
+        dataset.obs["batch"],
+        categories=["first", "second"],
+    )
 
     pooled = tl.compute_category_marker_scores(
-        [first, second],
+        dataset,
         groupby="domain",
         n_genes=1,
         categories=["A", "B"],
     )
     per_dataset = tl.compute_category_marker_scores(
-        [first, second],
+        dataset,
         groupby="domain",
         n_genes=1,
         categories=["A", "B"],
@@ -362,16 +369,15 @@ def test_category_marker_scores_are_cell_weighted_and_handle_missing_categories(
 def test_propagate_labels_mutates_hierarchy_and_returns_none():
     fine = ad.AnnData(X=np.ones((3, 1)))
     coarse = ad.AnnData(X=np.ones((2, 1)))
-    coarse.popari.name = "coarse"
     coarse.obs["domain"] = ["A", "B"]
-    coarse.obsm["bin_assignments_coarse"] = csr_array(
+    coarse.obsm["bin_assignments"] = csr_array(
         [
             [1, 1, 0],
             [0, 0, 1],
         ],
     )
 
-    result = tl.propagate_labels({0: (fine,), 1: (coarse,)}, "domain")
+    result = tl.propagate_labels({0: fine, 1: coarse}, "domain")
 
     assert result is None
     assert fine.obs["domain"].tolist() == ["A", "A", "B"]
@@ -385,66 +391,42 @@ def _fit_model(model, n_steps: int = 2):
 
 
 @pytest.mark.baseline
-def test_preprocess_and_pca(preprocessed_shared_model, shared_model_expected_metrics):
+def test_preprocess_and_pca(preprocessed_shared_model):
     model = preprocessed_shared_model
-    metrics = shared_model_expected_metrics
 
-    for dataset in model.datasets:
-        assert "normalized_X" in dataset.obsm
-        assert "X_pca" in dataset.obsm
-        assert np.isfinite(dataset.obsm["normalized_X"]).all()
-        assert np.isfinite(dataset.obsm["X_pca"]).all()
-    assert np.linalg.norm(model.datasets[0].obsm["X_pca"]) == pytest.approx(metrics["pca_norms"][0], abs=1e-6)
-    assert np.linalg.norm(model.datasets[1].obsm["X_pca"]) == pytest.approx(metrics["pca_norms"][1], abs=1e-6)
+    assert "normalized_X" in model.adata.obsm
+    assert "X_pca" in model.adata.obsm
+    assert model.adata.obsm["normalized_X"].shape == (model.adata.n_obs, model.K)
+    assert model.adata.obsm["X_pca"].shape == (model.adata.n_obs, model.K)
+    assert np.isfinite(model.adata.obsm["normalized_X"]).all()
+    assert np.isfinite(model.adata.obsm["X_pca"]).all()
 
 
 @pytest.mark.expensive
-def test_clustering_metrics_and_classification(clustered_shared_model, shared_model_expected_metrics):
+def test_clustering_metrics_and_classification(clustered_shared_model):
     model = clustered_shared_model
-    metrics = shared_model_expected_metrics
     try:
-        tl.compute_confusion_matrix(model.datasets, labels="cell_type", predictions="leiden", joint=True)
+        tl.compute_confusion_matrix(model.adata, labels="cell_type", predictions="leiden")
     except ValueError:
         pass
 
-    for dataset in model.datasets:
-        assert "leiden" in dataset.obs
-        assert np.isfinite(dataset.uns["ari"])
-        assert np.isfinite(dataset.uns["silhouette"])
-        assert 0 <= dataset.uns["microprecision_validation"] <= 1
-        assert 0 <= dataset.uns["macroprecision_validation"] <= 1
-    assert model.datasets[0].uns["ari"] == pytest.approx(metrics["ari"][0], abs=1e-9)
-    assert model.datasets[1].uns["ari"] == pytest.approx(metrics["ari"][1], abs=1e-9)
-    assert model.datasets[0].uns["silhouette"] == pytest.approx(metrics["silhouette"][0], abs=1e-9)
-    assert model.datasets[1].uns["silhouette"] == pytest.approx(metrics["silhouette"][1], abs=1e-9)
-    assert model.datasets[0].uns["microprecision_validation"] == pytest.approx(
-        metrics["microprecision_validation"][0],
-        abs=1e-9,
-    )
-    assert model.datasets[1].uns["microprecision_validation"] == pytest.approx(
-        metrics["microprecision_validation"][1],
-        abs=1e-9,
-    )
-    assert model.datasets[0].uns["macroprecision_validation"] == pytest.approx(
-        metrics["macroprecision_validation"][0],
-        abs=1e-9,
-    )
-    assert model.datasets[1].uns["macroprecision_validation"] == pytest.approx(
-        metrics["macroprecision_validation"][1],
-        abs=1e-9,
-    )
+    assert "leiden" in model.adata.obs
+    assert np.isfinite(model.adata.uns["ari"])
+    assert np.isfinite(model.adata.uns["silhouette"])
+    assert 0 <= model.adata.uns["microprecision_validation"] <= 1
+    assert 0 <= model.adata.uns["macroprecision_validation"] <= 1
 
 
 @pytest.mark.expensive
 def test_embedding_and_spatial_summaries(analyzed_shared_model):
     model = analyzed_shared_model
 
-    for dataset in model.datasets:
-        assert "empirical_correlation" in dataset.uns
-        assert "spatial_gene_correlation" in dataset.uns
-        assert "neighbor_interactions" in dataset.uns
-        assert "domain" in dataset.obs
-        empirical = dataset.uns["empirical_correlation"][dataset.popari.name]
+    assert "empirical_correlation" in model.adata.uns
+    assert "spatial_gene_correlation" in model.adata.uns
+    assert "neighbor_interactions" in model.adata.uns
+    assert "domain" in model.adata.obs
+    assert set(model.adata.uns["empirical_correlation"]) == set(model.adata.popari.sample_names)
+    for empirical in model.adata.uns["empirical_correlation"].values():
         assert empirical.shape[0] == empirical.shape[1] == model.K
         assert np.allclose(empirical, empirical.T)
 
@@ -457,14 +439,14 @@ def test_differential_analysis_helpers(differential_model_factory, gpu_context):
         n_steps=1,
     )
 
-    genes = tl.find_differential_genes(model.datasets, top_gene_limit=2)
+    genes = tl.find_differential_genes(model.adata, top_gene_limit=2)
     assert genes
 
     pl.gene_trajectories(model.datasets, list(genes)[:2], covariate_values=list(range(len(model.metagene_groups))))
     pl.gene_activations(model.datasets, list(genes)[:2])
     top_pairs, correlations, variances = tl.normalized_affinity_trends(
-        model.datasets,
-        timepoint_values=list(range(len(model.datasets))),
+        model.adata,
+        timepoint_values=list(range(len(model.adata.popari.sample_names))),
     )
 
     assert top_pairs

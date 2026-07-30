@@ -27,9 +27,15 @@ class SampleAxis:
         adata: ad.AnnData,
         *,
         sample_key: str = "batch",
-        adjacency_key: str = "adjacency_matrix",
+        adjacency_key: str | None = "adjacency_matrix",
     ) -> SampleAxis:
-        """Validate a canonical multisample AnnData and index its samples."""
+        """Validate and index the sample axis of a multisample AnnData.
+
+        Set ``adjacency_key=None`` while constructing a spatial graph. Canonical
+        Popari validation keeps the default and therefore also rejects
+        cross-sample graph edges.
+
+        """
 
         if sample_key not in adata.obs:
             raise KeyError(f"Missing sample column `obs[{sample_key!r}]`.")
@@ -51,6 +57,17 @@ class SampleAxis:
             raise ValueError("Observation names must be unique.")
         if not adata.var_names.is_unique:
             raise ValueError("Variable names must be unique.")
+        if adjacency_key is None:
+            positions = MappingProxyType({name: index for index, name in enumerate(categories)})
+            indices = tuple(np.flatnonzero(codes == index) for index in range(len(categories)))
+            return cls(
+                sample_key=sample_key,
+                names=categories,
+                codes=codes,
+                _positions=positions,
+                _indices=indices,
+            )
+
         if adjacency_key not in adata.obsp:
             raise KeyError(f"Missing spatial graph `obsp[{adjacency_key!r}]`.")
 
