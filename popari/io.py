@@ -93,10 +93,19 @@ def _migrate_legacy_observation_names(
         [adata.obs[sample_key].astype(str), adata.obs_names.astype(str)],
         names=[sample_key, "observation"],
     )
-    if identities.has_duplicates:
-        raise ValueError("Legacy artifact has duplicate observation names within a sample.")
-
-    adata.obs_names = [f"{observation}-{sample}" for sample, observation in identities]
+    if not identities.has_duplicates:
+        adata.obs_names = [f"{sample}:{observation}" for sample, observation in identities]
+    else:
+        adata.obs["_legacy_obs_name"] = adata.obs_names.astype(str)
+        sample_positions = adata.obs.groupby(sample_key, observed=True).cumcount()
+        adata.obs_names = [
+            f"{sample}:{position}"
+            for sample, position in zip(
+                adata.obs[sample_key].astype(str),
+                sample_positions,
+                strict=True,
+            )
+        ]
     if not adata.obs_names.is_unique:
         raise ValueError("Could not construct unique observation names for legacy artifact.")
 
@@ -514,6 +523,68 @@ def _rename_mapping_keys(mapping: Mapping, renames: Mapping[str, str]) -> dict:
     return {renames.get(str(key), str(key)): value for key, value in mapping.items()}
 
 
+def _normalize_hierarchy_bin_assignments(
+    previous_adata: AnnData,
+    adata: AnnData,
+    *,
+    level: int,
+    sample_key: str,
+) -> None:
+    if BIN_ASSIGNMENTS_KEY in adata.obsm:
+        return
+
+    legacy_keys = [key for key in adata.obsm if key.startswith(f"{BIN_ASSIGNMENTS_KEY}_")]
+    if not legacy_keys:
+        return
+
+    previous_axis = SampleAxis.from_anndata(
+        previous_adata,
+        sample_key=sample_key,
+    )
+    axis = SampleAxis.from_anndata(
+        adata,
+        sample_key=sample_key,
+    )
+    row_parts = []
+    column_parts = []
+    data_parts = []
+    for sample in axis.names:
+        candidates = (
+            f"{BIN_ASSIGNMENTS_KEY}_{sample}",
+            f"{BIN_ASSIGNMENTS_KEY}_{sample}_level_{level}",
+        )
+        matching_keys = [key for key in candidates if key in adata.obsm]
+        if len(matching_keys) != 1:
+            raise KeyError(
+                f"Expected one legacy bin-assignment matrix for sample {sample!r}; " f"found {matching_keys}.",
+            )
+
+        coarse_indices = axis.indices(sample)
+        fine_indices = previous_axis.indices(sample)
+        legacy_assignments = csr_array(adata.obsm[matching_keys[0]])
+        expected_shape = (adata.n_obs, len(fine_indices))
+        if legacy_assignments.shape != expected_shape:
+            raise ValueError(
+                f"Legacy bin assignments for sample {sample!r} have shape "
+                f"{legacy_assignments.shape}; expected {expected_shape}.",
+            )
+
+        local_assignments = sparse.coo_array(legacy_assignments[coarse_indices])
+        row_parts.append(coarse_indices[local_assignments.row])
+        column_parts.append(fine_indices[local_assignments.col])
+        data_parts.append(local_assignments.data)
+
+    adata.obsm[BIN_ASSIGNMENTS_KEY] = csr_array(
+        (
+            np.concatenate(data_parts),
+            (np.concatenate(row_parts), np.concatenate(column_parts)),
+        ),
+        shape=(adata.n_obs, previous_adata.n_obs),
+    )
+    for key in legacy_keys:
+        del adata.obsm[key]
+
+
 def normalize_anndata_hierarchy(
     hierarchy: Mapping[int, AnnData],
     *,
@@ -541,50 +612,55 @@ def normalize_anndata_hierarchy(
             raise ValueError("All hierarchy levels must use the same sample key.")
 
         axis = SampleAxis.from_anndata(adata, sample_key=resolved_sample_key)
-        if axis.names == base_names:
-            continue
+        if axis.names != base_names:
+            legacy_names = tuple(f"{sample}_level_{level}" for sample in base_names)
+            if axis.names != legacy_names:
+                raise ValueError(
+                    f"Hierarchy level {level} has samples {axis.names}; expected "
+                    f"{base_names} or legacy names {legacy_names}.",
+                )
 
-        legacy_names = tuple(f"{sample}_level_{level}" for sample in base_names)
-        if axis.names != legacy_names:
-            raise ValueError(
-                f"Hierarchy level {level} has samples {axis.names}; expected "
-                f"{base_names} or legacy names {legacy_names}.",
+            renames = dict(zip(legacy_names, base_names))
+            adata.obs[resolved_sample_key] = pd.Categorical(
+                adata.obs[resolved_sample_key].astype(str).map(renames),
+                categories=base_names,
+                ordered=True,
             )
+            for key in (*_SAMPLE_PARAMETER_KEYS, "sigma_yx"):
+                values = adata.uns.get(key)
+                if isinstance(values, Mapping):
+                    adata.uns[key] = _rename_mapping_keys(values, renames)
 
-        renames = dict(zip(legacy_names, base_names))
-        adata.obs[resolved_sample_key] = pd.Categorical(
-            adata.obs[resolved_sample_key].astype(str).map(renames),
-            categories=base_names,
-            ordered=True,
-        )
-        for key in (*_SAMPLE_PARAMETER_KEYS, "sigma_yx"):
-            values = adata.uns.get(key)
-            if isinstance(values, Mapping):
-                adata.uns[key] = _rename_mapping_keys(values, renames)
-
-        hyperparameters = adata.uns.get(HYPERPARAMETERS_KEY)
-        if isinstance(hyperparameters, Mapping):
-            hyperparameters = dict(hyperparameters)
-            prior_x = hyperparameters.get("prior_x")
-            if isinstance(prior_x, Mapping):
-                hyperparameters["prior_x"] = _rename_mapping_keys(prior_x, renames)
-            for key in ("metagene_groups", "spatial_affinity_groups"):
-                groups = hyperparameters.get(key)
-                if isinstance(groups, Mapping):
-                    hyperparameters[key] = {
-                        group: [renames.get(str(sample), str(sample)) for sample in samples]
-                        for group, samples in groups.items()
-                    }
-            for key in ("metagene_tags", "spatial_affinity_tags"):
-                tags = hyperparameters.get(key)
-                if isinstance(tags, Mapping):
-                    hyperparameters[key] = _rename_mapping_keys(tags, renames)
-            adata.uns[HYPERPARAMETERS_KEY] = hyperparameters
+            hyperparameters = adata.uns.get(HYPERPARAMETERS_KEY)
+            if isinstance(hyperparameters, Mapping):
+                hyperparameters = dict(hyperparameters)
+                prior_x = hyperparameters.get("prior_x")
+                if isinstance(prior_x, Mapping):
+                    hyperparameters["prior_x"] = _rename_mapping_keys(prior_x, renames)
+                for key in ("metagene_groups", "spatial_affinity_groups"):
+                    groups = hyperparameters.get(key)
+                    if isinstance(groups, Mapping):
+                        hyperparameters[key] = {
+                            group: [renames.get(str(sample), str(sample)) for sample in samples]
+                            for group, samples in groups.items()
+                        }
+                for key in ("metagene_tags", "spatial_affinity_tags"):
+                    tags = hyperparameters.get(key)
+                    if isinstance(tags, Mapping):
+                        hyperparameters[key] = _rename_mapping_keys(tags, renames)
+                adata.uns[HYPERPARAMETERS_KEY] = hyperparameters
 
         SampleAxis.from_anndata(
             adata,
             sample_key=resolved_sample_key,
         )
+        if level > 0:
+            _normalize_hierarchy_bin_assignments(
+                result[level - 1],
+                adata,
+                level=level,
+                sample_key=resolved_sample_key,
+            )
 
     return result
 

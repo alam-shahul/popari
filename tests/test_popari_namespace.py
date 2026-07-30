@@ -139,3 +139,16 @@ def test_multisample_namespace_accessors_use_named_parameters():
 
     with pytest.raises(ValueError, match="multiple samples"):
         _ = dataset.popari.metagenes
+
+
+def test_sample_axis_accessors_do_not_require_a_spatial_graph():
+    dataset = ad.AnnData(
+        X=np.ones((3, 1)),
+        obs=pd.DataFrame(
+            {"batch": pd.Categorical(["first", "second", "first"])},
+            index=["cell_0", "cell_1", "cell_2"],
+        ),
+    )
+
+    assert dataset.popari.sample_names == ("first", "second")
+    np.testing.assert_array_equal(dataset.popari.sample_indices("first"), [0, 2])

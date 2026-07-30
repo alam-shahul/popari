@@ -47,6 +47,41 @@ def test_convert_legacy_anndata_reconstructs_sample_graphs():
     assert canonical.obsp["adjacency_matrix"][:2, 2:].nnz == 0
 
 
+def test_convert_legacy_anndata_reconstructs_duplicate_observation_names():
+    merged_dataset = ad.AnnData(X=np.ones((4, 2)))
+    merged_dataset.obs_names = ["Astro", "Astro", "Astro", "Oligo"]
+    merged_dataset.obs["batch"] = pd.Categorical(
+        ["replicate_0", "replicate_0", "replicate_1", "replicate_1"],
+        categories=["replicate_0", "replicate_1"],
+        ordered=True,
+    )
+    merged_dataset.uns["adjacency_matrix"] = {
+        "replicate_0": np.array([[0, 1], [1, 0]]),
+        "replicate_1": np.array([[0, 1], [1, 0]]),
+    }
+
+    canonical = convert_legacy_anndata(merged_dataset)
+
+    assert canonical.obs_names.tolist() == [
+        "replicate_0:0",
+        "replicate_0:1",
+        "replicate_1:0",
+        "replicate_1:1",
+    ]
+    assert canonical.obs["_legacy_obs_name"].tolist() == [
+        "Astro",
+        "Astro",
+        "Astro",
+        "Oligo",
+    ]
+    assert canonical.obs["batch"].astype(str).tolist() == [
+        "replicate_0",
+        "replicate_0",
+        "replicate_1",
+        "replicate_1",
+    ]
+
+
 @pytest.mark.baseline
 def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
     model = shared_model_factory()
@@ -123,6 +158,55 @@ def test_normalize_anndata_hierarchy_removes_legacy_level_suffixes(shared_model_
     assert hierarchy[1].popari.sample_names == tuple(model.replicate_names)
     assert tuple(hierarchy[1].uns["M"]) == tuple(model.replicate_names)
     assert tuple(hierarchy[1].uns["Sigma_x_inv"]) == tuple(model.replicate_names)
+
+
+def test_normalize_anndata_hierarchy_combines_legacy_bin_assignments():
+    fine = ad.AnnData(X=np.ones((5, 2)))
+    fine.obs_names = [f"fine_{index}" for index in range(5)]
+    fine.obs["batch"] = pd.Categorical(
+        ["sample_a", "sample_a", "sample_b", "sample_b", "sample_b"],
+        categories=["sample_a", "sample_b"],
+        ordered=True,
+    )
+    fine.uns["adjacency_matrix"] = {
+        "sample_a": np.eye(2),
+        "sample_b": np.eye(3),
+    }
+    fine = convert_legacy_anndata(fine)
+
+    coarse = ad.AnnData(X=np.ones((3, 2)))
+    coarse.obs_names = [f"coarse_{index}" for index in range(3)]
+    coarse.obs["batch"] = pd.Categorical(
+        ["sample_a_level_1", "sample_b_level_1", "sample_b_level_1"],
+        categories=["sample_a_level_1", "sample_b_level_1"],
+        ordered=True,
+    )
+    coarse.uns["adjacency_matrix"] = {
+        "sample_a_level_1": np.eye(1),
+        "sample_b_level_1": np.eye(2),
+    }
+    coarse.obsm["bin_assignments_sample_a_level_1"] = csr_array(
+        [[1, 1], [0, 0], [0, 0]],
+    )
+    coarse.obsm["bin_assignments_sample_b_level_1"] = csr_array(
+        [[0, 0, 0], [1, 1, 0], [0, 0, 1]],
+    )
+    coarse = convert_legacy_anndata(coarse)
+
+    hierarchy = normalize_anndata_hierarchy({0: fine, 1: coarse})
+
+    assert hierarchy[1].popari.sample_names == ("sample_a", "sample_b")
+    assert list(hierarchy[1].obsm) == ["bin_assignments"]
+    assert np.array_equal(
+        hierarchy[1].obsm["bin_assignments"].toarray(),
+        np.array(
+            [
+                [1, 1, 0, 0, 0],
+                [0, 0, 1, 1, 0],
+                [0, 0, 0, 0, 1],
+            ],
+        ),
+    )
 
 
 def test_save_and_load_supports_custom_sample_key(tmp_path):

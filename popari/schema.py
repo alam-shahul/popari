@@ -39,7 +39,11 @@ class PopariNamespace:
     def sample_names(self) -> tuple[str, ...]:
         """Ordered sample names from the canonical sample axis."""
 
-        return SampleAxis.from_anndata(self._adata, sample_key=self.sample_key).names
+        return SampleAxis.from_anndata(
+            self._adata,
+            sample_key=self.sample_key,
+            adjacency_key=None,
+        ).names
 
     @property
     def sample_key(self) -> str:
@@ -50,12 +54,20 @@ class PopariNamespace:
     def sample_mask(self, sample: str, sample_key: str | None = None) -> np.ndarray:
         """Return an observation mask for a named sample."""
 
-        return SampleAxis.from_anndata(self._adata, sample_key=sample_key or self.sample_key).mask(sample)
+        return SampleAxis.from_anndata(
+            self._adata,
+            sample_key=sample_key or self.sample_key,
+            adjacency_key=None,
+        ).mask(sample)
 
     def sample_indices(self, sample: str, sample_key: str | None = None) -> np.ndarray:
         """Return observation indices for a named sample."""
 
-        return SampleAxis.from_anndata(self._adata, sample_key=sample_key or self.sample_key).indices(sample)
+        return SampleAxis.from_anndata(
+            self._adata,
+            sample_key=sample_key or self.sample_key,
+            adjacency_key=None,
+        ).indices(sample)
 
     def _single_sample_name(self) -> str:
         if DEFAULT_SAMPLE_KEY in self._adata.obs:

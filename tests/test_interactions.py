@@ -104,6 +104,23 @@ def test_compute_edge_interactions_requires_and_uses_a_multisample_selection():
     assert interactions.scores.tolist() == pytest.approx([0.0, -7.0, -5.0])
 
 
+def test_compute_edge_interactions_applies_explicit_affinity_to_all_samples():
+    dataset = _multisample_interaction_dataset()
+    affinity = np.diag([11.0, 13.0])
+
+    interactions = compute_edge_interactions(
+        dataset,
+        affinity=affinity,
+        rescale=False,
+    )
+
+    assert interactions.obs_names.equals(dataset.obs_names)
+    np.testing.assert_array_equal(interactions.affinity, affinity)
+    assert interactions.scores.tolist() == pytest.approx(
+        [0.0, -13.0, -11.0, 0.0, -13.0, -11.0],
+    )
+
+
 def test_compute_edge_interactions_excludes_self_edges():
     dataset = _interaction_dataset()
     dataset.obsp["adjacency_matrix"][0, 0] = 1

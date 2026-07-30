@@ -94,5 +94,7 @@ def test_load_anndata_roundtrip_for_saved_hierarchy(hierarchical_model_factory, 
     filepath = tmp_path / "hierarchy_results"
     model.save_results(filepath, ignore_raw_data=False)
 
-    datasets, replicate_names = load_anndata(filepath / "level_0.h5ad")
-    assert len(datasets) == len(replicate_names)
+    reloaded = load_anndata(filepath / "level_0.h5ad")
+
+    assert reloaded.shape == model.hierarchy[0].adata.shape
+    assert reloaded.popari.sample_names == tuple(model.replicate_names)

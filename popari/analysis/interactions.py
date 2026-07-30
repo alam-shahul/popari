@@ -415,13 +415,18 @@ def compute_edge_interactions(
     """Compute affinity-weighted interaction scores on every graph edge.
 
     The canonical edge score is ``-z_i @ Sigma @ z_j``, where ``z`` is the
-    optionally L1-normalized embedding. Self-edges are excluded.
+    optionally L1-normalized embedding. Self-edges are excluded. Supplying a
+    common ``affinity`` without ``sample`` scores every block-diagonal sample
+    graph in the unified dataset.
 
     """
 
     sample_axis = _sample_axis(dataset, sample_key)
-    sample = _resolve_sample(sample_axis, sample)
-    sample_dataset = dataset[sample_axis.indices(sample)]
+    if sample is None and affinity is not None:
+        sample_dataset = dataset
+    else:
+        sample = _resolve_sample(sample_axis, sample)
+        sample_dataset = dataset[sample_axis.indices(sample)]
     scaled_embeddings = _scaled_embeddings(sample_dataset, embedding_key, rescale)
     if affinity is None:
         affinity = dataset.popari.spatial_affinity_for(sample)
