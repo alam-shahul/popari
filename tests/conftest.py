@@ -6,6 +6,7 @@ import torch
 from scipy.sparse import csr_array
 
 from popari import pp, tl
+from popari.io import merge_anndata
 from popari.model import Popari
 
 matplotlib.use("Agg")
@@ -94,15 +95,27 @@ def mock_datasets(dataset_factory):
     return dataset_factory()
 
 
+def _model_adata(datasets, replicate_names=None):
+    datasets = [dataset.copy() for dataset in datasets]
+    if replicate_names is not None:
+        if len(replicate_names) != len(datasets):
+            raise ValueError("replicate_names must match the number of datasets.")
+        for dataset, name in zip(datasets, replicate_names):
+            dataset.popari.name = name
+    return merge_anndata(datasets)
+
+
 @pytest.fixture(scope="session")
 def shared_model_factory(context, dataset_factory):
     def factory(**overrides):
-        datasets = overrides.pop("datasets", dataset_factory())
-        replicate_names = overrides.pop("replicate_names", [dataset.obs["batch"].iloc[0] for dataset in datasets])
+        adata = overrides.pop("adata", None)
+        if adata is None:
+            datasets = overrides.pop("datasets", dataset_factory())
+            replicate_names = overrides.pop("replicate_names", None)
+            adata = _model_adata(datasets, replicate_names)
         return Popari(
             K=overrides.pop("K", 3),
-            datasets=datasets,
-            replicate_names=replicate_names,
+            adata=adata,
             lambda_Sigma_x_inv=overrides.pop("lambda_Sigma_x_inv", 1e-3),
             metagene_mode=overrides.pop("metagene_mode", "shared"),
             spatial_affinity_mode=overrides.pop("spatial_affinity_mode", "shared lookup"),
@@ -120,12 +133,14 @@ def shared_model_factory(context, dataset_factory):
 @pytest.fixture(scope="session")
 def differential_model_factory(context, dataset_factory):
     def factory(**overrides):
-        datasets = overrides.pop("datasets", dataset_factory())
-        replicate_names = overrides.pop("replicate_names", [dataset.obs["batch"].iloc[0] for dataset in datasets])
+        adata = overrides.pop("adata", None)
+        if adata is None:
+            datasets = overrides.pop("datasets", dataset_factory())
+            replicate_names = overrides.pop("replicate_names", None)
+            adata = _model_adata(datasets, replicate_names)
         return Popari(
             K=overrides.pop("K", 3),
-            datasets=datasets,
-            replicate_names=replicate_names,
+            adata=adata,
             lambda_Sigma_x_inv=overrides.pop("lambda_Sigma_x_inv", 1e-3),
             metagene_mode="differential",
             lambda_M=overrides.pop("lambda_M", 0.5),
@@ -145,12 +160,14 @@ def differential_model_factory(context, dataset_factory):
 @pytest.fixture(scope="session")
 def hierarchical_model_factory(context, dataset_factory):
     def factory(**overrides):
-        datasets = overrides.pop("datasets", dataset_factory(num_cells=36))
-        replicate_names = overrides.pop("replicate_names", [dataset.obs["batch"].iloc[0] for dataset in datasets])
+        adata = overrides.pop("adata", None)
+        if adata is None:
+            datasets = overrides.pop("datasets", dataset_factory(num_cells=36))
+            replicate_names = overrides.pop("replicate_names", None)
+            adata = _model_adata(datasets, replicate_names)
         return Popari(
             K=overrides.pop("K", 3),
-            datasets=datasets,
-            replicate_names=replicate_names,
+            adata=adata,
             lambda_Sigma_x_inv=overrides.pop("lambda_Sigma_x_inv", 1e-3),
             initialization_method=overrides.pop("initialization_method", "svd"),
             spatial_affinity_mode=overrides.pop("spatial_affinity_mode", "differential lookup"),

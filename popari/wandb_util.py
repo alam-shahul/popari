@@ -9,7 +9,7 @@ from typing import Union
 import anndata as ad
 import torch
 
-from popari.io import unmerge_anndata
+from popari.io import convert_legacy_anndata, load_anndata, normalize_anndata_hierarchy
 from popari.model import load_pretrained
 
 LEVEL_FILE_PATTERN = re.compile(r"^level_(\d+)\.h5ad$")
@@ -104,15 +104,15 @@ def read_popari_artifact(path: str | Path) -> ad.AnnData:
 
     path = Path(path)
     if path.is_file() and path.suffix == ".h5ad":
-        return ad.read_h5ad(path)
+        return load_anndata(path)
 
     h5ad_files = sorted(path.glob("*.h5ad")) if path.is_dir() else []
     if len(h5ad_files) == 1:
-        return ad.read_h5ad(h5ad_files[0])
+        return load_anndata(h5ad_files[0])
     if len(h5ad_files) > 1:
         raise ValueError(f"Expected one .h5ad file in {path}; found {len(h5ad_files)}.")
 
-    return ad.read_zarr(path)
+    return convert_legacy_anndata(ad.read_zarr(path), copy=False)
 
 
 def _h5ad_files_from_artifact_path(path: str | Path) -> list[Path]:
@@ -124,9 +124,8 @@ def _h5ad_files_from_artifact_path(path: str | Path) -> list[Path]:
     return []
 
 
-def read_popari_anndata_hierarchy(paths: str | Path | list[str | Path]) -> dict[int, tuple[ad.AnnData, ...]]:
-    """Read flat or hierarchical Popari AnnData results as ``level ->
-    datasets``."""
+def read_popari_anndata_hierarchy(paths: str | Path | list[str | Path]) -> dict[int, ad.AnnData]:
+    """Read flat or hierarchical Popari results as ``level -> AnnData``."""
 
     if isinstance(paths, (str, Path)):
         paths = [paths]
@@ -156,12 +155,8 @@ def read_popari_anndata_hierarchy(paths: str | Path | list[str | Path]) -> dict[
         raise ValueError(f"Expected one flat .h5ad result file; found {len(flat_files)}.")
 
     files_by_level = level_files or {0: flat_files[0]}
-    hierarchy = {}
-    for level, h5ad_file in sorted(files_by_level.items()):
-        merged_dataset = ad.read_h5ad(h5ad_file)
-        datasets, _ = unmerge_anndata(merged_dataset)
-        hierarchy[level] = tuple(datasets)
-    return hierarchy
+    hierarchy = {level: load_anndata(h5ad_file) for level, h5ad_file in sorted(files_by_level.items())}
+    return normalize_anndata_hierarchy(hierarchy)
 
 
 def load_popari_anndata_from_wandb(
@@ -172,8 +167,8 @@ def load_popari_anndata_from_wandb(
     artifact_stem: str | None = "output",
     alias: str = "latest",
     root: str | Path | None = None,
-) -> dict[int, tuple[ad.AnnData, ...]]:
-    """Load migrated Popari AnnData results as ``level -> datasets``."""
+) -> dict[int, ad.AnnData]:
+    """Load migrated Popari results as ``level -> AnnData``."""
 
     artifact_paths = _download_popari_artifacts(
         run_id,
@@ -210,13 +205,10 @@ def load_popari_model_from_wandb(
         alias=alias,
         root=root,
     )
-    datasets = reloaded_hierarchy[0]
-    replicate_names = [dataset.popari.name for dataset in datasets]
     popari_kwargs.setdefault("hierarchical_levels", len(reloaded_hierarchy))
 
     return load_pretrained(
-        datasets,
-        replicate_names,
+        reloaded_hierarchy[0],
         reloaded_hierarchy=reloaded_hierarchy,
         context=context,
         **popari_kwargs,

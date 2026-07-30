@@ -1,8 +1,10 @@
 import numpy as np
 import pytest
-from scipy.sparse import issparse
+from scipy.sparse import csr_array, issparse
 
+from popari.io import merge_anndata
 from popari.model import Popari
+from popari.schema import BIN_ASSIGNMENTS_KEY
 from popari.simulation.recipes import SimulationConfig
 from popari.simulation.synthetic import create_spatial_affinity_demo_datasets
 
@@ -13,29 +15,27 @@ def test_random_state_controls_initialization(shared_model_factory):
     model_1 = shared_model_factory(random_state=0, initialization_method="dummy")
     model_2 = shared_model_factory(random_state=1, initialization_method="dummy")
 
-    for dataset_0, dataset_1, dataset_2 in zip(model_0.datasets, model_1.datasets, model_2.datasets):
-        assert np.allclose(dataset_0.uns["M"][dataset_0.popari.name], dataset_1.uns["M"][dataset_1.popari.name])
-        assert np.allclose(dataset_0.obsm["X"], dataset_1.obsm["X"])
+    assert np.allclose(model_0.adata.obsm["X"], model_1.adata.obsm["X"])
+    assert not np.allclose(model_0.adata.obsm["X"], model_2.adata.obsm["X"])
+    for sample in model_0.replicate_names:
+        assert np.allclose(model_0.adata.uns["M"][sample], model_1.adata.uns["M"][sample])
         assert np.allclose(
-            dataset_0.uns["Sigma_x_inv"][dataset_0.popari.name],
-            dataset_1.uns["Sigma_x_inv"][dataset_1.popari.name],
+            model_0.adata.uns["Sigma_x_inv"][sample],
+            model_1.adata.uns["Sigma_x_inv"][sample],
         )
-
-        assert not np.allclose(dataset_0.uns["M"][dataset_0.popari.name], dataset_2.uns["M"][dataset_2.popari.name])
-        assert not np.allclose(dataset_0.obsm["X"], dataset_2.obsm["X"])
+        assert not np.allclose(model_0.adata.uns["M"][sample], model_2.adata.uns["M"][sample])
 
 
 @pytest.mark.baseline
 def test_ground_truth_initialization_uses_cell_type_labels(shared_model_factory):
     model = shared_model_factory(initialization_method="ground_truth")
 
-    for dataset in model.datasets:
-        label_indices = dataset.obs["cell_type"].str.removeprefix("type_").astype(int).to_numpy()
-        assert np.array_equal(dataset.obsm["X"].argmax(axis=1), label_indices)
-        active_values = dataset.obsm["X"][np.arange(dataset.n_obs), label_indices]
-        inactive_values = dataset.obsm["X"].copy()
-        inactive_values[np.arange(dataset.n_obs), label_indices] = -np.inf
-        assert np.all(active_values > inactive_values.max(axis=1))
+    label_indices = model.adata.obs["cell_type"].str.removeprefix("type_").astype(int).to_numpy()
+    assert np.array_equal(model.adata.obsm["X"].argmax(axis=1), label_indices)
+    active_values = model.adata.obsm["X"][np.arange(model.adata.n_obs), label_indices]
+    inactive_values = model.adata.obsm["X"].copy()
+    inactive_values[np.arange(model.adata.n_obs), label_indices] = -np.inf
+    assert np.all(active_values > inactive_values.max(axis=1))
 
 
 @pytest.mark.baseline
@@ -52,8 +52,7 @@ def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(
 
     model = Popari(
         K=3,
-        datasets=(dataset,),
-        replicate_names=(dataset.popari.name,),
+        adata=merge_anndata((dataset,)),
         lambda_Sigma_x_inv=1e-4,
         initialization_method="ground_truth",
         torch_context=context,
@@ -62,16 +61,16 @@ def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(
         verbose=0,
     )
 
-    initialized_dataset = model.datasets[0]
-    assert np.all(initialized_dataset.obsm["X"].argmax(axis=1) == 0)
-    assert np.all(np.isfinite(initialized_dataset.uns["M"][initialized_dataset.popari.name]))
-    assert np.all(np.isfinite(initialized_dataset.uns["Sigma_x_inv"][initialized_dataset.popari.name]))
+    sample = model.replicate_names[0]
+    assert np.all(model.adata.obsm["X"].argmax(axis=1) == 0)
+    assert np.all(np.isfinite(model.adata.uns["M"][sample]))
+    assert np.all(np.isfinite(model.adata.uns["Sigma_x_inv"][sample]))
 
 
 @pytest.mark.baseline
 def test_shared_mode_reuses_group_parameters(shared_model_factory):
     model = shared_model_factory()
-    first_name, second_name = (dataset.popari.name for dataset in model.datasets)
+    first_name, second_name = model.replicate_names
 
     assert model.parameter_optimizer.metagene_state[first_name].data_ptr() == (
         model.parameter_optimizer.metagene_state[second_name].data_ptr()
@@ -109,9 +108,22 @@ def test_hierarchical_initialization_builds_resolution_stack(hierarchical_model_
     assert model.hierarchical_levels == 3
     assert len(model.hierarchy.view_container) == 3
     assert model.base_view.level == 2
+    assert model.adata is model.hierarchy[0].adata
 
     for level in range(model.hierarchical_levels):
         view = model.hierarchy[level]
         assert view.level == level
-        assert len(view.datasets) == len(model.replicate_names)
-        assert all("X" in dataset.obsm for dataset in view.datasets)
+        assert view.sample_axis.names == tuple(model.replicate_names)
+        assert view.adata.obsm["X"].shape == (view.adata.n_obs, model.K)
+
+        graph = csr_array(view.adata.obsp["adjacency_matrix"]).tocoo()
+        assert np.all(view.sample_axis.codes[graph.row] == view.sample_axis.codes[graph.col])
+
+        if level > 0:
+            previous_view = model.hierarchy[level - 1]
+            assignments = csr_array(view.adata.obsm[BIN_ASSIGNMENTS_KEY])
+            assert assignments.shape == (view.adata.n_obs, previous_view.adata.n_obs)
+            rows, columns = assignments.nonzero()
+            assert np.all(
+                view.sample_axis.codes[rows] == previous_view.sample_axis.codes[columns],
+            )

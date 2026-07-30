@@ -1,6 +1,8 @@
 import anndata as ad
 import numpy as np
+import pandas as pd
 import pytest
+from scipy.sparse import csr_array
 
 import popari  # noqa: F401
 
@@ -109,3 +111,31 @@ def test_affinity_difference_requires_named_matrices():
 
     with pytest.raises(KeyError, match="dataset_2"):
         dataset.popari.affinity_difference("dataset_2", "dataset_1")
+
+
+def test_multisample_namespace_accessors_use_named_parameters():
+    dataset = ad.AnnData(X=np.ones((4, 3)))
+    dataset.obs_names = [f"cell_{index}" for index in range(4)]
+    dataset.var_names = [f"gene_{index}" for index in range(3)]
+    dataset.obs["batch"] = pd.Categorical(
+        ["sample_b", "sample_a", "sample_b", "sample_a"],
+        categories=["sample_a", "sample_b"],
+    )
+    dataset.obsp["adjacency_matrix"] = csr_array(
+        (np.ones(4), ([0, 1, 2, 3], [2, 3, 0, 1])),
+        shape=(4, 4),
+    )
+    dataset.uns["M"] = {"sample_a": np.ones((3, 2)), "sample_b": np.full((3, 2), 2)}
+    dataset.uns["Sigma_x_inv"] = {
+        "sample_a": np.eye(2),
+        "sample_b": np.full((2, 2), 3),
+    }
+
+    assert dataset.popari.sample_names == ("sample_a", "sample_b")
+    np.testing.assert_array_equal(dataset.popari.sample_indices("sample_a"), [1, 3])
+    np.testing.assert_array_equal(dataset.popari.sample_mask("sample_b"), [True, False, True, False])
+    np.testing.assert_array_equal(dataset.popari.metagenes_for("sample_b"), np.full((3, 2), 2))
+    np.testing.assert_array_equal(dataset.popari.spatial_affinity_for("sample_a"), np.eye(2))
+
+    with pytest.raises(ValueError, match="multiple samples"):
+        _ = dataset.popari.metagenes
