@@ -3,7 +3,7 @@
 Popari can also be used as a command line tool. After {ref}`installation <installation>` via pip, you can run Popari as below:
 
 ```
-popari --K={number of metagenes} \
+uv run python scripts/train.py --K={number of metagenes} \
        --num_iterations={number of iterations} \
        --dataset_path={path to input .h5ad file} \
        --output_path={where to save output .h5ad file}

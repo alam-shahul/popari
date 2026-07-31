@@ -52,11 +52,6 @@ path = "popari/__about__.py"
 "Homepage" = "https://github.com/alam-shahul/popari"
 "Bug Tracker" = "https://github.com/alam-shahul/popari/issues"
 
-[project.scripts]
-popari = "popari:main"
-popari-mlflow = "popari.mlflow.train:main"
-popari-grid-search= "popari.mlflow.grid_search:run"
-
 [project.optional-dependencies]
 simulation = [
   "jupyterlab",
@@ -68,10 +63,8 @@ jupyter = [
   "jupyterlab_execute_time",
   "jupyter-resource-usage",
 ]
-mlflow = [
-  "mlflow>=2.5.0",
-  "toml>=0.10.2",
-  "pynvml",
+wandb = [
+  "wandb>=0.17.9,<0.18",
 ]
 benchmark = [
   "multiprocess>=0.70.15",
