@@ -28,7 +28,9 @@ from scipy.sparse import csr_array
 from scipy.stats import gamma, truncnorm
 
 from popari._canvas import DomainCanvas
+from popari._sample_axis import SampleAxis
 from popari.io import save_anndata
+from popari.schema import DATASET_NAME_KEY, SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
 from popari.simulation.recipes import (
     LayerLandmarks,
     SimulationConfig,
@@ -50,9 +52,10 @@ SPATIAL_AFFINITY_DEMO_SCENARIOS = ("Alternating", "Checkers", "Monotype", "Layer
 
 @dataclass(frozen=True)
 class SimulationResult:
-    """Datasets and configuration produced by :func:`generate_simulation`."""
+    """Unified dataset and configuration produced by
+    :func:`generate_simulation`."""
 
-    datasets: tuple[ad.AnnData, ...]
+    adata: ad.AnnData
     config: SimulationConfig
     recipes: Mapping[str, SimulationRecipe]
     output_path: Path | None = None
@@ -343,8 +346,8 @@ def _simulate_expression(
     return metagenes, metagene_magnitudes
 
 
-def _calculate_grid_neighbors(datasets: Sequence[ad.AnnData], n_neighs: int = 4) -> None:
-    """Construct and store a Squidpy grid graph for every replicate.
+def _calculate_grid_neighbors(adata: ad.AnnData, sample_axis: SampleAxis, n_neighs: int = 4) -> None:
+    """Construct one block-diagonal Squidpy grid graph.
 
     The sparse connectivity matrix is exposed as
     ``.obsp["adjacency_matrix"]`` and an Awkward neighbor-list representation
@@ -352,12 +355,23 @@ def _calculate_grid_neighbors(datasets: Sequence[ad.AnnData], n_neighs: int = 4)
 
     """
 
-    for dataset in datasets:
-        sq.gr.spatial_neighbors(dataset, coord_type="grid", n_neighs=n_neighs, delaunay=False)
-        dataset.obsp["adjacency_matrix"] = dataset.obsp["spatial_connectivities"]
-        dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(
-            dataset.obsp["adjacency_matrix"],
+    graph_blocks = []
+    for sample in sample_axis.names:
+        indices = sample_axis.indices(sample)
+        sample_adata = adata[indices].copy()
+        sq.gr.spatial_neighbors(sample_adata, coord_type="grid", n_neighs=n_neighs, delaunay=False)
+        graph = sample_adata.obsp["spatial_connectivities"].tocoo()
+        graph_blocks.append(
+            csr_array(
+                (graph.data, (indices[graph.row], indices[graph.col])),
+                shape=(adata.n_obs, adata.n_obs),
+            ),
         )
+
+    adjacency = sum(graph_blocks[1:], start=graph_blocks[0])
+    adata.obsp["spatial_connectivities"] = adjacency
+    adata.obsp["adjacency_matrix"] = adjacency.copy()
+    adata.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(adjacency)
 
 
 def _adjacency_lists(adjacency_matrix) -> list[list[int]]:
@@ -370,7 +384,11 @@ def _adjacency_lists(adjacency_matrix) -> list[list[int]]:
     return adjacency_lists
 
 
-def _apply_spatial_dropout(datasets: Sequence[ad.AnnData], dropout: SpatialDropoutConfig) -> None:
+def _apply_spatial_dropout(
+    adata: ad.AnnData,
+    sample_axis: SampleAxis,
+    dropout: SpatialDropoutConfig,
+) -> None:
     """Set expression to zero at graph-separated cells for every gene.
 
     For each gene, cells are visited in random order and greedily selected only
@@ -381,17 +399,18 @@ def _apply_spatial_dropout(datasets: Sequence[ad.AnnData], dropout: SpatialDropo
     """
 
     rng = np.random.default_rng(dropout.random_state)
-    for dataset in datasets:
-        adjacency_lists = _adjacency_lists(dataset.obsp["adjacency_matrix"])
-        num_dropout_cells = int(np.rint(dropout.sparsity * dataset.n_obs))
-        for gene_index in range(dataset.n_vars):
+    for sample in sample_axis.names:
+        indices = sample_axis.indices(sample)
+        adjacency_lists = _adjacency_lists(adata.obsp["adjacency_matrix"][indices][:, indices])
+        num_dropout_cells = int(np.rint(dropout.sparsity * len(indices)))
+        for gene_index in range(adata.n_vars):
             excluded = set()
             independent_set = []
-            for cell_index in rng.permutation(dataset.n_obs):
+            for cell_index in rng.permutation(len(indices)):
                 if cell_index not in excluded:
                     independent_set.append(int(cell_index))
                     excluded.update(adjacency_lists[cell_index])
-            dataset.X[independent_set[:num_dropout_cells], gene_index] = 0
+            adata.X[indices[independent_set[:num_dropout_cells]], gene_index] = 0
 
 
 def generate_simulation(
@@ -442,32 +461,56 @@ def generate_simulation(
         if verbose:
             print(f"Simulated {replicate_name}.")
 
-    # Construct spatial graphs and optionally apply graph-aware dropout.
-    should_calculate_neighbors = config.calculate_neighbors if calculate_neighbors is None else calculate_neighbors
-    if should_calculate_neighbors:
-        _calculate_grid_neighbors(datasets)
-
-    selected_dropout = dropout if dropout is not None else config.dropout
-    if selected_dropout is not None:
-        _apply_spatial_dropout(datasets, selected_dropout)
-
-    # Finalize observation metadata and sparse expression storage.
+    # Finalize observation metadata before constructing the unified object.
     for dataset, recipe_name in zip(datasets, replicates.values()):
         recipe = recipes[recipe_name]
         dataset.obs_names = [f"{dataset.popari.name}_{index}" for index in range(dataset.n_obs)]
         dataset.obs["batch"] = dataset.popari.name
         for key in ("batch", "cell_type", recipe.domain_key):
             dataset.obs[key] = dataset.obs[key].astype("category")
-        dataset.X = csr_array(dataset.X)
 
-    # Persist the merged result when an output path is requested.
-    datasets_tuple = tuple(datasets)
+    adata = ad.concat(
+        datasets,
+        index_unique=None,
+        join="inner",
+        merge="same",
+        uns_merge="same",
+    )
+    adata.obs["batch"] = adata.obs["batch"].astype("category")
+    adata.obs["batch"] = adata.obs["batch"].cat.reorder_categories(list(replicates), ordered=True)
+    adata.uns[DATASET_NAME_KEY] = "multisample" if len(replicates) > 1 else next(iter(replicates))
+    adata.uns[SAMPLE_KEY_KEY] = "batch"
+    adata.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+    adata.simulation.ground_truth_M = shared_metagenes
+    adata.uns["ground_truth_metagene_magnitudes"] = shared_magnitudes
+    sample_axis = SampleAxis.from_anndata(adata, sample_key="batch")
+
+    # Construct spatial graphs and optionally apply graph-aware dropout.
+    should_calculate_neighbors = config.calculate_neighbors if calculate_neighbors is None else calculate_neighbors
+    selected_dropout = dropout if dropout is not None else config.dropout
+    if selected_dropout is not None and not should_calculate_neighbors:
+        raise ValueError("Spatial dropout requires calculate_neighbors=True.")
+
+    if should_calculate_neighbors:
+        _calculate_grid_neighbors(adata, sample_axis)
+    else:
+        adata.obsp["adjacency_matrix"] = csr_array((adata.n_obs, adata.n_obs))
+        adata.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(
+            adata.obsp["adjacency_matrix"],
+        )
+
+    if selected_dropout is not None:
+        _apply_spatial_dropout(adata, sample_axis, selected_dropout)
+    adata.X = csr_array(adata.X)
+    adata.popari.validate()
+
+    # Persist the unified result when an output path is requested.
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        save_anndata(output_path, datasets_tuple)
+        save_anndata(output_path, adata)
 
     return SimulationResult(
-        datasets=datasets_tuple,
+        adata=adata,
         config=config,
         recipes=recipes,
         output_path=output_path,

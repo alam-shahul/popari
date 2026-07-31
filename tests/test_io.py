@@ -4,15 +4,10 @@ import pandas as pd
 import pytest
 from scipy.sparse import csr_array
 
-from popari.io import (
-    convert_legacy_anndata,
-    load_anndata,
-    load_anndata_hierarchy,
-    merge_anndata,
-    normalize_anndata_hierarchy,
-    save_anndata,
-)
+from popari.io import load_anndata, load_anndata_hierarchy, save_anndata
+from popari.legacy_io import convert_legacy_anndata, normalize_anndata_hierarchy
 from popari.model import load_trained_model
+from scripts.migrate_popari_artifact import migrate_artifact
 
 
 def test_convert_legacy_anndata_requires_adjacency_matrix():
@@ -24,6 +19,34 @@ def test_convert_legacy_anndata_requires_adjacency_matrix():
 
     with pytest.raises(KeyError, match="Missing spatial graph"):
         convert_legacy_anndata(merged_dataset)
+
+
+def test_load_anndata_rejects_legacy_artifact(tmp_path):
+    dataset = ad.AnnData(X=np.ones((2, 2)))
+    dataset.obs["batch"] = pd.Categorical(["sample", "sample"])
+    dataset.obsp["adjacency_matrix"] = csr_array((2, 2))
+    path = tmp_path / "legacy.h5ad"
+    dataset.write_h5ad(path)
+
+    with pytest.raises(ValueError, match="migrate_popari_artifact.py"):
+        load_anndata(path)
+
+
+def test_migrate_artifact_writes_canonical_h5ad(tmp_path):
+    legacy = ad.AnnData(X=np.ones((2, 2)))
+    legacy.obs_names = ["cell_0", "cell_1"]
+    legacy.obs["batch"] = pd.Categorical(["sample", "sample"])
+    legacy.uns["adjacency_matrix"] = {"sample": np.array([[0, 1], [1, 0]])}
+    source = tmp_path / "legacy.h5ad"
+    destination = tmp_path / "canonical.h5ad"
+    legacy.write_h5ad(source)
+
+    migrate_artifact(source, destination)
+
+    migrated = load_anndata(destination)
+    assert migrated.popari.sample_names == ("sample",)
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        migrate_artifact(source, destination)
 
 
 def test_convert_legacy_anndata_reconstructs_sample_graphs():
@@ -320,3 +343,10 @@ def test_reload_expression_restores_trainability(hierarchical_model_factory, tmp
     reloaded._reload_expression(raw_adata)
 
     assert reloaded.hierarchy[0].adata.X.sum() > 0
+
+
+def test_reload_expression_rejects_sample_sequences(hierarchical_model_factory):
+    model = hierarchical_model_factory(hierarchical_levels=2)
+
+    with pytest.raises(TypeError, match="one unified AnnData"):
+        model._reload_expression([model.adata.copy()])

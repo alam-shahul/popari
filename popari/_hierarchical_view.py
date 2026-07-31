@@ -1,6 +1,6 @@
-from collections import defaultdict
-
+import anndata as ad
 import numpy as np
+import pandas as pd
 import torch
 from anndata import AnnData
 from scipy.sparse import csr_array
@@ -18,10 +18,9 @@ from popari.initialization import (
     initialize_leiden,
     initialize_svd,
 )
-from popari.io import merge_anndata
 from popari.preprocessing import compute_spatial_neighbors
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
-from popari.schema import BIN_ASSIGNMENTS_KEY
+from popari.schema import BIN_ASSIGNMENTS_KEY, DATASET_NAME_KEY, SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
 from popari.util import convert_adjacency_matrix_to_awkward_array, convert_numpy_to_pytorch_sparse_coo, get_datetime
 
 
@@ -290,12 +289,7 @@ class HierarchicalView(nn.Module):
                 self.adata.uns["spatial_affinity_bar"] = spatial_affinity_bar
 
         self.superresolution_optimizers = {}
-        if "losses" not in self.adata.uns:
-            self.adata.uns["losses"] = defaultdict(list)
-        else:
-            self.adata.uns["losses"] = defaultdict(list, self.adata.uns["losses"])
-            for key in self.adata.uns["losses"]:
-                self.adata.uns["losses"][key] = list(self.adata.uns["losses"][key])
+        self.adata.uns["losses"] = {key: list(values) for key, values in self.adata.uns.get("losses", {}).items()}
 
         if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
             self.parameter_optimizer.spatial_affinity.reaverage(self.parameter_optimizer.spatial_affinity_bar)
@@ -645,6 +639,7 @@ class Hierarchy:
             print(f"{get_datetime()} Initializing hierarchy level {level}")
             binned_datasets = []
             binned_Ys = []
+            local_assignments = []
             previous_Ys = previous_view.Ys
 
             effective_kwargs = kwargs.copy()
@@ -658,25 +653,58 @@ class Hierarchy:
                     **effective_kwargs,
                 )
                 binned_dataset.popari.name = sample
-                compute_spatial_neighbors(binned_dataset)
+                binned_dataset.obs[previous_view.sample_key] = sample
+                binned_dataset.obs_names = [f"{sample}_level_{level}_{index}" for index in range(binned_dataset.n_obs)]
 
                 print(
                     f"{get_datetime()} Downsized dataset from {len(previous_dataset)} to {len(binned_dataset)} spots.",
                 )
 
                 binned_datasets.append(binned_dataset)
+                assignments = csr_array(binned_dataset.obsm.pop(bin_assignments_key))
+                local_assignments.append(assignments)
                 bin_assignments = convert_numpy_to_pytorch_sparse_coo(
-                    csr_array(binned_dataset.obsm[bin_assignments_key]).tocoo(),
+                    assignments.tocoo(),
                     context=context,
                 )
 
                 binned_Y = bin_assignments @ previous_Y
                 binned_Ys.append(binned_Y)
 
-            binned_adata = merge_anndata(
+            binned_adata = ad.concat(
                 binned_datasets,
-                sample_key=previous_view.sample_key,
+                join="inner",
+                merge="same",
+                uns_merge="same",
             )
+            binned_adata.obs[previous_view.sample_key] = pd.Categorical(
+                binned_adata.obs[previous_view.sample_key].astype(str),
+                categories=previous_view.replicate_names,
+                ordered=True,
+            )
+            binned_adata.uns[DATASET_NAME_KEY] = "multisample"
+            binned_adata.uns[SAMPLE_KEY_KEY] = previous_view.sample_key
+            binned_adata.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+
+            row_parts = []
+            column_parts = []
+            data_parts = []
+            row_offset = 0
+            for sample, assignments in zip(previous_view.replicate_names, local_assignments, strict=True):
+                local = assignments.tocoo()
+                fine_indices = previous_view.sample_axis.indices(sample)
+                row_parts.append(row_offset + local.row)
+                column_parts.append(fine_indices[local.col])
+                data_parts.append(local.data)
+                row_offset += assignments.shape[0]
+            binned_adata.obsm[BIN_ASSIGNMENTS_KEY] = csr_array(
+                (
+                    np.concatenate(data_parts),
+                    (np.concatenate(row_parts), np.concatenate(column_parts)),
+                ),
+                shape=(binned_adata.n_obs, previous_view.adata.n_obs),
+            )
+            compute_spatial_neighbors(binned_adata, sample_key=previous_view.sample_key)
             level_view = HierarchicalView(
                 binned_adata,
                 level=level,

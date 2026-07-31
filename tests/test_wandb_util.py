@@ -5,6 +5,7 @@ import pytest
 import torch
 from scipy.sparse import csr_array
 
+from popari.io import save_anndata
 from popari.wandb_util import load_popari_model_from_wandb, read_popari_anndata_hierarchy
 
 
@@ -15,7 +16,7 @@ def _write_h5ad(path):
     dataset.obs["batch"] = pd.Categorical(["replicate", "replicate"])
     dataset.obsp["adjacency_matrix"] = csr_array(np.eye(2))
     dataset.popari.name = "replicate"
-    dataset.write_h5ad(path)
+    save_anndata(path, dataset)
     return dataset
 
 

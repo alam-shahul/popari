@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_array, issparse
 
-from popari.io import merge_anndata
 from popari.model import Popari
 from popari.schema import BIN_ASSIGNMENTS_KEY
 from popari.simulation.recipes import SimulationConfig
@@ -52,7 +51,7 @@ def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(
 
     model = Popari(
         K=3,
-        adata=merge_anndata((dataset,)),
+        adata=dataset,
         lambda_Sigma_x_inv=1e-4,
         initialization_method="ground_truth",
         torch_context=context,
@@ -112,3 +111,21 @@ def test_hierarchical_initialization_builds_resolution_stack(hierarchical_model_
             assert np.all(
                 view.sample_axis.codes[rows] == previous_view.sample_axis.codes[columns],
             )
+
+
+@pytest.mark.expensive
+def test_hierarchical_assignments_support_interleaved_samples(hierarchical_model_factory, adata_factory):
+    adata = adata_factory(num_cells=36)
+    first, second = adata.popari.sample_names
+    order = np.column_stack(
+        [adata.popari.sample_indices(first), adata.popari.sample_indices(second)],
+    ).ravel()
+    adata = adata[order].copy()
+
+    model = hierarchical_model_factory(adata=adata, hierarchical_levels=2)
+    coarse = model.hierarchy[1]
+    assignments = csr_array(coarse.adata.obsm[BIN_ASSIGNMENTS_KEY]).tocoo()
+
+    assert np.all(
+        coarse.sample_axis.codes[assignments.row] == model.hierarchy[0].sample_axis.codes[assignments.col],
+    )

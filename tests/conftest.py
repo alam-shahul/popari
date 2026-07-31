@@ -6,7 +6,6 @@ import torch
 from scipy.sparse import csr_array
 
 from popari import pp, tl
-from popari.io import merge_anndata
 from popari.model import Popari
 
 matplotlib.use("Agg")
@@ -95,27 +94,46 @@ def mock_datasets(dataset_factory):
     return dataset_factory()
 
 
-def _model_adata(datasets, replicate_names=None):
+def _model_adata(datasets, sample_key="batch"):
     datasets = [dataset.copy() for dataset in datasets]
-    if replicate_names is not None:
-        if len(replicate_names) != len(datasets):
-            raise ValueError("replicate_names must match the number of datasets.")
-        for dataset, name in zip(datasets, replicate_names):
-            dataset.popari.name = name
-    return merge_anndata(datasets)
+    sample_names = []
+    for dataset in datasets:
+        try:
+            sample_names.append(dataset.popari.name)
+        except ValueError:
+            names = dataset.obs["batch"].astype(str).unique()
+            if len(names) != 1:
+                raise ValueError("Test datasets must contain exactly one sample.")
+            sample_names.append(str(names[0]))
+    for dataset, name in zip(datasets, sample_names, strict=True):
+        dataset.obs[sample_key] = name
+        if sample_key != "batch":
+            dataset.obs.drop(columns=["batch"], errors="ignore", inplace=True)
+    adata = ad.concat(datasets, index_unique="-", pairwise=True)
+    adata.obs[sample_key] = adata.obs[sample_key].astype("category")
+    adata.obs[sample_key] = adata.obs[sample_key].cat.reorder_categories(sample_names, ordered=True)
+    return adata
 
 
 @pytest.fixture(scope="session")
-def shared_model_factory(context, dataset_factory):
+def adata_factory(dataset_factory):
+    def factory(*, sample_key="batch", **dataset_kwargs):
+        return _model_adata(dataset_factory(**dataset_kwargs), sample_key=sample_key)
+
+    return factory
+
+
+@pytest.fixture(scope="session")
+def shared_model_factory(context, adata_factory):
     def factory(**overrides):
+        sample_key = overrides.pop("sample_key", None)
         adata = overrides.pop("adata", None)
         if adata is None:
-            datasets = overrides.pop("datasets", dataset_factory())
-            replicate_names = overrides.pop("replicate_names", None)
-            adata = _model_adata(datasets, replicate_names)
+            adata = adata_factory(sample_key=sample_key or "batch")
         return Popari(
             K=overrides.pop("K", 3),
             adata=adata,
+            sample_key=sample_key,
             lambda_Sigma_x_inv=overrides.pop("lambda_Sigma_x_inv", 1e-3),
             spatial_affinity_mode=overrides.pop("spatial_affinity_mode", "shared lookup"),
             initialization_method=overrides.pop("initialization_method", "svd"),
@@ -130,16 +148,16 @@ def shared_model_factory(context, dataset_factory):
 
 
 @pytest.fixture(scope="session")
-def differential_model_factory(context, dataset_factory):
+def differential_model_factory(context, adata_factory):
     def factory(**overrides):
+        sample_key = overrides.pop("sample_key", None)
         adata = overrides.pop("adata", None)
         if adata is None:
-            datasets = overrides.pop("datasets", dataset_factory())
-            replicate_names = overrides.pop("replicate_names", None)
-            adata = _model_adata(datasets, replicate_names)
+            adata = adata_factory(sample_key=sample_key or "batch")
         return Popari(
             K=overrides.pop("K", 3),
             adata=adata,
+            sample_key=sample_key,
             lambda_Sigma_x_inv=overrides.pop("lambda_Sigma_x_inv", 1e-3),
             spatial_affinity_mode=overrides.pop("spatial_affinity_mode", "differential lookup"),
             lambda_Sigma_bar=overrides.pop("lambda_Sigma_bar", 1e-3),
@@ -155,16 +173,16 @@ def differential_model_factory(context, dataset_factory):
 
 
 @pytest.fixture(scope="session")
-def hierarchical_model_factory(context, dataset_factory):
+def hierarchical_model_factory(context, adata_factory):
     def factory(**overrides):
+        sample_key = overrides.pop("sample_key", None)
         adata = overrides.pop("adata", None)
         if adata is None:
-            datasets = overrides.pop("datasets", dataset_factory(num_cells=36))
-            replicate_names = overrides.pop("replicate_names", None)
-            adata = _model_adata(datasets, replicate_names)
+            adata = adata_factory(num_cells=36, sample_key=sample_key or "batch")
         return Popari(
             K=overrides.pop("K", 3),
             adata=adata,
+            sample_key=sample_key,
             lambda_Sigma_x_inv=overrides.pop("lambda_Sigma_x_inv", 1e-3),
             initialization_method=overrides.pop("initialization_method", "svd"),
             spatial_affinity_mode=overrides.pop("spatial_affinity_mode", "differential lookup"),
@@ -192,9 +210,9 @@ def tmp_h5_path(tmp_path):
 
 
 @pytest.fixture(scope="session")
-def trained_shared_model(shared_model_factory, dataset_factory, context):
+def trained_shared_model(shared_model_factory, adata_factory, context):
     model = shared_model_factory(
-        datasets=dataset_factory(num_cells=48),
+        adata=adata_factory(num_cells=48),
         torch_context=context,
         initial_context=context,
     )
@@ -205,8 +223,8 @@ def trained_shared_model(shared_model_factory, dataset_factory, context):
 
 
 @pytest.fixture(scope="session")
-def initialized_shared_model(shared_model_factory, dataset_factory):
-    return shared_model_factory(datasets=dataset_factory(num_cells=48))
+def initialized_shared_model(shared_model_factory, adata_factory):
+    return shared_model_factory(adata=adata_factory(num_cells=48))
 
 
 @pytest.fixture(scope="session")

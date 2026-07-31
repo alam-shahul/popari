@@ -9,8 +9,10 @@ from typing import Union
 import anndata as ad
 import torch
 
-from popari.io import convert_legacy_anndata, load_anndata, normalize_anndata_hierarchy
+from popari.io import load_anndata
+from popari.legacy_io import load_legacy_anndata
 from popari.model import load_pretrained
+from popari.schema import validate_anndata_hierarchy
 
 LEVEL_FILE_PATTERN = re.compile(r"^level_(\d+)\.h5ad$")
 
@@ -112,7 +114,7 @@ def read_popari_artifact(path: str | Path) -> ad.AnnData:
     if len(h5ad_files) > 1:
         raise ValueError(f"Expected one .h5ad file in {path}; found {len(h5ad_files)}.")
 
-    return convert_legacy_anndata(ad.read_zarr(path), copy=False)
+    return load_legacy_anndata(path)
 
 
 def _h5ad_files_from_artifact_path(path: str | Path) -> list[Path]:
@@ -156,7 +158,8 @@ def read_popari_anndata_hierarchy(paths: str | Path | list[str | Path]) -> dict[
 
     files_by_level = level_files or {0: flat_files[0]}
     hierarchy = {level: load_anndata(h5ad_file) for level, h5ad_file in sorted(files_by_level.items())}
-    return normalize_anndata_hierarchy(hierarchy)
+    validate_anndata_hierarchy(hierarchy)
+    return hierarchy
 
 
 def load_popari_anndata_from_wandb(

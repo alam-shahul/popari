@@ -5,9 +5,8 @@ import pickle
 import sys
 import time
 from collections import defaultdict
-from typing import Optional, Sequence
+from typing import Optional
 
-import anndata as ad
 import awkward as ak
 import matplotlib
 import matplotlib.patches as patches
@@ -17,7 +16,6 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 import torch
-from anndata import AnnData
 from kneed import KneeLocator
 from matplotlib import pyplot as plt
 from ortools.graph.python import min_cost_flow
@@ -57,40 +55,6 @@ def create_neighbor_groups(replicate_names, covariate_values, window_size=1):
         groups[group_name] = list(group_replicates)
 
     return groups
-
-
-def concatenate(datasets: Sequence[AnnData], join: str = "inner", batch_key: str = "batch"):
-    """Merge datasets in a way that is compatible with Popari.
-
-    Args:
-        datasets: list of AnnData.
-
-    """
-    dataset_names = [dataset.popari.name for dataset in datasets]
-    merged_dataset = ad.concat(
-        datasets,
-        label=batch_key,
-        join=join,
-        keys=dataset_names,
-        merge="unique",
-        uns_merge="unique",
-        pairwise=True,
-    )
-
-    return merged_dataset
-
-
-def unconcatenate(merged_dataset: ad.AnnData, batch_key: str = "batch"):
-    """Unmerge concatenated."""
-
-    indices = merged_dataset.obs.groupby(batch_key, observed=False).indices.values()
-    datasets = [merged_dataset[index].copy() for index in indices]
-
-    replicate_names = [dataset.obs[batch_key].unique()[0] for dataset in datasets]
-    for dataset, name in zip(datasets, replicate_names):
-        dataset.popari.name = name
-
-    return datasets
 
 
 def calc_modularity(adjacency_matrix, label, resolution=1):

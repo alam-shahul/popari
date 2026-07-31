@@ -1,11 +1,21 @@
+import inspect
+
 import pytest
 import torch
 import torch.nn as nn
 
-from popari.io import merge_anndata
-from popari.model import load_pretrained
+from popari.model import Popari, load_pretrained
 
 pytestmark = [pytest.mark.baseline, pytest.mark.cheap]
+
+
+def test_popari_constructor_exposes_only_unified_inputs():
+    parameters = inspect.signature(Popari).parameters
+
+    assert "adata" in parameters
+    assert "dataset_path" in parameters
+    assert "datasets" not in parameters
+    assert "replicate_names" not in parameters
 
 
 def test_popari_init(shared_mock_model, mock_datasets):
@@ -20,13 +30,11 @@ def test_popari_init(shared_mock_model, mock_datasets):
     assert shared_mock_model.embedding_optimizer is shared_mock_model.base_view.embedding_optimizer
 
 
-def test_popari_uses_configured_sample_key(shared_model_factory, dataset_factory):
-    adata = merge_anndata(
-        dataset_factory(replicate_names=["alpha", "beta"]),
+def test_popari_uses_configured_sample_key(shared_model_factory, adata_factory):
+    model = shared_model_factory(
+        adata=adata_factory(replicate_names=["alpha", "beta"], sample_key="library"),
         sample_key="library",
     )
-
-    model = shared_model_factory(adata=adata, sample_key="library")
 
     assert model.sample_key == "library"
     assert model.replicate_names == ["alpha", "beta"]
@@ -97,12 +105,12 @@ def test_load_pretrained_preserves_adjacency_parameters(shared_model_factory, co
     assert not adjacency_matrix.requires_grad
 
 
-def test_state_dict_reload_rejects_reordered_datasets(shared_model_factory, dataset_factory):
-    model = shared_model_factory(replicate_names=["alpha", "beta"])
+def test_state_dict_reload_rejects_reordered_datasets(shared_model_factory, adata_factory):
+    model = shared_model_factory(adata=adata_factory(replicate_names=["alpha", "beta"]))
     state_dict = model.state_dict()
 
-    reversed_datasets = list(reversed(dataset_factory(replicate_names=["alpha", "beta"])))
-    mismatched_model = shared_model_factory(datasets=reversed_datasets)
+    reversed_adata = adata_factory(replicate_names=["beta", "alpha"])
+    mismatched_model = shared_model_factory(adata=reversed_adata)
 
     with pytest.raises(RuntimeError, match="datasets"):
         mismatched_model.load_state_dict(state_dict)

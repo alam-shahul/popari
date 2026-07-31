@@ -1,5 +1,7 @@
 """AnnData schema and namespace for Popari results."""
 
+from collections.abc import Mapping
+
 import anndata as ad
 import numpy as np
 from scipy import sparse
@@ -103,6 +105,21 @@ class PopariNamespace:
         )
         _validate_spatial_graph(self._adata, sample_axis)
 
+    def validate(self, *, require_schema_version: bool = True) -> SampleAxis:
+        """Validate the canonical unified Popari AnnData schema."""
+
+        if require_schema_version:
+            version = self._adata.uns.get(SCHEMA_VERSION_KEY)
+            if version != SCHEMA_VERSION:
+                raise ValueError(
+                    f"Expected Popari schema version {SCHEMA_VERSION}; found {version!r}. "
+                    "Migrate this artifact before loading it.",
+                )
+
+        sample_axis = SampleAxis.from_anndata(self._adata, sample_key=self.sample_key)
+        _validate_spatial_graph(self._adata, sample_axis)
+        return sample_axis
+
     def _single_sample_name(self) -> str:
         if DEFAULT_SAMPLE_KEY in self._adata.obs:
             samples = self._adata.obs[DEFAULT_SAMPLE_KEY].dropna().astype(str).unique()
@@ -205,4 +222,40 @@ class PopariNamespace:
         return np.asarray(spatial_affinities[comparison]) - np.asarray(spatial_affinities[reference])
 
 
-__all__ = [PopariNamespace.__name__]
+def validate_anndata_hierarchy(hierarchy: Mapping[int, ad.AnnData]) -> None:
+    """Validate a canonical hierarchy containing one AnnData per level."""
+
+    if not hierarchy:
+        raise ValueError("hierarchy must contain at least level 0.")
+    levels = sorted(hierarchy)
+    if levels != list(range(len(levels))):
+        raise ValueError(f"Hierarchy levels must be contiguous from zero; found {levels}.")
+
+    base_axis = hierarchy[0].popari.validate()
+    for level in levels[1:]:
+        previous = hierarchy[level - 1]
+        current = hierarchy[level]
+        axis = current.popari.validate()
+        if current.popari.sample_key != hierarchy[0].popari.sample_key:
+            raise ValueError("All hierarchy levels must use the same sample key.")
+        if axis.names != base_axis.names:
+            raise ValueError(
+                f"Hierarchy level {level} has samples {axis.names}; expected {base_axis.names}.",
+            )
+
+        if BIN_ASSIGNMENTS_KEY not in current.obsm:
+            continue
+        assignments = current.obsm[BIN_ASSIGNMENTS_KEY]
+        expected_shape = (current.n_obs, previous.n_obs)
+        if assignments.shape != expected_shape:
+            raise ValueError(
+                f"Hierarchy level {level} bin assignments have shape {assignments.shape}; "
+                f"expected {expected_shape}.",
+            )
+        assignment = sparse.coo_array(assignments)
+        previous_axis = SampleAxis.from_anndata(previous, sample_key=previous.popari.sample_key)
+        if np.any(axis.codes[assignment.row] != previous_axis.codes[assignment.col]):
+            raise ValueError(f"Hierarchy level {level} bin assignments cross sample boundaries.")
+
+
+__all__ = [PopariNamespace.__name__, validate_anndata_hierarchy.__name__]

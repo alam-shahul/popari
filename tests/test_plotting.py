@@ -637,6 +637,7 @@ def test_in_situ_facets_selected_samples_with_total_figure_size():
 
 def test_in_situ_uses_shared_categorical_palette_and_spatial_edges():
     dataset = _multisample_spatial_dataset()
+    dataset.obs["domain"] = dataset.obs["domain"].astype(str)
 
     figure = pl.in_situ(
         dataset,
@@ -722,7 +723,10 @@ def test_embedding_category_and_umap_plots(clustered_shared_model):
     }
 
     in_situ_figure = pl.in_situ(model.adata, color="leiden")
-    umap_figure, _ = pl.umap(model.adata, color="cell_type")
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always", ad.ImplicitModificationWarning)
+        umap_figure, _ = pl.umap(model.adata, color="cell_type")
+    assert not any(isinstance(warning.message, ad.ImplicitModificationWarning) for warning in caught_warnings)
     confusion_figure, _ = pl.confusion_matrix(model.adata, labels="cell_type")
     categories_figure = pl.clusters_to_categories(model.adata, marker_genes)
     label_heatmap_figure, label_heatmap = pl.embedding_label_heatmap(

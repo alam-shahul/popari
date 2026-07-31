@@ -1,6 +1,5 @@
 import copy
 import logging
-import warnings
 from pathlib import Path
 from typing import Optional, Sequence, Union
 
@@ -12,15 +11,8 @@ from torch import nn
 from tqdm import trange
 
 from popari._hierarchical_view import HierarchicalView, Hierarchy
-from popari.io import (
-    convert_legacy_anndata,
-    load_anndata,
-    load_anndata_hierarchy,
-    merge_anndata,
-    save_anndata,
-    save_anndata_hierarchy,
-)
-from popari.schema import DEFAULT_SAMPLE_KEY
+from popari.io import load_anndata, load_anndata_hierarchy, save_anndata, save_anndata_hierarchy
+from popari.schema import SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
 
@@ -81,8 +73,6 @@ class Popari(nn.Module):
         K: int,
         adata: Optional[ad.AnnData] = None,
         sample_key: str | None = None,
-        replicate_names: Optional[Sequence[str]] = None,
-        datasets: Optional[Sequence[ad.AnnData]] = None,
         dataset_path: Optional[Union[str, Path]] = None,
         reloaded_hierarchy: Optional[dict] = None,
         lambda_Sigma_x_inv: float = 1e-4,
@@ -120,8 +110,8 @@ class Popari(nn.Module):
         self.use_inplace_ops = use_inplace_ops
         self.verbose = verbose
 
-        if sum(value is not None for value in (adata, datasets, dataset_path)) != 1:
-            raise ValueError("Specify exactly one of `adata`, `datasets`, or `dataset_path`.")
+        if (adata is None) == (dataset_path is None):
+            raise ValueError("Specify exactly one of `adata` or `dataset_path`.")
 
         if K <= 1:
             raise ValueError("`K` must be an integer value greater than 1.")
@@ -169,10 +159,8 @@ class Popari(nn.Module):
 
         if dataset_path is not None:
             self.load_dataset(dataset_path)
-        elif adata is not None:
-            self.load_anndata(adata)
         else:
-            self.load_anndata_datasets(datasets, replicate_names)
+            self.load_anndata(adata)
 
         self.replicate_names = list(self._adata.popari.sample_names)
         self.num_replicates = len(self.replicate_names)
@@ -245,37 +233,14 @@ class Popari(nn.Module):
     def spatial_affinity_tags(self):
         return self.base_view.spatial_affinity_tags
 
-    def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
-        """Compatibility adapter for legacy single-sample AnnData sequences.
-
-        Args:
-            datasets: spatial transcriptomics datasets in AnnData format (one for each FOV)
-            replicate_names: names for all datasets/replicates
-
-        """
-        warnings.warn(
-            "Passing datasets= is deprecated; pass one multisample AnnData with adata=.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        datasets = list(datasets)
-        if replicate_names is not None:
-            if len(replicate_names) != len(datasets):
-                raise ValueError("replicate_names must match the number of datasets.")
-            for dataset, replicate_name in zip(datasets, replicate_names):
-                dataset.popari.name = replicate_name
-        resolved_sample_key = self.sample_key or DEFAULT_SAMPLE_KEY
-        self._adata = merge_anndata(datasets, sample_key=resolved_sample_key)
-        self.sample_key = resolved_sample_key
-
     def load_anndata(self, adata: ad.AnnData):
         """Load one unified Popari AnnData."""
 
-        self._adata = convert_legacy_anndata(
-            adata,
-            sample_key=self.sample_key,
-            copy=True,
-        )
+        self._adata = adata.copy()
+        if self.sample_key is not None:
+            self._adata.uns[SAMPLE_KEY_KEY] = self.sample_key
+        self._adata.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+        self._adata.popari.validate()
         self.sample_key = self._adata.popari.sample_key
 
     def load_dataset(self, dataset_path: Union[str, Path]):
@@ -288,7 +253,7 @@ class Popari(nn.Module):
 
         dataset_path = Path(dataset_path)
 
-        self._adata = load_anndata(dataset_path, sample_key=self.sample_key)
+        self._adata = load_anndata(dataset_path)
         self.sample_key = self._adata.popari.sample_key
 
     def _initialize(
@@ -545,16 +510,15 @@ class Popari(nn.Module):
                 sample_key=self.sample_key,
             )
 
-    def _reload_expression(self, raw_adata: AnnData | Sequence[AnnData]):
+    def _reload_expression(self, raw_adata: AnnData):
         """Can be used to recover expression values for training model if saved
         with `ignore_raw_data=True`"""
         if not isinstance(raw_adata, AnnData):
-            raw_adata = merge_anndata(raw_adata, sample_key=self.sample_key)
-        raw_adata = convert_legacy_anndata(
-            raw_adata,
-            sample_key=self.sample_key,
-            copy=False,
-        )
+            raise TypeError("raw_adata must be one unified AnnData object.")
+        raw_adata = raw_adata.copy()
+        raw_adata.uns[SAMPLE_KEY_KEY] = self.sample_key
+        raw_adata.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+        raw_adata.popari.validate()
 
         high_resolution_view = self.hierarchy[0]
         if not raw_adata.obs_names.equals(high_resolution_view.adata.obs_names):

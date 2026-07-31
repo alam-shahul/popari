@@ -162,9 +162,14 @@ def in_situ(
     if default_size is not None:
         size *= default_size
 
-    categorical = isinstance(adata.obs[color].dtype, pd.CategoricalDtype)
+    color_values = adata.obs[color]
+    categorical = not pd.api.types.is_numeric_dtype(color_values.dtype)
     if categorical and palette is None:
-        categories = adata.obs[color].cat.categories
+        categories = (
+            color_values.cat.categories
+            if isinstance(color_values.dtype, pd.CategoricalDtype)
+            else pd.Index(color_values.dropna().unique())
+        )
         colors = np.asarray(sc.pl.palettes.godsnot_102)
         color_indices = np.linspace(0, len(colors) - 1, len(categories), dtype=int)
         palette = ListedColormap(colors[color_indices])
@@ -251,8 +256,9 @@ def umap(
     neighbors_key = kwargs.pop("neighbors_key", "neighbors")
 
     for sample, ax in zip(selected_samples, axes.flat):
+        sample_adata = adata[sample_axis.indices(sample)].copy()
         sc.pl.umap(
-            adata[sample_axis.indices(sample)],
+            sample_adata,
             size=size,
             neighbors_key=neighbors_key,
             color=color,
