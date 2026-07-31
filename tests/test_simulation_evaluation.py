@@ -195,7 +195,7 @@ def test_simulation_evaluation_rejects_mismatched_metagene_indices():
 def test_evaluate_ground_truth_returns_results_without_annotating(monkeypatch):
     dataset = simulation_dataset("replicate", [[1.0], [2.0]], [[1.0], [2.0]])
     dataset.obsm["X"] = np.array([[1.0], [2.0]])
-    dataset.uns["M"] = {"replicate": np.array([[1.0], [2.0]])}
+    dataset.uns["M"] = np.array([[1.0], [2.0]])
     monkeypatch.setattr(simulation_metrics, "all_pairs_spatial_wasserstein", lambda dataset: np.zeros((1, 1)))
 
     result = simulation_metrics.evaluate_ground_truth(dataset)

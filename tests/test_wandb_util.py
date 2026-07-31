@@ -5,6 +5,7 @@ import pytest
 import torch
 from scipy.sparse import csr_array
 
+from popari.io import save_anndata
 from popari.wandb_util import load_popari_model_from_wandb, read_popari_anndata_hierarchy
 
 
@@ -15,7 +16,7 @@ def _write_h5ad(path):
     dataset.obs["batch"] = pd.Categorical(["replicate", "replicate"])
     dataset.obsp["adjacency_matrix"] = csr_array(np.eye(2))
     dataset.popari.name = "replicate"
-    dataset.write_h5ad(path)
+    save_anndata(path, dataset)
     return dataset
 
 
@@ -66,9 +67,8 @@ def test_load_popari_model_from_wandb_uses_anndata_hierarchy(monkeypatch):
         lambda *args, **kwargs: hierarchy,
     )
 
-    def fake_load_pretrained(datasets, replicate_names, **kwargs):
-        captured["datasets"] = datasets
-        captured["replicate_names"] = replicate_names
+    def fake_load_pretrained(adata, **kwargs):
+        captured["adata"] = adata
         captured["kwargs"] = kwargs
         return "model"
 
@@ -77,10 +77,9 @@ def test_load_popari_model_from_wandb_uses_anndata_hierarchy(monkeypatch):
     model = load_popari_model_from_wandb("run-id")
 
     assert model == "model"
-    assert len(captured["datasets"]) == 1
-    assert captured["datasets"][0].popari.name == "replicate"
-    assert captured["replicate_names"] == ["replicate"]
+    assert captured["adata"] is dataset
+    assert captured["adata"].popari.sample_names == ("replicate",)
     assert tuple(captured["kwargs"]["reloaded_hierarchy"]) == (0,)
-    assert len(captured["kwargs"]["reloaded_hierarchy"][0]) == 1
+    assert captured["kwargs"]["reloaded_hierarchy"][0] is dataset
     assert captured["kwargs"]["hierarchical_levels"] == 1
     assert captured["kwargs"]["context"] == {"device": "cpu", "dtype": torch.float64}

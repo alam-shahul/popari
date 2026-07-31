@@ -106,8 +106,7 @@ def initialize_ground_truth(
 
     rng = np.random.default_rng(random_state)
     if "ground_truth_X" in adata.obsm and "ground_truth_M" in adata.uns:
-        first_sample = sample_axis.names[0]
-        metagenes = np.asarray(adata.uns["ground_truth_M"][first_sample])
+        metagenes = np.asarray(adata.uns["ground_truth_M"])
         embeddings = np.asarray(adata.obsm["ground_truth_X"]).copy()
         if metagenes.shape[1] != K:
             raise ValueError(

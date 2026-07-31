@@ -8,33 +8,12 @@ import anndata as ad
 import numpy as np
 from scipy.stats import pearsonr
 
-from popari._datasets import as_datasets
-from popari.util import spatially_smooth_feature
-
-
-def find_differential_genes(
-    data: ad.AnnData | Sequence[ad.AnnData],
-    top_gene_limit: int = 1,
-):
-    """Return genes with the largest replicate-to-group metagene deviations."""
-
-    datasets = as_datasets(data)
-    genes_of_interest = set()
-    for dataset in datasets:
-        if "M_bar" not in dataset.uns:
-            raise ValueError("The datasets were not trained in differential metagene mode.")
-
-        metagene_tags = dataset.uns["popari_hyperparameters"]["metagene_tags"]
-        for group_name in metagene_tags[dataset.popari.name]:
-            difference = dataset.uns["M"][dataset.popari.name] - dataset.uns["M_bar"][group_name]
-            top_indices = np.argpartition(np.abs(difference), -top_gene_limit, axis=0)[-top_gene_limit:]
-            genes_of_interest.update(dataset.var_names[top_indices.ravel()])
-
-    return genes_of_interest
+from popari._sample_axis import SampleAxis
+from popari.util import smooth_labels
 
 
 def normalized_affinity_trends(
-    data: ad.AnnData | Sequence[ad.AnnData],
+    dataset: ad.AnnData,
     timepoint_values: Sequence[float],
     *,
     normalize: bool = False,
@@ -44,13 +23,16 @@ def normalized_affinity_trends(
 ):
     """Compute temporal summaries for every lower-triangular affinity entry."""
 
-    datasets = as_datasets(data)
+    sample_axis = SampleAxis.from_anndata(
+        dataset,
+        sample_key=dataset.popari.sample_key,
+    )
     timepoint_values = np.asarray(timepoint_values, dtype=float)
-    if len(timepoint_values) != len(datasets):
-        raise ValueError("timepoint_values must contain one value per dataset.")
+    if len(timepoint_values) != len(sample_axis):
+        raise ValueError("timepoint_values must contain one value per sample.")
 
     affinities = np.asarray(
-        [dataset.uns[spatial_affinity_key][dataset.popari.name] for dataset in datasets],
+        [dataset.uns[spatial_affinity_key][sample] for sample in sample_axis.names],
     )
     if normalize:
         affinity_std = affinities.std(axis=0, keepdims=True)
@@ -85,14 +67,13 @@ def normalized_affinity_trends(
         "variances": variances,
         "slopes": slopes,
     }
-    for dataset in datasets:
-        dataset.uns["spatial_trends"] = spatial_trends
+    dataset.uns["spatial_trends"] = spatial_trends
 
     return top_pairs, pearson_correlations, variances
 
 
 def propagate_labels(
-    hierarchy: Mapping[int, Sequence[ad.AnnData]],
+    hierarchy: Mapping[int, ad.AnnData],
     label_key: str,
     *,
     starting_level: int | None = None,
@@ -105,18 +86,18 @@ def propagate_labels(
         starting_level = max(hierarchy)
 
     for level in range(starting_level, 0, -1):
-        datasets = hierarchy[level]
-        finer_datasets = hierarchy[level - 1]
-        for dataset, finer_dataset in zip(datasets, finer_datasets):
-            bin_assignments = dataset.obsm[f"bin_assignments_{dataset.popari.name}"]
-            assignment_index = np.asarray(bin_assignments.argmax(axis=0)).squeeze()
-            propagated_labels = dataset.obs[label_key].values[assignment_index]
-            if smooth:
-                propagated_labels = spatially_smooth_feature(
-                    propagated_labels,
-                    finer_dataset.obsm["adjacency_list"],
-                    max_smoothing_rounds=200,
-                    smoothing_threshold=0.3,
-                )
-            finer_dataset.obs[label_key] = propagated_labels
-            finer_dataset.obs[label_key] = finer_dataset.obs[label_key].astype("category")
+        dataset = hierarchy[level]
+        finer_dataset = hierarchy[level - 1]
+        bin_assignments = dataset.obsm["bin_assignments"]
+        assignment_index = np.asarray(bin_assignments.argmax(axis=0)).squeeze()
+        propagated_labels = dataset.obs[label_key].values[assignment_index]
+        finer_dataset.obs[label_key] = propagated_labels
+        finer_dataset.obs[label_key] = finer_dataset.obs[label_key].astype("category")
+        if smooth:
+            smooth_labels(
+                finer_dataset,
+                label_key=label_key,
+                output_key=label_key,
+                max_smoothing_rounds=200,
+                smoothing_threshold=0.3,
+            )

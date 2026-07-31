@@ -20,7 +20,7 @@ def test_repair_inspire_artifact_restores_names_and_ground_truth(tmp_path):
     )
     source.uns["ground_truth_M"] = {
         "progenitor": np.array([[1.0], [2.0]]),
-        "layer": np.array([[3.0], [4.0]]),
+        "layer": np.array([[1.0], [2.0]]),
     }
     source.write_h5ad(source_path)
 
@@ -39,8 +39,8 @@ def test_repair_inspire_artifact_restores_names_and_ground_truth(tmp_path):
 
     assert mapping == {"0": "layer", "1": "progenitor"}
     assert repaired.obs["batch"].astype(str).tolist() == ["layer", "layer", "progenitor", "progenitor"]
-    assert set(repaired.uns["ground_truth_M"]) == {"layer", "progenitor"}
-    np.testing.assert_allclose(repaired.uns["ground_truth_M"]["layer"], [[3.0], [4.0]])
+    np.testing.assert_allclose(repaired.uns["ground_truth_M"], [[1.0], [2.0]])
+    np.testing.assert_allclose(repaired.uns["M"], [[5.0], [6.0]])
     assert ad.read_h5ad(artifact_path).obs["batch"].astype(str).tolist() == ["0", "0", "1", "1"]
 
 

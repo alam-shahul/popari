@@ -1,6 +1,6 @@
-from collections import defaultdict
-
+import anndata as ad
 import numpy as np
+import pandas as pd
 import torch
 from anndata import AnnData
 from scipy.sparse import csr_array
@@ -18,10 +18,9 @@ from popari.initialization import (
     initialize_leiden,
     initialize_svd,
 )
-from popari.io import merge_anndata
 from popari.preprocessing import compute_spatial_neighbors
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
-from popari.schema import BIN_ASSIGNMENTS_KEY
+from popari.schema import BIN_ASSIGNMENTS_KEY, DATASET_NAME_KEY, SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
 from popari.util import convert_adjacency_matrix_to_awkward_array, convert_numpy_to_pytorch_sparse_coo, get_datetime
 
 
@@ -47,7 +46,6 @@ class HierarchicalView(nn.Module):
         use_inplace_ops: bool,
         pretrained: bool,
         verbose: str,
-        metagene_groups: dict,
         spatial_affinity_groups: dict,
         parameter_optimizer_hyperparameters: dict,
         embedding_optimizer_hyperparameters: dict,
@@ -61,6 +59,7 @@ class HierarchicalView(nn.Module):
         self.adata = adata
         self.sample_key = sample_key
         self.sample_axis = SampleAxis.from_anndata(adata, sample_key=sample_key)
+        adata.popari.validate_spatial_graph()
         self.replicate_names = list(self.sample_axis.names)
         self.K = K
         self.level = level
@@ -102,24 +101,15 @@ class HierarchicalView(nn.Module):
 
             return groups, tags
 
-        if metagene_groups == "disjoint":
-            metagene_groups = {replicate_name: [replicate_name] for replicate_name in self.replicate_names}
-
         if spatial_affinity_groups == "disjoint":
             spatial_affinity_groups = {replicate_name: [replicate_name] for replicate_name in self.replicate_names}
 
-        self.metagene_groups, self.metagene_tags = fill_groups(
-            metagene_groups,
-            are_exclusive=(parameter_optimizer_hyperparameters["metagene_mode"] == "shared"),
-        )
         self.spatial_affinity_groups, self.spatial_affinity_tags = fill_groups(
             spatial_affinity_groups,
             are_exclusive=(parameter_optimizer_hyperparameters["spatial_affinity_mode"] == "shared lookup"),
         )
 
         parameter_optimizer_hyperparameters = parameter_optimizer_hyperparameters.copy()
-        parameter_optimizer_hyperparameters["metagene_groups"] = self.metagene_groups
-        parameter_optimizer_hyperparameters["metagene_tags"] = self.metagene_tags
         parameter_optimizer_hyperparameters["spatial_affinity_groups"] = self.spatial_affinity_groups
         parameter_optimizer_hyperparameters["spatial_affinity_tags"] = self.spatial_affinity_tags
 
@@ -183,10 +173,11 @@ class HierarchicalView(nn.Module):
             self.embedding_optimizer.embedding_state.embedding.copy_(
                 torch.from_numpy(self.adata.obsm["X"]).to(**self.context),
             )
+            with torch.no_grad():
+                self.parameter_optimizer.metagenes.copy_(
+                    torch.from_numpy(self.adata.uns["M"]).to(**self.context),
+                )
             for dataset_index, sample in enumerate(self.replicate_names):
-                self.parameter_optimizer.metagene_state[sample] = torch.from_numpy(
-                    self.adata.uns["M"][sample],
-                ).to(**self.initial_context)
                 self.parameter_optimizer.spatial_affinity[sample] = torch.from_numpy(
                     self.adata.uns["Sigma_x_inv"][sample],
                 ).to(**self.initial_context)
@@ -251,8 +242,8 @@ class HierarchicalView(nn.Module):
             else:
                 raise NotImplementedError
 
-            for sample in self.replicate_names:
-                self.parameter_optimizer.metagene_state[sample] = self.M
+            with torch.no_grad():
+                self.parameter_optimizer.metagenes.copy_(self.M.to(**self.context))
             self.embedding_optimizer.embedding_state.embedding.copy_(self.X.to(**self.context))
 
             self.parameter_optimizer.scale_metagenes()
@@ -271,10 +262,7 @@ class HierarchicalView(nn.Module):
                 self.parameter_optimizer.spatial_affinity_bar,
             )
 
-            self.adata.uns["M"] = {
-                sample: self.parameter_optimizer.metagene_state[sample].cpu().detach().numpy()
-                for sample in self.replicate_names
-            }
+            self.adata.uns["M"] = self.parameter_optimizer.metagenes.cpu().detach().numpy()
             self.adata.obsm["X"] = self.embedding_optimizer.embedding_state.embedding.cpu().detach().numpy()
             self.adata.uns["Sigma_x_inv"] = {
                 sample: self.parameter_optimizer.spatial_affinity[sample].cpu().detach().numpy()
@@ -293,13 +281,6 @@ class HierarchicalView(nn.Module):
                 **embedding_optimizer_hyperparameters,
             }
 
-            if self.parameter_optimizer.metagene_mode == "differential":
-                M_bar = {
-                    group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy()
-                    for group_name in self.parameter_optimizer.metagene_groups
-                }
-                self.adata.uns["M_bar"] = M_bar
-
             if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
                 spatial_affinity_bar = {
                     group_name: self.parameter_optimizer.spatial_affinity_bar[group_name].cpu().detach().numpy()
@@ -308,15 +289,8 @@ class HierarchicalView(nn.Module):
                 self.adata.uns["spatial_affinity_bar"] = spatial_affinity_bar
 
         self.superresolution_optimizers = {}
-        if "losses" not in self.adata.uns:
-            self.adata.uns["losses"] = defaultdict(list)
-        else:
-            self.adata.uns["losses"] = defaultdict(list, self.adata.uns["losses"])
-            for key in self.adata.uns["losses"]:
-                self.adata.uns["losses"][key] = list(self.adata.uns["losses"][key])
+        self.adata.uns["losses"] = {key: list(values) for key, values in self.adata.uns.get("losses", {}).items()}
 
-        if self.parameter_optimizer.metagene_mode == "differential":
-            self.parameter_optimizer.metagene_state.reaverage()
         if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
             self.parameter_optimizer.spatial_affinity.reaverage(self.parameter_optimizer.spatial_affinity_bar)
 
@@ -349,8 +323,8 @@ class HierarchicalView(nn.Module):
     def _propagate_parameters(self):
         """Use parameters from low-resolution to initialize higher-
         resolution."""
-        low_res_metagenes = self.low_res_view.parameter_optimizer.metagene_state.metagenes
-        self.parameter_optimizer.metagene_state.copy_from_tensor(low_res_metagenes)
+        with torch.no_grad():
+            self.parameter_optimizer.metagenes.copy_(self.low_res_view.parameter_optimizer.metagenes)
 
         self.synchronize_datasets()
 
@@ -382,7 +356,7 @@ class HierarchicalView(nn.Module):
             X_B = self.low_res_view.embedding_optimizer.embedding_state[sample].cpu().detach().numpy()
             B = global_assignments[self.low_res_view.sample_axis.indices(sample)][:, self.sample_axis.indices(sample)]
 
-            M = self.parameter_optimizer.metagene_state[sample].to(self.context["device"])
+            M = self.parameter_optimizer.metagenes.to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
 
@@ -485,18 +459,15 @@ class HierarchicalView(nn.Module):
         self.embedding_optimizer.embedding_state.embedding.copy_(
             torch.from_numpy(self.adata.obsm["X"]).to(**self.context),
         )
+        with torch.no_grad():
+            self.parameter_optimizer.metagenes.copy_(
+                torch.from_numpy(self.adata.uns["M"]).to(**self.context),
+            )
         for sample in self.replicate_names:
-            self.parameter_optimizer.metagene_state[sample] = torch.from_numpy(
-                self.adata.uns["M"][sample],
-            ).to(**self.initial_context)
-
             with torch.no_grad():
                 self.parameter_optimizer.spatial_affinity[sample] = torch.from_numpy(
                     self.adata.uns["Sigma_x_inv"][sample],
                 ).to(**self.initial_context)
-
-        if self.parameter_optimizer.metagene_mode == "differential":
-            self.parameter_optimizer.metagene_state.reaverage()
 
         if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
             self.parameter_optimizer.spatial_affinity.reaverage(self.parameter_optimizer.spatial_affinity_bar)
@@ -506,10 +477,7 @@ class HierarchicalView(nn.Module):
     def synchronize_datasets(self):
         """Synchronize learned state into the unified level AnnData."""
 
-        self.adata.uns["M"] = {
-            sample: self.parameter_optimizer.metagene_state[sample].cpu().detach().numpy()
-            for sample in self.replicate_names
-        }
+        self.adata.uns["M"] = self.parameter_optimizer.metagenes.cpu().detach().numpy()
         self.adata.obsm["X"] = self.embedding_optimizer.embedding_state.embedding.cpu().detach().numpy()
         self.adata.uns["sigma_yx"] = {
             sample: self.parameter_optimizer.sigma_yxs[index].item()
@@ -519,13 +487,6 @@ class HierarchicalView(nn.Module):
             sample: self.parameter_optimizer.spatial_affinity[sample].cpu().detach().numpy()
             for sample in self.replicate_names
         }
-
-        if self.parameter_optimizer.metagene_mode == "differential":
-            M_bar = {
-                group_name: self.parameter_optimizer.metagene_state.M_bar[group_name].cpu().detach().numpy()
-                for group_name in self.parameter_optimizer.metagene_groups
-            }
-            self.adata.uns["M_bar"] = M_bar
 
         if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
             spatial_affinity_bar = {
@@ -538,13 +499,11 @@ class HierarchicalView(nn.Module):
             for dataset, sample in zip(self._legacy_datasets, self.replicate_names):
                 indices = self.sample_axis.indices(sample)
                 dataset.obsm["X"] = self.adata.obsm["X"][indices].copy()
-                dataset.uns["M"] = {sample: self.adata.uns["M"][sample]}
+                dataset.uns["M"] = self.adata.uns["M"]
                 dataset.uns["Sigma_x_inv"] = {
                     sample: self.adata.uns["Sigma_x_inv"][sample],
                 }
                 dataset.uns["sigma_yx"] = self.adata.uns["sigma_yx"][sample]
-                if "M_bar" in self.adata.uns:
-                    dataset.uns["M_bar"] = self.adata.uns["M_bar"]
                 if "spatial_affinity_bar" in self.adata.uns:
                     dataset.uns["spatial_affinity_bar"] = self.adata.uns["spatial_affinity_bar"]
 
@@ -563,7 +522,7 @@ class HierarchicalView(nn.Module):
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
             X = self.embedding_optimizer.embedding_state[sample].to(self.context["device"])
-            M = self.parameter_optimizer.metagene_state[sample].to(self.context["device"])
+            M = self.parameter_optimizer.metagenes.to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
 
@@ -637,37 +596,6 @@ class HierarchicalView(nn.Module):
 
             loss += log_partition_function
 
-            differential_regularization_term = torch.zeros((), **self.context)
-            M_bar = None
-            if self.parameter_optimizer.metagene_mode == "differential":
-                M_bar = [
-                    self.parameter_optimizer.metagene_state.M_bar[group_name]
-                    for group_name in self.parameter_optimizer.metagene_tags[sample]
-                ]
-
-            if self.parameter_optimizer.lambda_M > 0 and M_bar is not None:
-                differential_regularization_quadratic_factor = self.parameter_optimizer.lambda_M * torch.eye(
-                    self.K,
-                    **self.context,
-                )
-
-                differential_regularization_linear_term = torch.zeros_like(M, **self.context)
-                group_weighting = 1 / len(M_bar)
-                for group_M_bar in M_bar:
-                    differential_regularization_linear_term += (
-                        group_weighting * self.parameter_optimizer.lambda_M * group_M_bar
-                    )
-
-                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (
-                    differential_regularization_linear_term * M
-                ).sum()
-                group_weighting = 1 / len(M_bar)
-                for group_M_bar in M_bar:
-                    differential_regularization_term += (
-                        group_weighting * self.parameter_optimizer.lambda_M * (group_M_bar * group_M_bar).sum()
-                    )
-
-            loss += differential_regularization_term
             total_loss += loss
 
         return total_loss
@@ -711,6 +639,7 @@ class Hierarchy:
             print(f"{get_datetime()} Initializing hierarchy level {level}")
             binned_datasets = []
             binned_Ys = []
+            local_assignments = []
             previous_Ys = previous_view.Ys
 
             effective_kwargs = kwargs.copy()
@@ -724,25 +653,58 @@ class Hierarchy:
                     **effective_kwargs,
                 )
                 binned_dataset.popari.name = sample
-                compute_spatial_neighbors(binned_dataset)
+                binned_dataset.obs[previous_view.sample_key] = sample
+                binned_dataset.obs_names = [f"{sample}_level_{level}_{index}" for index in range(binned_dataset.n_obs)]
 
                 print(
                     f"{get_datetime()} Downsized dataset from {len(previous_dataset)} to {len(binned_dataset)} spots.",
                 )
 
                 binned_datasets.append(binned_dataset)
+                assignments = csr_array(binned_dataset.obsm.pop(bin_assignments_key))
+                local_assignments.append(assignments)
                 bin_assignments = convert_numpy_to_pytorch_sparse_coo(
-                    csr_array(binned_dataset.obsm[bin_assignments_key]).tocoo(),
+                    assignments.tocoo(),
                     context=context,
                 )
 
                 binned_Y = bin_assignments @ previous_Y
                 binned_Ys.append(binned_Y)
 
-            binned_adata = merge_anndata(
+            binned_adata = ad.concat(
                 binned_datasets,
-                sample_key=previous_view.sample_key,
+                join="inner",
+                merge="same",
+                uns_merge="same",
             )
+            binned_adata.obs[previous_view.sample_key] = pd.Categorical(
+                binned_adata.obs[previous_view.sample_key].astype(str),
+                categories=previous_view.replicate_names,
+                ordered=True,
+            )
+            binned_adata.uns[DATASET_NAME_KEY] = "multisample"
+            binned_adata.uns[SAMPLE_KEY_KEY] = previous_view.sample_key
+            binned_adata.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+
+            row_parts = []
+            column_parts = []
+            data_parts = []
+            row_offset = 0
+            for sample, assignments in zip(previous_view.replicate_names, local_assignments, strict=True):
+                local = assignments.tocoo()
+                fine_indices = previous_view.sample_axis.indices(sample)
+                row_parts.append(row_offset + local.row)
+                column_parts.append(fine_indices[local.col])
+                data_parts.append(local.data)
+                row_offset += assignments.shape[0]
+            binned_adata.obsm[BIN_ASSIGNMENTS_KEY] = csr_array(
+                (
+                    np.concatenate(data_parts),
+                    (np.concatenate(row_parts), np.concatenate(column_parts)),
+                ),
+                shape=(binned_adata.n_obs, previous_view.adata.n_obs),
+            )
+            compute_spatial_neighbors(binned_adata, sample_key=previous_view.sample_key)
             level_view = HierarchicalView(
                 binned_adata,
                 level=level,

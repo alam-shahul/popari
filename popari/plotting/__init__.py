@@ -32,12 +32,7 @@ from popari.plotting.spatial import (
     metagene_embedding,
     umap,
 )
-from popari.plotting.trends import (
-    affinity_magnitude_vs_difference,
-    gene_activations,
-    gene_trajectories,
-    normalized_affinity_trends,
-)
+from popari.plotting.trends import affinity_magnitude_vs_difference, normalized_affinity_trends
 from popari.plotting.utils import setup_squarish_axes
 
 __all__ = [
@@ -68,8 +63,6 @@ __all__ = [
     metagene_embedding.__name__,
     umap.__name__,
     affinity_magnitude_vs_difference.__name__,
-    gene_activations.__name__,
-    gene_trajectories.__name__,
     normalized_affinity_trends.__name__,
     setup_squarish_axes.__name__,
 ]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import anndata as ad
 import networkx as nx
@@ -14,58 +14,63 @@ from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
-from popari._datasets import as_datasets, broadcast, enable_joint
+from popari._sample_axis import SampleAxis
+from popari.schema import _validate_spatial_graph
 from popari.util import compute_neighborhood_enrichment
 
 
 def compute_empirical_correlations(
-    datasets: ad.AnnData | Sequence[ad.AnnData],
+    dataset: ad.AnnData,
     scaling: float = 10,
     feature: str = "X",
     output: str = "empirical_correlation",
+    *,
+    neighbor_key: str = "adjacency_matrix",
 ) -> None:
-    """Compute the empirical spatial correlation for a feature set across all
-    datasets.
+    """Compute one empirical spatial-correlation matrix per sample.
 
     Args:
-        datasets: list of datasets to process
+        dataset: Unified multisample AnnData.
         feature: key in `.obsm` of feature set for which spatial correlation should be computed.
         output: key in `.uns` where output correlation matrices should be stored.
 
     """
 
-    datasets = as_datasets(datasets)
-    num_replicates = len(datasets)
-
-    first_dataset = datasets[0]
-    _, K = first_dataset.obsm[feature].shape
-    empirical_correlations = np.zeros([num_replicates, K, K])
-    for replicate, dataset in enumerate(datasets):
-        adjacency_list = dataset.obsm["adjacency_list"]
-        X = dataset.obsm[feature]
-        Z = X / np.linalg.norm(X, axis=1, keepdims=True, ord=1)
-        edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
-
-        x = Z[edges[:, 0]]
-        y = Z[edges[:, 1]]
-        x = x - x.mean(axis=0, keepdims=True)
-        y = y - y.mean(axis=0, keepdims=True)
-        y_std = y.std(axis=0, keepdims=True)
-        x_std = x.std(axis=0, keepdims=True)
-        corr = (y / y_std).T @ (x / x_std) / len(x)
-        empirical_correlations[replicate] = -corr
-
-    # Convert nan values to 0
-    empirical_correlations = np.nan_to_num(empirical_correlations)
-
-    # Symmetrizing and zero-centering empirical_correlation
-    empirical_correlations = (empirical_correlations + np.transpose(empirical_correlations, (0, 2, 1))) / 2
-    empirical_correlations -= empirical_correlations.mean(axis=(1, 2), keepdims=True)
-    empirical_correlations *= scaling
-
-    for dataset, empirical_correlation in zip(datasets, empirical_correlations):
-        all_correlations = {dataset.popari.name: empirical_correlation}
-        dataset.uns[output] = all_correlations
+    sample_axis = SampleAxis.from_anndata(
+        dataset,
+        sample_key=dataset.popari.sample_key,
+    )
+    _validate_spatial_graph(dataset, sample_axis, adjacency_key=neighbor_key)
+    embeddings = np.asarray(dataset.obsm[feature])
+    num_factors = embeddings.shape[1]
+    correlations = {}
+    for sample in sample_axis.names:
+        indices = sample_axis.indices(sample)
+        sample_embeddings = embeddings[indices]
+        norms = np.linalg.norm(sample_embeddings, axis=1, keepdims=True, ord=1)
+        normalized = np.divide(
+            sample_embeddings,
+            norms,
+            out=np.zeros_like(sample_embeddings, dtype=float),
+            where=norms != 0,
+        )
+        adjacency = dataset.obsp[neighbor_key][indices][:, indices]
+        source, target = adjacency.nonzero()
+        if len(source) == 0:
+            correlation = np.zeros((num_factors, num_factors))
+        else:
+            x = normalized[source]
+            y = normalized[target]
+            x = x - x.mean(axis=0, keepdims=True)
+            y = y - y.mean(axis=0, keepdims=True)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                correlation = -(y / y.std(axis=0, keepdims=True)).T @ (x / x.std(axis=0, keepdims=True)) / len(x)
+            correlation = np.nan_to_num(correlation)
+            correlation = (correlation + correlation.T) / 2
+            correlation -= correlation.mean()
+            correlation *= scaling
+        correlations[sample] = correlation
+    dataset.uns[output] = correlations
 
 
 def adjacency_permutation_test(
@@ -84,29 +89,37 @@ def adjacency_permutation_test(
     """
 
     rng = np.random.default_rng(seed=random_state)
-    original_labels = dataset.obsm[labels]
-    adjacency_matrix = dataset.obsp["adjacency_matrix"]
-    _, K = original_labels.shape
+    sample_axis = SampleAxis.from_anndata(
+        dataset,
+        sample_key=dataset.popari.sample_key,
+    )
+    dataset.popari.validate_spatial_graph()
+    all_labels = np.asarray(dataset.obsm[labels])
+    adjacency_pvalues = {}
+    avoidance_pvalues = {}
+    for sample in sample_axis.names:
+        indices = sample_axis.indices(sample)
+        original_labels = all_labels[indices]
+        adjacency_matrix = dataset.obsp["adjacency_matrix"][indices][:, indices]
+        _, num_factors = original_labels.shape
+        original_enrichment = compute_neighborhood_enrichment(original_labels, adjacency_matrix)
+        neighborhood_enrichments = np.zeros((n_trials, num_factors, num_factors), dtype=np.float64)
+        for trial in range(n_trials):
+            permuted_labels = rng.permutation(original_labels)
+            neighborhood_enrichments[trial] = compute_neighborhood_enrichment(
+                permuted_labels,
+                adjacency_matrix,
+            )
 
-    original_enrichment = compute_neighborhood_enrichment(original_labels, adjacency_matrix)
+        adjacency = (neighborhood_enrichments > original_enrichment[np.newaxis, :]).sum(axis=0)
+        avoidance = (neighborhood_enrichments < original_enrichment[np.newaxis, :]).sum(axis=0)
+        adjacency_pvalues[sample] = (n_trials - adjacency + 1) / (n_trials + 1)
+        avoidance_pvalues[sample] = (n_trials - avoidance + 1) / (n_trials + 1)
 
-    neighborhood_enrichments = np.zeros((n_trials, K, K), dtype=np.float64)
-    for trial in range(n_trials):
-        permuted_labels = rng.permutation(original_labels)
-        neighborhood_enrichments[trial] = compute_neighborhood_enrichment(permuted_labels, adjacency_matrix)
-
-    adjacency = (neighborhood_enrichments > original_enrichment[np.newaxis, :]).sum(axis=0)
-    avoidance = (neighborhood_enrichments < original_enrichment[np.newaxis, :]).sum(axis=0)
-
-    p_adjacency = (n_trials - adjacency + 1) / (n_trials + 1)
-    p_avoidance = (n_trials - avoidance + 1) / (n_trials + 1)
-
-    dataset.uns[f"adjacency_{pvalue_key}"] = p_adjacency
-    dataset.uns[f"avoidance_{pvalue_key}"] = p_avoidance
+    dataset.uns[f"adjacency_{pvalue_key}"] = adjacency_pvalues
+    dataset.uns[f"avoidance_{pvalue_key}"] = avoidance_pvalues
 
 
-@enable_joint(annotations={"uns": ["ari"]})
-@broadcast
 def compute_ari_scores(dataset: ad.AnnData, labels: str, predictions: str, ari_key: str = "ari"):
     r"""Compute adjusted Rand index (ARI) score  between a set of ground truth
     labels and an unsupervised clustering.
@@ -125,8 +138,6 @@ def compute_ari_scores(dataset: ad.AnnData, labels: str, predictions: str, ari_k
     dataset.uns[ari_key] = ari
 
 
-@enable_joint(annotations={"uns": ["silhouette"]})
-@broadcast
 def compute_silhouette_scores(dataset: ad.AnnData, labels: str, embeddings: str, silhouette_key: str = "silhouette"):
     r"""Compute silhouette score for a clustering based on Popari embeddings.
 
@@ -144,17 +155,6 @@ def compute_silhouette_scores(dataset: ad.AnnData, labels: str, embeddings: str,
     dataset.uns[silhouette_key] = silhouette
 
 
-@enable_joint(
-    annotations={
-        "uns": [
-            "microprecision_train",
-            "macroprecision_train",
-            "microprecision_validation",
-            "macroprecision_validation",
-        ],
-    },
-)
-@broadcast
 def evaluate_classification_task(dataset: ad.AnnData, embeddings: str, labels: str) -> None:
     """"""
 
@@ -172,7 +172,6 @@ def evaluate_classification_task(dataset: ad.AnnData, embeddings: str, labels: s
     model = KNeighborsClassifier(n_neighbors=10)
     model.fit(X_train, y_train)
 
-    df = []
     for split, X, y in [("train", X_train, y_train), ("validation", X_valid, y_valid)]:
         y_soft = model.predict_proba(X)
         y_hat = np.argmax(y_soft, 1)
@@ -180,8 +179,6 @@ def evaluate_classification_task(dataset: ad.AnnData, embeddings: str, labels: s
         dataset.uns[f"macroprecision_{split}"] = precision_score(y, y_hat, average="macro")
 
 
-@enable_joint(annotations={"obs": None, "uns": ["confusion_matrix"]})
-@broadcast
 def compute_confusion_matrix(
     dataset: ad.AnnData,
     labels: str,
@@ -254,8 +251,6 @@ def get_optimal_permutation(confusion_output):
     return perm, index
 
 
-@enable_joint(annotations={"uns": ["ground_truth_M_correlation"]})
-@broadcast
 def compute_columnwise_autocorrelation(
     dataset: ad.AnnData,
     uns: str = "ground_truth_M",
@@ -263,15 +258,11 @@ def compute_columnwise_autocorrelation(
 ):
     """"""
 
-    matrix = dataset.uns[uns][f"{dataset.popari.name}"].T
-
+    matrix = np.asarray(dataset.uns[uns]).T
     num_columns, _ = matrix.shape
-    correlation_coefficient_matrix = np.corrcoef(matrix, matrix)[:num_columns, :num_columns]
-    dataset.uns[result_key] = correlation_coefficient_matrix
+    dataset.uns[result_key] = np.corrcoef(matrix, matrix)[:num_columns, :num_columns]
 
 
-@enable_joint(annotations={"uns": ["spatial_gene_correlation", "neighbor_interactions"]})
-@broadcast
 def compute_spatial_gene_correlation(
     dataset: ad.AnnData,
     spatial_key: str = "Sigma_x_inv",
@@ -281,13 +272,16 @@ def compute_spatial_gene_correlation(
 ):
     """Computes spatial gene correlation according to learned metagenes."""
 
-    spatial_affinity_matrix = dataset.uns[spatial_key][f"{dataset.popari.name}"]
-    metagenes = dataset.uns[metagene_key][f"{dataset.popari.name}"]
+    spatial_gene_correlations = {}
+    neighbor_interactions = {}
+    metagenes = np.asarray(dataset.uns[metagene_key])
+    for sample in dataset.popari.sample_names:
+        spatial_affinity_matrix = np.asarray(dataset.uns[spatial_key][sample])
+        sample_neighbor_interactions = metagenes @ spatial_affinity_matrix
+        neighbor_interactions[sample] = sample_neighbor_interactions
+        spatial_gene_correlations[sample] = sample_neighbor_interactions @ metagenes.T
 
-    neighbor_interactions = metagenes @ spatial_affinity_matrix
-    spatial_gene_correlation = neighbor_interactions @ metagenes.T
-
-    dataset.uns[spatial_gene_correlation_key] = spatial_gene_correlation
+    dataset.uns[spatial_gene_correlation_key] = spatial_gene_correlations
     dataset.uns[neighbor_interactions_key] = neighbor_interactions
 
 
@@ -323,8 +317,6 @@ def metagene_neighbor_interactions(dataset: ad.AnnData, interaction_key: str = "
     dataset.obsp[interaction_key] = pair_interactions
 
 
-@enable_joint(annotations={"obsm": ["marker_expression"]})
-@broadcast
 def score_marker_expression(dataset, de_genes: dict[str, Sequence[str]], output_key="marker_expression"):
     """Given a mapping from cell types to marker genes, compute enrichment."""
     data = dataset.X if not issparse(dataset.X) else dataset.X.todense()

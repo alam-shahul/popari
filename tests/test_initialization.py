@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_array, issparse
 
-from popari.io import merge_anndata
 from popari.model import Popari
 from popari.schema import BIN_ASSIGNMENTS_KEY
 from popari.simulation.recipes import SimulationConfig
@@ -17,13 +16,13 @@ def test_random_state_controls_initialization(shared_model_factory):
 
     assert np.allclose(model_0.adata.obsm["X"], model_1.adata.obsm["X"])
     assert not np.allclose(model_0.adata.obsm["X"], model_2.adata.obsm["X"])
+    assert np.allclose(model_0.adata.uns["M"], model_1.adata.uns["M"])
+    assert not np.allclose(model_0.adata.uns["M"], model_2.adata.uns["M"])
     for sample in model_0.replicate_names:
-        assert np.allclose(model_0.adata.uns["M"][sample], model_1.adata.uns["M"][sample])
         assert np.allclose(
             model_0.adata.uns["Sigma_x_inv"][sample],
             model_1.adata.uns["Sigma_x_inv"][sample],
         )
-        assert not np.allclose(model_0.adata.uns["M"][sample], model_2.adata.uns["M"][sample])
 
 
 @pytest.mark.baseline
@@ -52,7 +51,7 @@ def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(
 
     model = Popari(
         K=3,
-        adata=merge_anndata((dataset,)),
+        adata=dataset,
         lambda_Sigma_x_inv=1e-4,
         initialization_method="ground_truth",
         torch_context=context,
@@ -63,42 +62,27 @@ def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(
 
     sample = model.replicate_names[0]
     assert np.all(model.adata.obsm["X"].argmax(axis=1) == 0)
-    assert np.all(np.isfinite(model.adata.uns["M"][sample]))
+    assert np.all(np.isfinite(model.adata.uns["M"]))
     assert np.all(np.isfinite(model.adata.uns["Sigma_x_inv"][sample]))
 
 
 @pytest.mark.baseline
-def test_shared_mode_reuses_group_parameters(shared_model_factory):
+def test_model_has_one_shared_metagene_parameter(shared_model_factory):
     model = shared_model_factory()
     first_name, second_name = model.replicate_names
 
-    assert model.parameter_optimizer.metagene_state[first_name].data_ptr() == (
-        model.parameter_optimizer.metagene_state[second_name].data_ptr()
-    )
+    assert model.parameter_optimizer.metagenes.shape == (model.adata.n_vars, model.K)
     assert model.parameter_optimizer.spatial_affinity[first_name].data_ptr() == (
         model.parameter_optimizer.spatial_affinity[second_name].data_ptr()
     )
 
 
 @pytest.mark.expensive
-def test_differential_initialization_creates_group_averages(differential_model_factory):
+def test_differential_affinity_initialization_creates_group_averages(differential_model_factory):
     model = differential_model_factory()
 
-    assert model.metagene_mode == "differential"
     assert model.spatial_affinity_mode == "differential lookup"
-    assert model.parameter_optimizer.metagene_state.M_bar
     assert model.parameter_optimizer.spatial_affinity_bar.spatial_affinity_bar
-
-    for group_name, group_replicates in model.metagene_groups.items():
-        averaged = sum(
-            model.parameter_optimizer.metagene_state[dataset_name].detach().cpu().numpy()
-            for dataset_name in group_replicates
-        ) / len(group_replicates)
-        assert np.allclose(
-            averaged,
-            model.parameter_optimizer.metagene_state.M_bar[group_name].detach().cpu().numpy(),
-            atol=1e-4,
-        )
 
 
 @pytest.mark.expensive
@@ -127,3 +111,21 @@ def test_hierarchical_initialization_builds_resolution_stack(hierarchical_model_
             assert np.all(
                 view.sample_axis.codes[rows] == previous_view.sample_axis.codes[columns],
             )
+
+
+@pytest.mark.expensive
+def test_hierarchical_assignments_support_interleaved_samples(hierarchical_model_factory, adata_factory):
+    adata = adata_factory(num_cells=36)
+    first, second = adata.popari.sample_names
+    order = np.column_stack(
+        [adata.popari.sample_indices(first), adata.popari.sample_indices(second)],
+    ).ravel()
+    adata = adata[order].copy()
+
+    model = hierarchical_model_factory(adata=adata, hierarchical_levels=2)
+    coarse = model.hierarchy[1]
+    assignments = csr_array(coarse.adata.obsm[BIN_ASSIGNMENTS_KEY]).tocoo()
+
+    assert np.all(
+        coarse.sample_axis.codes[assignments.row] == model.hierarchy[0].sample_axis.codes[assignments.col],
+    )

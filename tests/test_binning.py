@@ -7,8 +7,8 @@ from popari.model import load_trained_model
 
 
 @pytest.mark.baseline
-def test_grid_binning_produces_valid_assignments(shared_model_factory, dataset_factory):
-    model = shared_model_factory(datasets=dataset_factory(num_cells=64))
+def test_grid_binning_produces_valid_assignments(shared_model_factory, adata_factory):
+    model = shared_model_factory(adata=adata_factory(num_cells=64))
     downsampler = GridDownsampler()
 
     for dataset in model.datasets:
@@ -28,8 +28,8 @@ def test_grid_binning_produces_valid_assignments(shared_model_factory, dataset_f
 
 
 @pytest.mark.baseline
-def test_partition_binning_produces_valid_assignments(shared_model_factory, dataset_factory):
-    model = shared_model_factory(datasets=dataset_factory(num_cells=64))
+def test_partition_binning_produces_valid_assignments(shared_model_factory, adata_factory):
+    model = shared_model_factory(adata=adata_factory(num_cells=64))
     downsampler = PartitionDownsampler()
 
     for dataset in model.datasets:
@@ -68,7 +68,7 @@ def test_hierarchical_superresolution_is_finite(hierarchical_model_factory, gpu_
 @pytest.mark.expensive
 def test_hierarchical_save_load_and_reload_expression(hierarchical_model_factory, tmp_path):
     model = hierarchical_model_factory(hierarchical_levels=2)
-    raw_datasets = [dataset.copy() for dataset in model.hierarchy[0].datasets]
+    raw_adata = model.adata.copy()
 
     trainable_path = tmp_path / "superresolved_results"
     untrainable_path = tmp_path / "untrainable_results"
@@ -78,14 +78,12 @@ def test_hierarchical_save_load_and_reload_expression(hierarchical_model_factory
 
     reloaded_trainable = load_trained_model(trainable_path)
     reloaded_untrainable = load_trained_model(untrainable_path)
-    reloaded_untrainable._reload_expression(raw_datasets)
+    reloaded_untrainable._reload_expression(raw_adata)
 
     for level in range(model.hierarchical_levels):
-        for original, restored in zip(model.hierarchy[level].datasets, reloaded_trainable.hierarchy[level].datasets):
-            assert original.shape == restored.shape
+        assert model.hierarchy[level].adata.shape == reloaded_trainable.hierarchy[level].adata.shape
 
-    for dataset in reloaded_untrainable.hierarchy[0].datasets:
-        assert dataset.X.sum() > 0
+    assert reloaded_untrainable.adata.X.sum() > 0
 
 
 @pytest.mark.expensive
@@ -94,5 +92,7 @@ def test_load_anndata_roundtrip_for_saved_hierarchy(hierarchical_model_factory, 
     filepath = tmp_path / "hierarchy_results"
     model.save_results(filepath, ignore_raw_data=False)
 
-    datasets, replicate_names = load_anndata(filepath / "level_0.h5ad")
-    assert len(datasets) == len(replicate_names)
+    reloaded = load_anndata(filepath / "level_0.h5ad")
+
+    assert reloaded.shape == model.hierarchy[0].adata.shape
+    assert reloaded.popari.sample_names == tuple(model.replicate_names)

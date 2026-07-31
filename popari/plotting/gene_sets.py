@@ -262,13 +262,21 @@ def gene_set_upset(
     return fig
 
 
-def plot_metagene_gene_set_aurocs(dataset, gene_sets, metagene_key: str = "M"):
-    """Plot metagene-by-gene-set AUROC scores for one dataset."""
+def plot_metagene_gene_set_aurocs(
+    dataset,
+    gene_sets,
+    metagene_key: str = "M",
+):
+    """Plot metagene-by-gene-set AUROC scores."""
 
-    num_metagenes = dataset.uns[metagene_key][dataset.popari.name].shape[1]
     num_gene_sets = len(gene_sets.columns)
 
-    aurocs, _ = compute_gene_set_auroc(dataset, gene_sets, metagene_key=metagene_key)
+    aurocs, _ = compute_gene_set_auroc(
+        dataset,
+        gene_sets,
+        metagene_key=metagene_key,
+    )
+    num_metagenes = aurocs.shape[1]
     sorted_indices = order_columns_by_best_row(aurocs)
     aurocs = aurocs[:, sorted_indices]
 

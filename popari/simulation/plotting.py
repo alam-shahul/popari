@@ -9,6 +9,17 @@ from popari.plotting import all_embeddings, multireplicate_heatmap, spatial_affi
 from popari.plotting.utils import _highlight_cell
 
 
+def _sample_result(adata, key: str, sample: str):
+    """Return a sample-keyed simulation annotation."""
+
+    value = adata.uns[key]
+    if isinstance(value, dict):
+        return value[sample]
+    if len(adata.popari.sample_names) == 1:
+        return value
+    raise ValueError(f"`uns[{key!r}]` must be keyed by sample for multisample results.")
+
+
 def plot_pairwise_comparison(
     primary_evaluation,
     other_evaluations,
@@ -102,13 +113,14 @@ def plot_best_in_situ_result(
     overall_fig = plt.figure(constrained_layout=True, figsize=(14, 2 * (2 + len(other_evaluations))), dpi=600)
     subfigs = overall_fig.subfigures(nrows=len(other_evaluations) + 2, ncols=1)
 
-    primary_datasets = results_by_model[primary_evaluation.model_name]
-    primary_dataset = primary_datasets[dataset_index]
+    primary_dataset = results_by_model[primary_evaluation.model_name]
+    primary_sample = primary_dataset.popari.sample_names[dataset_index]
 
     _, num_features = primary_dataset.obsm["truncated_ground_truth_X"].shape
     first_row = np.atleast_1d(subfigs[0].subplots(nrows=1, ncols=num_features, squeeze=True))
     all_embeddings(
         primary_dataset,
+        samples=primary_sample,
         fig=subfigs[0],
         embedding_key="truncated_ground_truth_X",
         ax=first_row,
@@ -122,6 +134,7 @@ def plot_best_in_situ_result(
     second_row = np.atleast_1d(subfigs[1].subplots(nrows=1, ncols=num_features, squeeze=True))
     all_embeddings(
         primary_dataset,
+        samples=primary_sample,
         fig=subfigs[1],
         embedding_key="truncated_matched_X",
         ax=second_row,
@@ -133,19 +146,26 @@ def plot_best_in_situ_result(
     )
 
     for value, ax in zip(
-        primary_dataset.uns["embedding_spatial_wasserstein"][metagene_indices[dataset_index]].min(axis=1),
+        _sample_result(
+            primary_dataset,
+            "embedding_spatial_wasserstein",
+            primary_sample,
+        )[
+            metagene_indices[dataset_index]
+        ].min(axis=1),
         second_row,
     ):
         ax.set_title(f"{value:.2f}")
 
     for other_evaluation, subfig in zip(other_evaluations, subfigs[2:]):
-        other_datasets = results_by_model[other_evaluation.model_name]
-        dataset = other_datasets[dataset_index]
+        dataset = results_by_model[other_evaluation.model_name]
+        sample = dataset.popari.sample_names[dataset_index]
 
         _, num_features = dataset.obsm["X"].shape
         row = np.atleast_1d(subfig.subplots(nrows=1, ncols=num_features, squeeze=True))
         all_embeddings(
             dataset,
+            samples=sample,
             fig=subfig,
             embedding_key="truncated_matched_X",
             ax=row,
@@ -157,7 +177,13 @@ def plot_best_in_situ_result(
         )
 
         for value, ax in zip(
-            dataset.uns["embedding_spatial_wasserstein"][metagene_indices[dataset_index]].min(axis=1),
+            _sample_result(
+                dataset,
+                "embedding_spatial_wasserstein",
+                sample,
+            )[
+                metagene_indices[dataset_index]
+            ].min(axis=1),
             row,
         ):
             ax.set_title(f"{value:.2f}")
@@ -193,26 +219,26 @@ def plot_best_affinity_correlation_result(
     overall_fig = plt.figure(constrained_layout=True, dpi=600)
     subfigs = np.atleast_1d(overall_fig.subfigures(nrows=len(other_evaluations) + 2, ncols=1))
 
-    primary_datasets = results_by_model[primary_evaluation.model_name]
+    primary_dataset = results_by_model[primary_evaluation.model_name]
+    primary_samples = primary_dataset.popari.sample_names
 
-    def store_ranked_affinities(datasets, affinity_key: str, output_key: str):
-        for dataset in datasets:
-            affinities = dataset.uns[affinity_key][dataset.popari.name]
-            dataset.uns[output_key] = {
-                dataset.popari.name: rankdata(affinities).reshape(affinities.shape),
-            }
+    def store_ranked_affinities(dataset, affinity_key: str, output_key: str):
+        dataset.uns[output_key] = {}
+        for sample in dataset.popari.sample_names:
+            affinities = dataset.uns[affinity_key][sample]
+            dataset.uns[output_key][sample] = rankdata(affinities).reshape(affinities.shape)
 
-    first_affinity = primary_datasets[0].uns[spatial_affinity_key][primary_datasets[0].popari.name]
+    first_affinity = primary_dataset.uns[spatial_affinity_key][primary_samples[0]]
     num_metagenes = first_affinity.shape[0]
     mask = np.ones((num_metagenes, num_metagenes), dtype=bool)
     mask[np.triu_indices_from(mask)] = 0
 
-    first_row = np.atleast_1d(subfigs[0].subplots(nrows=1, ncols=len(primary_datasets), squeeze=True))
+    first_row = np.atleast_1d(subfigs[0].subplots(nrows=1, ncols=len(primary_samples), squeeze=True))
     if use_residuals:
         truth_rank_key = f"{correlation_truth_key}_rank"
-        store_ranked_affinities(primary_datasets, affinity_key=correlation_truth_key, output_key=truth_rank_key)
+        store_ranked_affinities(primary_dataset, affinity_key=correlation_truth_key, output_key=truth_rank_key)
         multireplicate_heatmap(
-            primary_datasets,
+            primary_dataset,
             uns=truth_rank_key,
             label_font_size=1.5,
             mask=mask,
@@ -222,7 +248,7 @@ def plot_best_affinity_correlation_result(
         )
     else:
         spatial_affinity_heatmap(
-            primary_datasets,
+            primary_dataset,
             spatial_affinity_key=correlation_truth_key,
             label_values=False,
             label_font_size=1.5,
@@ -230,16 +256,16 @@ def plot_best_affinity_correlation_result(
             axes=first_row,
         )
 
-    second_row = np.atleast_1d(subfigs[1].subplots(nrows=1, ncols=len(primary_datasets), squeeze=True))
+    second_row = np.atleast_1d(subfigs[1].subplots(nrows=1, ncols=len(primary_samples), squeeze=True))
     if use_residuals:
         affinity_rank_key = f"{spatial_affinity_key}_rank"
         store_ranked_affinities(
-            primary_datasets,
+            primary_dataset,
             affinity_key=spatial_affinity_key,
             output_key=affinity_rank_key,
         )
         multireplicate_heatmap(
-            primary_datasets,
+            primary_dataset,
             uns=affinity_rank_key,
             label_font_size=1.5,
             mask=mask,
@@ -249,7 +275,7 @@ def plot_best_affinity_correlation_result(
         )
     else:
         spatial_affinity_heatmap(
-            primary_datasets,
+            primary_dataset,
             spatial_affinity_key=spatial_affinity_key,
             label_values=False,
             label_font_size=1.5,
@@ -257,22 +283,23 @@ def plot_best_affinity_correlation_result(
             axes=second_row,
         )
 
-    for dataset, ax in zip(primary_datasets, second_row):
-        ax.set_title(f"{dataset.uns['affinity_correlation']:.2f}")
+    for sample, ax in zip(primary_samples, second_row):
+        ax.set_title(f"{_sample_result(primary_dataset, 'affinity_correlation', sample):.2f}")
 
     for other_evaluation, subfig in zip(other_evaluations, subfigs[2:]):
-        other_datasets = results_by_model[other_evaluation.model_name]
+        other_dataset = results_by_model[other_evaluation.model_name]
+        other_samples = other_dataset.popari.sample_names
 
-        row = np.atleast_1d(subfig.subplots(nrows=1, ncols=len(other_datasets), squeeze=True))
+        row = np.atleast_1d(subfig.subplots(nrows=1, ncols=len(other_samples), squeeze=True))
         if use_residuals:
             affinity_rank_key = f"{spatial_affinity_key}_rank"
             store_ranked_affinities(
-                other_datasets,
+                other_dataset,
                 affinity_key=spatial_affinity_key,
                 output_key=affinity_rank_key,
             )
             multireplicate_heatmap(
-                other_datasets,
+                other_dataset,
                 uns=affinity_rank_key,
                 label_font_size=1.5,
                 mask=mask,
@@ -282,7 +309,7 @@ def plot_best_affinity_correlation_result(
             )
         else:
             spatial_affinity_heatmap(
-                other_datasets,
+                other_dataset,
                 spatial_affinity_key=spatial_affinity_key,
                 label_values=False,
                 label_font_size=1.5,
@@ -290,8 +317,8 @@ def plot_best_affinity_correlation_result(
                 axes=row,
             )
 
-        for dataset, ax in zip(other_datasets, row):
-            ax.set_title(f"{dataset.uns['affinity_correlation']:.2f}")
+        for sample, ax in zip(other_samples, row):
+            ax.set_title(f"{_sample_result(other_dataset, 'affinity_correlation', sample):.2f}")
 
     for subfig in subfigs:
         for ax in subfig.axes:

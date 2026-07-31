@@ -46,7 +46,7 @@ from popari.analysis.metrics import (
 )
 from popari.analysis.samples import aggregate_sample_matrices
 from popari.analysis.similarity import calculate_dataset_similarity_matrix
-from popari.analysis.trends import find_differential_genes, normalized_affinity_trends, propagate_labels
+from popari.analysis.trends import normalized_affinity_trends, propagate_labels
 
 __all__ = [
     cluster.__name__,
@@ -90,7 +90,6 @@ __all__ = [
     score_marker_expression.__name__,
     aggregate_sample_matrices.__name__,
     calculate_dataset_similarity_matrix.__name__,
-    find_differential_genes.__name__,
     normalized_affinity_trends.__name__,
     propagate_labels.__name__,
 ]

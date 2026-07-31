@@ -1,6 +1,5 @@
 import copy
 import logging
-import warnings
 from pathlib import Path
 from typing import Optional, Sequence, Union
 
@@ -12,15 +11,8 @@ from torch import nn
 from tqdm import trange
 
 from popari._hierarchical_view import HierarchicalView, Hierarchy
-from popari.io import (
-    convert_legacy_anndata,
-    load_anndata,
-    load_anndata_hierarchy,
-    merge_anndata,
-    save_anndata,
-    save_anndata_hierarchy,
-)
-from popari.schema import DEFAULT_SAMPLE_KEY
+from popari.io import load_anndata, load_anndata_hierarchy, save_anndata, save_anndata_hierarchy
+from popari.schema import SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
 from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
 
 
@@ -45,10 +37,6 @@ class Popari(nn.Module):
         initialization_method: algorithm to use for initializing metagenes and embeddings.
             Supports ``dummy``, ``kmeans``, ``svd``, ``leiden``, and ``ground_truth``. Default: ``leiden``
         hierarchical_levels: number of hierarchical levels to use. Default: ``1`` (non-hierarchical mode)
-        metagene_groups: defines a grouping of replicates for the metagene optimization. If
-            ``metagene_mode == "shared"``, then one set of metagenes will be created for each group;
-            if ``metagene_mode == "differential",  then all replicates will have their own set of metagenes,
-            but each group will share an ``M_bar``.
         spatial_affinity_groups: defines a grouping of replicates for the spatial affinity optimization.
             If ``spatial_affinity_mode == "shared lookup"``, then one set of spatial_affinities will be created for each group;
             if ``spatial_affinity_mode == "differential lookup"``,  then all replicates will have their own set of spatial
@@ -59,18 +47,7 @@ class Popari(nn.Module):
         sigma_yx_inv_mode: form of sigma_yx_inv parameter. Default: ``separate``
         torch_context: keyword args to use of PyTorch tensors during training.
         initial_context: keyword args to use during initialization of PyTorch tensors.
-        metagene_mode: modality of metagene parameters. Default: ``shared``.
-
-            =================  =====
-            ``metagene_mode``  Option
-            =================  =====
-            ``shared``         A metagene set is shared between all replicates in a group.
-            ``differential``   Each replicate learns its own metagene set.
-            =================  =====
-
         spatial_affinity_mode: modality of spatial affinity parameters. Default: ``shared lookup``
-        lambda_M: hyperparameter to constrain metagene deviation in differential case. Ignored if
-            ``metagene_mode`` is ``shared``. Default: ``0.5``
         lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
             ``spatial_affinity_mode`` is ``shared lookup``. Default: ``0.5``
         spatial_affinity_lr: learning rate for optimization of ``Sigma_x_inv``
@@ -96,15 +73,12 @@ class Popari(nn.Module):
         K: int,
         adata: Optional[ad.AnnData] = None,
         sample_key: str | None = None,
-        replicate_names: Optional[Sequence[str]] = None,
-        datasets: Optional[Sequence[ad.AnnData]] = None,
         dataset_path: Optional[Union[str, Path]] = None,
         reloaded_hierarchy: Optional[dict] = None,
         lambda_Sigma_x_inv: float = 1e-4,
         pretrained: bool = False,
         initialization_method: str = "leiden",
         hierarchical_levels: int = 1,
-        metagene_groups: Optional[dict] = None,
         spatial_affinity_groups: Optional[dict] = None,
         betas: Optional[Sequence[float]] = None,
         prior_x_modes: Optional[Sequence[str]] = None,
@@ -112,9 +86,7 @@ class Popari(nn.Module):
         sigma_yx_inv_mode: str = "separate",
         torch_context: Optional[dict] = None,
         initial_context: Optional[dict] = None,
-        metagene_mode: str = "shared",
         spatial_affinity_mode: str = "shared lookup",
-        lambda_M: float = 0.5,
         lambda_Sigma_bar: float = 1e-3,
         spatial_affinity_lr: float = 1e-2,
         spatial_affinity_tol: float = 2e-3,
@@ -138,8 +110,8 @@ class Popari(nn.Module):
         self.use_inplace_ops = use_inplace_ops
         self.verbose = verbose
 
-        if sum(value is not None for value in (adata, datasets, dataset_path)) != 1:
-            raise ValueError("Specify exactly one of `adata`, `datasets`, or `dataset_path`.")
+        if (adata is None) == (dataset_path is None):
+            raise ValueError("Specify exactly one of `adata` or `dataset_path`.")
 
         if K <= 1:
             raise ValueError("`K` must be an integer value greater than 1.")
@@ -171,9 +143,6 @@ class Popari(nn.Module):
         self.spatial_affinity_mode = spatial_affinity_mode
         self.pretrained = pretrained
 
-        self.metagene_mode = metagene_mode
-        self.lambda_M = lambda_M
-        self._configured_metagene_groups = metagene_groups
         self._configured_spatial_affinity_groups = spatial_affinity_groups
 
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
@@ -190,10 +159,8 @@ class Popari(nn.Module):
 
         if dataset_path is not None:
             self.load_dataset(dataset_path)
-        elif adata is not None:
-            self.load_anndata(adata)
         else:
-            self.load_anndata_datasets(datasets, replicate_names)
+            self.load_anndata(adata)
 
         self.replicate_names = list(self._adata.popari.sample_names)
         self.num_replicates = len(self.replicate_names)
@@ -210,8 +177,6 @@ class Popari(nn.Module):
             "M_constraint": self.M_constraint,
             "sigma_yx_inv_mode": self.sigma_yx_inv_mode,
             "spatial_affinity_mode": self.spatial_affinity_mode,
-            "lambda_M": self.lambda_M,
-            "metagene_mode": self.metagene_mode,
         }
 
         self.embedding_optimizer_hyperparameters = {
@@ -259,16 +224,6 @@ class Popari(nn.Module):
         return self.base_view.embedding_optimizer
 
     @property
-    def metagene_groups(self):
-        if hasattr(self, "views"):
-            return self.base_view.metagene_groups
-        return self._configured_metagene_groups
-
-    @property
-    def metagene_tags(self):
-        return self.base_view.metagene_tags
-
-    @property
     def spatial_affinity_groups(self):
         if hasattr(self, "views"):
             return self.base_view.spatial_affinity_groups
@@ -278,37 +233,14 @@ class Popari(nn.Module):
     def spatial_affinity_tags(self):
         return self.base_view.spatial_affinity_tags
 
-    def load_anndata_datasets(self, datasets: Sequence[ad.AnnData], replicate_names: Sequence[str]):
-        """Compatibility adapter for legacy single-sample AnnData sequences.
-
-        Args:
-            datasets: spatial transcriptomics datasets in AnnData format (one for each FOV)
-            replicate_names: names for all datasets/replicates
-
-        """
-        warnings.warn(
-            "Passing datasets= is deprecated; pass one multisample AnnData with adata=.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        datasets = list(datasets)
-        if replicate_names is not None:
-            if len(replicate_names) != len(datasets):
-                raise ValueError("replicate_names must match the number of datasets.")
-            for dataset, replicate_name in zip(datasets, replicate_names):
-                dataset.popari.name = replicate_name
-        resolved_sample_key = self.sample_key or DEFAULT_SAMPLE_KEY
-        self._adata = merge_anndata(datasets, sample_key=resolved_sample_key)
-        self.sample_key = resolved_sample_key
-
     def load_anndata(self, adata: ad.AnnData):
         """Load one unified Popari AnnData."""
 
-        self._adata = convert_legacy_anndata(
-            adata,
-            sample_key=self.sample_key,
-            copy=True,
-        )
+        self._adata = adata.copy()
+        if self.sample_key is not None:
+            self._adata.uns[SAMPLE_KEY_KEY] = self.sample_key
+        self._adata.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+        self._adata.popari.validate()
         self.sample_key = self._adata.popari.sample_key
 
     def load_dataset(self, dataset_path: Union[str, Path]):
@@ -321,7 +253,7 @@ class Popari(nn.Module):
 
         dataset_path = Path(dataset_path)
 
-        self._adata = load_anndata(dataset_path, sample_key=self.sample_key)
+        self._adata = load_anndata(dataset_path)
         self.sample_key = self._adata.popari.sample_key
 
     def _initialize(
@@ -352,7 +284,6 @@ class Popari(nn.Module):
             "method": method,
             "pretrained": self.pretrained,
             "verbose": self.verbose,
-            "metagene_groups": self.metagene_groups,
             "spatial_affinity_groups": self.spatial_affinity_groups,
             "superresolution_lr": self.superresolution_lr,
             "sample_key": self.sample_key,
@@ -410,7 +341,6 @@ class Popari(nn.Module):
         self,
         update_spatial_affinities: bool = True,
         differentiate_spatial_affinities: bool = True,
-        differentiate_metagenes: bool = True,
         simplex_projection_mode: bool = "exact",
         edge_subsample_rate: Optional[float] = None,
         synchronize: bool = True,
@@ -441,10 +371,7 @@ class Popari(nn.Module):
         if self.verbose:
             print(f"{get_datetime()} Updating metagenes")
 
-        self.parameter_optimizer.update_metagenes(
-            differentiate_metagenes=differentiate_metagenes,
-            simplex_projection_mode=simplex_projection_mode,
-        )
+        self.parameter_optimizer.update_metagenes(simplex_projection_mode=simplex_projection_mode)
 
         if self.verbose:
             print(f"{get_datetime()} Updating sigma_yx")
@@ -583,16 +510,15 @@ class Popari(nn.Module):
                 sample_key=self.sample_key,
             )
 
-    def _reload_expression(self, raw_adata: AnnData | Sequence[AnnData]):
+    def _reload_expression(self, raw_adata: AnnData):
         """Can be used to recover expression values for training model if saved
         with `ignore_raw_data=True`"""
         if not isinstance(raw_adata, AnnData):
-            raw_adata = merge_anndata(raw_adata, sample_key=self.sample_key)
-        raw_adata = convert_legacy_anndata(
-            raw_adata,
-            sample_key=self.sample_key,
-            copy=False,
-        )
+            raise TypeError("raw_adata must be one unified AnnData object.")
+        raw_adata = raw_adata.copy()
+        raw_adata.uns[SAMPLE_KEY_KEY] = self.sample_key
+        raw_adata.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+        raw_adata.popari.validate()
 
         high_resolution_view = self.hierarchy[0]
         if not raw_adata.obs_names.equals(high_resolution_view.adata.obs_names):
@@ -681,18 +607,21 @@ def load_pretrained(
 
     saved_hyperparameters = copy.deepcopy(adata.uns["popari_hyperparameters"])
 
-    metagene_groups = saved_hyperparameters["metagene_groups"]
-    for group in metagene_groups:
-        metagene_groups[group] = list(metagene_groups[group])
-
     spatial_affinity_groups = saved_hyperparameters["spatial_affinity_groups"]
     for group in spatial_affinity_groups:
         spatial_affinity_groups[group] = list(spatial_affinity_groups[group])
 
     new_kwargs = saved_hyperparameters | popari_kwargs
 
-    for noninitial_hyperparameter in ["prior_x", "metagene_tags", "spatial_affinity_tags"]:
-        new_kwargs.pop(noninitial_hyperparameter)
+    for noninitial_hyperparameter in [
+        "prior_x",
+        "metagene_groups",
+        "metagene_tags",
+        "metagene_mode",
+        "lambda_M",
+        "spatial_affinity_tags",
+    ]:
+        new_kwargs.pop(noninitial_hyperparameter, None)
 
     trained_model = Popari(
         adata=adata,
@@ -719,7 +648,6 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
         adata,
         reloaded_hierarchy=reloaded_hierarchy,
         hierarchical_levels=pretrained_model.hierarchical_levels,
-        metagene_mode="differential",
         spatial_affinity_mode="differential lookup",
         context=popari_context,
         lambda_Sigma_bar=lambda_Sigma_bar,

@@ -34,8 +34,6 @@ class ParameterOptimizer(nn.Module):
         sample_axis: SampleAxis,
         betas,
         prior_x_modes,
-        metagene_groups,
-        metagene_tags,
         spatial_affinity_groups,
         spatial_affinity_tags,
         spatial_affinity_regularization_power=2,
@@ -45,8 +43,6 @@ class ParameterOptimizer(nn.Module):
         lambda_Sigma_x_inv=1e-2,
         spatial_affinity_tol=2e-3,
         spatial_affinity_mode="shared lookup",
-        metagene_mode="shared",
-        lambda_M=0.5,
         lambda_Sigma_bar=0.5,
         spatial_affinity_lr=1e-3,
         M_constraint="simplex",
@@ -66,8 +62,6 @@ class ParameterOptimizer(nn.Module):
         self.spatial_affinity_mode = spatial_affinity_mode
         self.K = K
         self.Ys = Ys
-        self.metagene_groups = metagene_groups
-        self.metagene_tags = metagene_tags
         self.spatial_affinity_groups = spatial_affinity_groups
         self.spatial_affinity_tags = spatial_affinity_tags
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
@@ -78,8 +72,6 @@ class ParameterOptimizer(nn.Module):
         self.spatial_affinity_scaling = spatial_affinity_scaling
         self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
         self.spatial_affinity_tol = spatial_affinity_tol
-        self.lambda_M = lambda_M
-        self.metagene_mode = metagene_mode
         self.M_constraint = M_constraint
         self.prior_x_modes = prior_x_modes
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
@@ -105,17 +97,7 @@ class ParameterOptimizer(nn.Module):
         if self.verbose:
             print(f"{get_datetime()} Initializing MetageneState")
 
-        self.metagene_state = MetageneState(
-            self.K,
-            adata.n_vars,
-            self.sample_names,
-            self.metagene_groups,
-            self.metagene_tags,
-            mode=self.metagene_mode,
-            M_constraint=self.M_constraint,
-            initial_context=self.initial_context,
-            context=self.context,
-        )
+        self.metagenes = nn.Parameter(torch.zeros((adata.n_vars, self.K), **self.context))
 
         if self.verbose:
             print(f"{get_datetime()} Initializing SpatialAffinityState")
@@ -155,27 +137,17 @@ class ParameterOptimizer(nn.Module):
         object.__setattr__(self, "embedding_optimizer", embedding_optimizer)
 
     def scale_metagenes(self):
-        norm_axis = 1
-        # norm_axis = int(self.metagene_mode == "differential")
         if self.M_constraint == "simplex":
-            scale_factor = torch.linalg.norm(self.metagene_state.metagenes, axis=norm_axis, ord=1, keepdim=True)
+            scale_factor = torch.linalg.norm(self.metagenes, axis=0, ord=1, keepdim=True)
         elif self.M_constraint == "unit_sphere":
-            scale_factor = torch.linalg.norm(self.metagene_state.metagenes, axis=norm_axis, ord=2, keepdim=True)
+            scale_factor = torch.linalg.norm(self.metagenes, axis=0, ord=2, keepdim=True)
 
         with torch.no_grad():
-            self.metagene_state.metagenes.div_(scale_factor)
-            for group_index, group_replicates in enumerate(self.metagene_groups.values()):
-                for dataset_index, sample in enumerate(self.sample_names):
-                    if sample not in group_replicates:
-                        continue
-                    replicate_embedding = self.embedding_optimizer.embedding_state[sample]
-                    if self.metagene_mode == "differential":
-                        replicate_scale_factor = scale_factor[dataset_index]
-                        replicate_embedding.mul_(replicate_scale_factor)
-                    else:
-                        group_scale_factor = scale_factor[group_index]
-                        replicate_embedding.mul_(group_scale_factor)
-                    self.embedding_optimizer.embedding_state[sample] = replicate_embedding
+            self.metagenes.div_(scale_factor)
+            for sample in self.sample_names:
+                embedding = self.embedding_optimizer.embedding_state[sample]
+                embedding.mul_(scale_factor)
+                self.embedding_optimizer.embedding_state[sample] = embedding
 
     def estimate_Sigma_x_inv(
         self,
@@ -539,59 +511,21 @@ class ParameterOptimizer(nn.Module):
 
         return loss_spatial_affinities.cpu().numpy()
 
-    def update_metagenes(self, differentiate_metagenes=True, simplex_projection_mode="exact"):
-        if self.metagene_mode == "shared":
-            for group_name, group_replicates in self.metagene_groups.items():
-                first_dataset_name = group_replicates[0]
-                replicate_mask = [sample in group_replicates for sample in self.sample_names]
-                M = self.metagene_state[first_dataset_name]
-                updated_M = self.estimate_M(M, replicate_mask, simplex_projection_mode=simplex_projection_mode)
-                for dataset_name in group_replicates:
-                    self.metagene_state[dataset_name] = updated_M
-
-        elif self.metagene_mode == "differential":
-            for dataset_index, sample in enumerate(self.sample_names):
-                if differentiate_metagenes:
-                    M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[sample]]
-                else:
-                    M_bars = None
-
-                M = self.metagene_state[sample]
-                replicate_mask = [False] * len(self.sample_names)
-                replicate_mask[dataset_index] = True
-                self.metagene_state[sample] = self.estimate_M(
-                    M,
-                    replicate_mask,
-                    M_bar=M_bars,
-                    simplex_projection_mode=simplex_projection_mode,
-                )
-
-            self.metagene_state.reaverage()
+    def update_metagenes(self, simplex_projection_mode="exact"):
+        updated_metagenes = self.estimate_M(
+            self.metagenes,
+            [True] * len(self.sample_names),
+            simplex_projection_mode=simplex_projection_mode,
+        )
+        with torch.no_grad():
+            self.metagenes.copy_(updated_metagenes)
 
     def nll_metagenes(self):
         with torch.no_grad():
-            loss_metagenes = torch.zeros(1, **self.context)
-            if self.metagene_mode == "shared":
-                for group_name, group_replicates in self.metagene_groups.items():
-                    first_dataset_name = group_replicates[0]
-                    replicate_mask = [sample in group_replicates for sample in self.sample_names]
-                    M = self.metagene_state[first_dataset_name]
-                    loss_M = self.nll_M(M, replicate_mask)
-                    loss_metagenes += loss_M
+            loss_metagenes = self.nll_M(self.metagenes, [True] * len(self.sample_names))
+        return np.asarray(loss_metagenes)
 
-            elif self.metagene_mode == "differential":
-                for dataset_index, sample in enumerate(self.sample_names):
-                    M_bars = [self.metagene_state.M_bar[group_name] for group_name in self.metagene_tags[sample]]
-
-                    M = self.metagene_state[sample]
-                    replicate_mask = [False] * len(self.sample_names)
-                    replicate_mask[dataset_index] = True
-                    loss_M = self.nll_M(M, replicate_mask, M_bar=M_bars)
-                    loss_metagenes += loss_M
-
-        return loss_metagenes.cpu().numpy()
-
-    def nll_M(self, M, replicate_mask, M_bar=None):
+    def nll_M(self, M, replicate_mask):
         _, K = M.shape
         quadratic_factor = torch.zeros([K, K], **self.context)
         linear_term = torch.zeros_like(M)
@@ -620,33 +554,12 @@ class ParameterOptimizer(nn.Module):
             # MX_c^TY_c
             linear_term.addmm_(Y.T, X, alpha=scaled_beta)
 
-        differential_regularization_quadratic_factor = torch.zeros((K, K), **self.context)
-        differential_regularization_linear_term = torch.zeros(1, **self.context)
-        if self.lambda_M > 0 and M_bar is not None:
-            differential_regularization_quadratic_factor = self.lambda_M * torch.eye(K, **self.context)
-
-            differential_regularization_linear_term = torch.zeros_like(M, **self.context)
-            group_weighting = 1 / len(M_bar)
-            for group_M_bar in M_bar:
-                differential_regularization_linear_term += group_weighting * self.lambda_M * group_M_bar
-
         def compute_loss(M):
-            quadratic_factor_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
+            quadratic_factor_grad = M @ quadratic_factor
             loss = (quadratic_factor_grad * M).sum()
-            linear_term_grad = linear_term + differential_regularization_linear_term
-            loss -= 2 * (linear_term_grad * M).sum()
+            loss -= 2 * (linear_term * M).sum()
 
             loss += constant
-
-            if self.metagene_mode == "differential" and M_bar is not None:
-                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (
-                    differential_regularization_linear_term * M
-                ).sum()
-                group_weighting = 1 / len(M_bar)
-                for group_M_bar in M_bar:
-                    differential_regularization_term += (
-                        group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
-                    )
 
             loss /= 2
 
@@ -660,7 +573,6 @@ class ParameterOptimizer(nn.Module):
         self,
         M,
         replicate_mask,
-        M_bar=None,
         n_epochs=10000,
         tol=1e-3,
         backend_algorithm="gd Nesterov",
@@ -672,11 +584,6 @@ class ParameterOptimizer(nn.Module):
         min || Y - X MT ||_2^2 / (2 σ_yx^2)
         s.t. || Mk ||_p = 1
         grad = (M XT X - YT X) / (σ_yx^2)
-
-        Each replicate may have a slightly different M
-        min || Y - X MT ||_2^2 / (2 σ_yx^2) + || M - M_bar ||_2^2 λ_M / 2
-        s.t. || Mk ||_p = 1
-        grad = ( M XT X - YT X ) / ( σ_yx^2 ) + λ_M ( M - M_bar )
 
         Args:
             M: current estimate of metagene parameters
@@ -721,61 +628,26 @@ class ParameterOptimizer(nn.Module):
             # MX_c^TY_c
             linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
 
-        # if self.lambda_M > 0 and M_bar is not None:
-        #     quadratic_factor.diagonal().add_(self.lambda_M)
-        #     linear_factor += self.lambda_M * M_bar
-        differential_regularization_quadratic_factor = torch.zeros((K, K), **self.context)
-        differential_regularization_linear_factor = torch.zeros(1, **self.context)
-        if self.lambda_M > 0 and M_bar is not None:
-            differential_regularization_quadratic_factor = self.lambda_M * torch.eye(K, **self.context)
-
-            differential_regularization_linear_factor = torch.zeros_like(M, **self.context)
-            group_weighting = 1 / len(M_bar)
-            for group_M_bar in M_bar:
-                differential_regularization_linear_factor += group_weighting * self.lambda_M * group_M_bar
-        #     quadratic_factor.diagonal().add_(self.lambda_M)
-        #     linear_factor += self.lambda_M * M_bar
-
         if self.verbose > 1:
-            print(
-                f"{get_datetime()} Eigenvalue difference: {torch.max(torch.linalg.eigvals(quadratic_factor + differential_regularization_quadratic_factor).abs()) - torch.max(torch.linalg.eigvals(quadratic_factor).abs())}",
-            )
             print(f"M linear term: {torch.linalg.norm(linear_factor)}")
-            print(f"M regularization linear term: {torch.linalg.norm(differential_regularization_linear_factor)}")
-            print(
-                f"M linear regularization term ratio: {torch.linalg.norm(differential_regularization_linear_factor) / torch.linalg.norm(linear_factor)}",
-            )
         loss_prev, loss = np.inf, np.nan
 
         verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format="{desc}{postfix}")
         progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, desc="Updating M", miniters=1000)
 
         def compute_loss_and_gradient(M):
-            quadratic_factor_grad = M @ (quadratic_factor + differential_regularization_quadratic_factor)
+            quadratic_factor_grad = M @ quadratic_factor
             loss = (quadratic_factor_grad * M).sum()
             verbose_description = ""
             if self.verbose > 2:
                 verbose_description += f"M quadratic term: {loss:.1e}"
-            linear_term_grad = linear_factor + differential_regularization_linear_factor
-            loss -= 2 * (linear_term_grad * M).sum()
-            grad = quadratic_factor_grad - linear_term_grad
+            loss -= 2 * (linear_factor * M).sum()
+            grad = quadratic_factor_grad - linear_factor
 
             loss += constant
 
-            if self.metagene_mode == "differential" and M_bar is not None:
-                differential_regularization_term = (M @ differential_regularization_quadratic_factor * M).sum() - 2 * (
-                    differential_regularization_linear_factor * M
-                ).sum()
-                group_weighting = 1 / len(M_bar)
-                for group_M_bar in M_bar:
-                    differential_regularization_term += (
-                        group_weighting * self.lambda_M * (group_M_bar * group_M_bar).sum()
-                    )
-
             if self.verbose > 2:
-                # print(f"M regularization term: {regularization_term}")
-                if self.metagene_mode == "differential":
-                    verbose_description += f"M differential regularization term: {differential_regularization_term}"
+                verbose_bar.set_description(verbose_description)
 
             loss /= 2
 
@@ -917,20 +789,11 @@ class ParameterOptimizer(nn.Module):
     def update_sigma_yx(self):
         """Update sigma_yx for each replicate."""
 
-        # print((self.Ys[0]).is_sparse)
-        # print((self.embedding_optimizer.embedding_state[self.sample_names[0]]).is_sparse)
-        # print((self.metagene_state[self.sample_names[0]].T).is_sparse)
-        # squared_loss = np.zeros(len(self.sample_names))
-        # for index, (Y, sample) in enumerate(zip(self.Ys, self.sample_names)):
-        #     result = torch.square(-(self.embedding_optimizer.embedding_state[sample] @ self.metagene_state[sample].T) + Y).sum()
-        #     print(result)
-        #     2/0
-        #     squared_loss[index] = result
         squared_terms = [
             torch.addmm(
                 Y.to_dense(),
                 self.embedding_optimizer.embedding_state[sample],
-                self.metagene_state[sample].T,
+                self.metagenes.T,
                 alpha=-1,
             )
             for Y, sample in zip(self.Ys, self.sample_names)
@@ -955,7 +818,7 @@ class ParameterOptimizer(nn.Module):
                 torch.addmm(
                     Y.to_dense(),
                     self.embedding_optimizer.embedding_state[sample],
-                    self.metagene_state[sample].T,
+                    self.metagenes.T,
                     alpha=-1,
                 )
                 for Y, sample in zip(self.Ys, self.sample_names)
@@ -965,108 +828,6 @@ class ParameterOptimizer(nn.Module):
             )
 
         return squared_loss.sum()
-
-
-class MetageneState(nn.Module):
-    """State to store metagene parameters during Popari optimization.
-
-    Metagene state can be shared across replicates or maintained separately for each replicate.
-
-    Attributes:
-        sample_names: Ordered names of samples represented by the metagene state.
-        context: Parameters to define the context for PyTorch tensor instantiation.
-        metagenes: A PyTorch tensor containing all metagene parameters.
-
-    """
-
-    def __init__(
-        self,
-        K,
-        num_genes,
-        sample_names,
-        groups,
-        tags,
-        mode="shared",
-        M_constraint="simplex",
-        initial_context=None,
-        context=None,
-    ):
-        super().__init__()
-        self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
-        self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self._ordered_dataset_names = list(sample_names)
-        self._ordered_group_names = list(groups)
-        self.sample_names = tuple(sample_names)
-        self.groups = groups
-        self.tags = tags
-        self.M_constraint = M_constraint
-        self.mode = mode
-        self._dataset_indices = {}
-        self._group_indices = {group_name: group_index for group_index, group_name in enumerate(self.groups)}
-        if mode == "shared":
-            self.metagenes = nn.Parameter(torch.zeros((len(self.groups), num_genes, K), **self.context))
-            for group_index, (_, group_replicates) in enumerate(self.groups.items()):
-                for dataset_name in group_replicates:
-                    self._dataset_indices[dataset_name] = group_index
-
-        elif mode == "differential":
-            self.metagenes = nn.Parameter(torch.zeros((len(self.sample_names), num_genes, K), **self.context))
-            for dataset_index, sample in enumerate(self.sample_names):
-                self._dataset_indices[sample] = dataset_index
-            self.M_bar = ParameterDict(prefix="M_bar")
-            for group_name in groups:
-                self.M_bar[group_name] = nn.Parameter(torch.zeros((num_genes, K), **self.context), requires_grad=False)
-
-            for group_name, group_replicates in self.groups.items():
-                for dataset_name in group_replicates:
-                    self.M_bar[group_name].add_(self[dataset_name])
-                self.M_bar[group_name].div_(len(group_replicates))
-
-    def __getitem__(self, dataset_name: str):
-        return self.metagenes[self._dataset_indices[dataset_name]]
-
-    def __setitem__(self, dataset_name: str, value):
-        with torch.no_grad():
-            self[dataset_name].copy_(value)
-
-    def copy_from_tensor(self, metagenes: torch.Tensor):
-        with torch.no_grad():
-            self.metagenes.copy_(metagenes)
-
-    def reaverage(self):
-        # Set M_bar to average of self.Ms (memory efficient)
-        for group_name, group_replicates in self.groups.items():
-            self.M_bar[group_name].zero_()
-            for dataset_name in group_replicates:
-                self.M_bar[group_name].add_(self[dataset_name])
-            self.M_bar[group_name].div_(len(group_replicates))
-            self.M_bar[group_name][:] = project_M(
-                self.M_bar[group_name],
-                self.M_constraint,
-            )
-
-    def get_extra_state(self):
-        return {
-            "dataset_names": tuple(self._ordered_dataset_names),
-            "group_names": tuple(self._ordered_group_names),
-            "mode": self.mode,
-        }
-
-    def set_extra_state(self, state):
-        expected_datasets = tuple(self._ordered_dataset_names)
-        loaded_datasets = tuple(state["dataset_names"])
-        if loaded_datasets != expected_datasets:
-            raise RuntimeError(
-                f"{self.__class__.__name__} checkpoint datasets {loaded_datasets} do not match current datasets {expected_datasets}.",
-            )
-        expected_groups = tuple(self._ordered_group_names)
-        loaded_groups = tuple(state["group_names"])
-        if loaded_groups != expected_groups:
-            raise RuntimeError(
-                f"{self.__class__.__name__} checkpoint groups {loaded_groups} do not match current groups {expected_groups}.",
-            )
-        if state.get("mode") != self.mode:
-            raise RuntimeError(f"{self.__class__.__name__} checkpoint grouping is incompatible with the current model.")
 
 
 class SpatialAffinity(nn.Module):

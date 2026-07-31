@@ -82,12 +82,12 @@ def test_generate_simulation_supports_two_recipe_tiny_grid():
         dropout=SpatialDropoutConfig(sparsity=0.1, random_state=0),
     )
 
-    assert tuple(dataset.popari.name for dataset in result.datasets) == (
+    assert result.adata.popari.sample_names == (
         "progenitor_0",
         "layer_1",
     )
-    assert len(result.datasets) == 2
-    for dataset in result.datasets:
+    for sample in result.adata.popari.sample_names:
+        dataset = result.adata[result.adata.popari.sample_indices(sample)]
         assert dataset.shape == (16, 8)
         assert dataset.obs_names.is_unique
         assert "cell_type" in dataset.obs
@@ -115,12 +115,12 @@ def test_generate_joint_improvement_supports_paired_replicates():
         replicates=paired_replicates(("progenitor", "layer"), count=1),
     )
 
-    assert tuple(dataset.popari.name for dataset in result.datasets) == (
+    assert result.adata.popari.sample_names == (
         "progenitor_0",
         "layer_0",
     )
-    assert len(result.datasets) == 2
-    for dataset in result.datasets:
+    for sample in result.adata.popari.sample_names:
+        dataset = result.adata[result.adata.popari.sample_indices(sample)]
         assert dataset.shape == (16, 11)
         assert "domain" in dataset.obs
         assert "ground_truth_X" in dataset.obsm

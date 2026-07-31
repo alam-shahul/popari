@@ -110,7 +110,6 @@ class MLFlowTrainer(Trainer):
             synchronize = not (self.nmf_iterations % self.parameters.synchronization_frequency)
             self.model.estimate_parameters(
                 update_spatial_affinities=False,
-                differentiate_metagenes=False,
                 synchronize=synchronize,
             )
             self.model.estimate_weights(use_neighbors=False, synchronize=synchronize)
@@ -231,7 +230,7 @@ class MLFlowTrainer(Trainer):
             if self.verbose:
                 print(f"{get_datetime()} Plotting spatial affinities at level {level}")
 
-            spatial_affinity_heatmap(self.model.hierarchy[level].datasets)
+            spatial_affinity_heatmap(self.model.hierarchy[level].adata)
 
             plt.savefig(f"Sigma_x_inv{suffix}")
             plt.close()
@@ -241,7 +240,7 @@ class MLFlowTrainer(Trainer):
             if self.verbose:
                 print(f"{get_datetime()} Plotting 'in situ' metagene {self.model.K} at level {level}")
 
-            metagene_embedding(self.model.hierarchy[level].datasets, metagene)
+            metagene_embedding(self.model.hierarchy[level].adata, metagene)
             plt.savefig(f"metagene_{metagene}_in_situ{suffix}")
             plt.close()
 

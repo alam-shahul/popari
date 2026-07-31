@@ -5,9 +5,8 @@ import pickle
 import sys
 import time
 from collections import defaultdict
-from typing import Optional, Sequence
+from typing import Optional
 
-import anndata as ad
 import awkward as ak
 import matplotlib
 import matplotlib.patches as patches
@@ -17,7 +16,6 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 import torch
-from anndata import AnnData
 from kneed import KneeLocator
 from matplotlib import pyplot as plt
 from ortools.graph.python import min_cost_flow
@@ -57,40 +55,6 @@ def create_neighbor_groups(replicate_names, covariate_values, window_size=1):
         groups[group_name] = list(group_replicates)
 
     return groups
-
-
-def concatenate(datasets: Sequence[AnnData], join: str = "inner", batch_key: str = "batch"):
-    """Merge datasets in a way that is compatible with Popari.
-
-    Args:
-        datasets: list of AnnData.
-
-    """
-    dataset_names = [dataset.popari.name for dataset in datasets]
-    merged_dataset = ad.concat(
-        datasets,
-        label=batch_key,
-        join=join,
-        keys=dataset_names,
-        merge="unique",
-        uns_merge="unique",
-        pairwise=True,
-    )
-
-    return merged_dataset
-
-
-def unconcatenate(merged_dataset: ad.AnnData, batch_key: str = "batch"):
-    """Unmerge concatenated."""
-
-    indices = merged_dataset.obs.groupby(batch_key, observed=False).indices.values()
-    datasets = [merged_dataset[index].copy() for index in indices]
-
-    replicate_names = [dataset.obs[batch_key].unique()[0] for dataset in datasets]
-    for dataset, name in zip(datasets, replicate_names):
-        dataset.popari.name = name
-
-    return datasets
 
 
 def calc_modularity(adjacency_matrix, label, resolution=1):
@@ -585,19 +549,24 @@ def smooth_metagene_expression(
     dataset,
     processed_key: str = "normalized_thresholded_expression",
     adjacency_list_key: str = "adjacency_list",
+    adjacency_key: str = "adjacency_matrix",
 ):
     """"""
-    adjacency_list = dataset.obsm[adjacency_list_key]
-
     processed_expression = dataset.obsm[processed_key]
-    smoothed_expression = np.zeros_like(processed_expression)
-    for entity in np.arange(len(dataset)):
-        adjacencies = adjacency_list[entity]
-        neighbor_expressions = processed_expression[adjacencies]
-        average_expression = (processed_expression[entity] + neighbor_expressions.sum(axis=0)) / (
-            len(neighbor_expressions) + 1
-        )
-        smoothed_expression[entity] = average_expression
+    if adjacency_key in dataset.obsp:
+        adjacency = csr_array(dataset.obsp[adjacency_key]).astype(bool).astype(float)
+        degree = np.asarray(adjacency.sum(axis=1)).reshape(-1, 1)
+        smoothed_expression = (processed_expression + adjacency @ processed_expression) / (degree + 1)
+    else:
+        adjacency_list = dataset.obsm[adjacency_list_key]
+        smoothed_expression = np.zeros_like(processed_expression)
+        for entity in np.arange(len(dataset)):
+            adjacencies = adjacency_list[entity]
+            neighbor_expressions = processed_expression[adjacencies]
+            average_expression = (processed_expression[entity] + neighbor_expressions.sum(axis=0)) / (
+                len(neighbor_expressions) + 1
+            )
+            smoothed_expression[entity] = average_expression
 
     dataset.obsm["smoothed_expression"] = smoothed_expression
 
@@ -648,9 +617,15 @@ def smooth_labels(
     smoothing_threshold: float = 0.5,
     max_smoothing_rounds: int = 1,
     adjacency_list_key: str = "adjacency_list",
+    adjacency_key: str = "adjacency_matrix",
 ):
     """"""
-    adjacency_list = dataset.obsm[adjacency_list_key]
+    if adjacency_list_key in dataset.obsm:
+        adjacency_list = dataset.obsm[adjacency_list_key]
+    else:
+        adjacency_list = convert_adjacency_matrix_to_awkward_array(
+            dataset.obsp[adjacency_key],
+        )
 
     labels = dataset.obs[label_key]
     dataset.obs[output_key] = pd.Categorical(

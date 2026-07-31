@@ -8,7 +8,6 @@ from types import MappingProxyType
 import anndata as ad
 import numpy as np
 import pandas as pd
-from scipy import sparse
 
 
 @dataclass(frozen=True)
@@ -27,9 +26,8 @@ class SampleAxis:
         adata: ad.AnnData,
         *,
         sample_key: str = "batch",
-        adjacency_key: str = "adjacency_matrix",
     ) -> SampleAxis:
-        """Validate a canonical multisample AnnData and index its samples."""
+        """Validate and index the sample axis of a multisample AnnData."""
 
         if sample_key not in adata.obs:
             raise KeyError(f"Missing sample column `obs[{sample_key!r}]`.")
@@ -51,25 +49,6 @@ class SampleAxis:
             raise ValueError("Observation names must be unique.")
         if not adata.var_names.is_unique:
             raise ValueError("Variable names must be unique.")
-        if adjacency_key not in adata.obsp:
-            raise KeyError(f"Missing spatial graph `obsp[{adjacency_key!r}]`.")
-
-        adjacency = adata.obsp[adjacency_key]
-        expected_shape = (adata.n_obs, adata.n_obs)
-        if adjacency.shape != expected_shape:
-            raise ValueError(
-                f"`obsp[{adjacency_key!r}]` has shape {adjacency.shape}; expected {expected_shape}.",
-            )
-
-        if sparse.issparse(adjacency):
-            graph = adjacency.tocoo(copy=True)
-            graph.eliminate_zeros()
-            rows, columns = graph.row, graph.col
-        else:
-            rows, columns = np.nonzero(np.asarray(adjacency))
-        if np.any(codes[rows] != codes[columns]):
-            raise ValueError(f"`obsp[{adjacency_key!r}]` contains cross-sample edges.")
-
         positions = MappingProxyType({name: index for index, name in enumerate(categories)})
         indices = tuple(np.flatnonzero(codes == index) for index in range(len(categories)))
         return cls(

@@ -2,6 +2,7 @@ from dataclasses import is_dataclass
 
 import anndata as ad
 import numpy as np
+import pytest
 from scipy.sparse import issparse
 
 from popari.simulation.recipes import (
@@ -72,10 +73,10 @@ def test_generation_returns_plain_anndata_with_expected_schema():
         replicates={"layer_0": "layer"},
         dropout=SpatialDropoutConfig(sparsity=0.05, random_state=0),
     )
-    (dataset,) = result.datasets
+    dataset = result.adata
 
     assert type(dataset) is ad.AnnData
-    assert tuple(dataset.popari.name for dataset in result.datasets) == ("layer_0",)
+    assert dataset.popari.sample_names == ("layer_0",)
     assert dataset.obs_names.is_unique
     assert dataset.X.shape == (36, 20)
     assert issparse(dataset.X)
@@ -99,20 +100,20 @@ def test_generation_is_deterministic_and_shares_metagenes():
     first = generate_simulation(**kwargs)
     second = generate_simulation(**kwargs)
 
-    for first_dataset, second_dataset in zip(first.datasets, second.datasets):
-        np.testing.assert_allclose(first_dataset.X.toarray(), second_dataset.X.toarray())
-        np.testing.assert_allclose(
-            first_dataset.simulation.ground_truth_X,
-            second_dataset.simulation.ground_truth_X,
+    np.testing.assert_allclose(first.adata.X.toarray(), second.adata.X.toarray())
+    np.testing.assert_allclose(first.adata.simulation.ground_truth_X, second.adata.simulation.ground_truth_X)
+    np.testing.assert_allclose(first.adata.simulation.ground_truth_M, second.adata.simulation.ground_truth_M)
+
+
+def test_spatial_dropout_requires_neighbor_calculation():
+    with pytest.raises(ValueError, match="Spatial dropout requires calculate_neighbors=True"):
+        generate_simulation(
+            recipes={"layer": default_cortex_layer_recipe()},
+            config=_small_config(),
+            replicates={"layer_0": "layer"},
+            dropout=SpatialDropoutConfig(sparsity=0.05, random_state=0),
+            calculate_neighbors=False,
         )
-        np.testing.assert_allclose(
-            first_dataset.simulation.ground_truth_M,
-            second_dataset.simulation.ground_truth_M,
-        )
-    np.testing.assert_allclose(
-        first.datasets[0].simulation.ground_truth_M,
-        first.datasets[1].simulation.ground_truth_M,
-    )
 
 
 def test_disjoint_metagenes_have_nonoverlapping_gene_support():

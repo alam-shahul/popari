@@ -6,7 +6,6 @@ import torch
 from scipy.sparse import csr_array
 
 from popari import pp, tl
-from popari.io import merge_anndata
 from popari.model import Popari
 
 matplotlib.use("Agg")
@@ -95,29 +94,47 @@ def mock_datasets(dataset_factory):
     return dataset_factory()
 
 
-def _model_adata(datasets, replicate_names=None):
+def _model_adata(datasets, sample_key="batch"):
     datasets = [dataset.copy() for dataset in datasets]
-    if replicate_names is not None:
-        if len(replicate_names) != len(datasets):
-            raise ValueError("replicate_names must match the number of datasets.")
-        for dataset, name in zip(datasets, replicate_names):
-            dataset.popari.name = name
-    return merge_anndata(datasets)
+    sample_names = []
+    for dataset in datasets:
+        try:
+            sample_names.append(dataset.popari.name)
+        except ValueError:
+            names = dataset.obs["batch"].astype(str).unique()
+            if len(names) != 1:
+                raise ValueError("Test datasets must contain exactly one sample.")
+            sample_names.append(str(names[0]))
+    for dataset, name in zip(datasets, sample_names, strict=True):
+        dataset.obs[sample_key] = name
+        if sample_key != "batch":
+            dataset.obs.drop(columns=["batch"], errors="ignore", inplace=True)
+    adata = ad.concat(datasets, index_unique="-", pairwise=True)
+    adata.obs[sample_key] = adata.obs[sample_key].astype("category")
+    adata.obs[sample_key] = adata.obs[sample_key].cat.reorder_categories(sample_names, ordered=True)
+    return adata
 
 
 @pytest.fixture(scope="session")
-def shared_model_factory(context, dataset_factory):
+def adata_factory(dataset_factory):
+    def factory(*, sample_key="batch", **dataset_kwargs):
+        return _model_adata(dataset_factory(**dataset_kwargs), sample_key=sample_key)
+
+    return factory
+
+
+@pytest.fixture(scope="session")
+def shared_model_factory(context, adata_factory):
     def factory(**overrides):
+        sample_key = overrides.pop("sample_key", None)
         adata = overrides.pop("adata", None)
         if adata is None:
-            datasets = overrides.pop("datasets", dataset_factory())
-            replicate_names = overrides.pop("replicate_names", None)
-            adata = _model_adata(datasets, replicate_names)
+            adata = adata_factory(sample_key=sample_key or "batch")
         return Popari(
             K=overrides.pop("K", 3),
             adata=adata,
+            sample_key=sample_key,
             lambda_Sigma_x_inv=overrides.pop("lambda_Sigma_x_inv", 1e-3),
-            metagene_mode=overrides.pop("metagene_mode", "shared"),
             spatial_affinity_mode=overrides.pop("spatial_affinity_mode", "shared lookup"),
             initialization_method=overrides.pop("initialization_method", "svd"),
             torch_context=overrides.pop("torch_context", context),
@@ -131,19 +148,17 @@ def shared_model_factory(context, dataset_factory):
 
 
 @pytest.fixture(scope="session")
-def differential_model_factory(context, dataset_factory):
+def differential_model_factory(context, adata_factory):
     def factory(**overrides):
+        sample_key = overrides.pop("sample_key", None)
         adata = overrides.pop("adata", None)
         if adata is None:
-            datasets = overrides.pop("datasets", dataset_factory())
-            replicate_names = overrides.pop("replicate_names", None)
-            adata = _model_adata(datasets, replicate_names)
+            adata = adata_factory(sample_key=sample_key or "batch")
         return Popari(
             K=overrides.pop("K", 3),
             adata=adata,
+            sample_key=sample_key,
             lambda_Sigma_x_inv=overrides.pop("lambda_Sigma_x_inv", 1e-3),
-            metagene_mode="differential",
-            lambda_M=overrides.pop("lambda_M", 0.5),
             spatial_affinity_mode=overrides.pop("spatial_affinity_mode", "differential lookup"),
             lambda_Sigma_bar=overrides.pop("lambda_Sigma_bar", 1e-3),
             initialization_method=overrides.pop("initialization_method", "svd"),
@@ -158,16 +173,16 @@ def differential_model_factory(context, dataset_factory):
 
 
 @pytest.fixture(scope="session")
-def hierarchical_model_factory(context, dataset_factory):
+def hierarchical_model_factory(context, adata_factory):
     def factory(**overrides):
+        sample_key = overrides.pop("sample_key", None)
         adata = overrides.pop("adata", None)
         if adata is None:
-            datasets = overrides.pop("datasets", dataset_factory(num_cells=36))
-            replicate_names = overrides.pop("replicate_names", None)
-            adata = _model_adata(datasets, replicate_names)
+            adata = adata_factory(num_cells=36, sample_key=sample_key or "batch")
         return Popari(
             K=overrides.pop("K", 3),
             adata=adata,
+            sample_key=sample_key,
             lambda_Sigma_x_inv=overrides.pop("lambda_Sigma_x_inv", 1e-3),
             initialization_method=overrides.pop("initialization_method", "svd"),
             spatial_affinity_mode=overrides.pop("spatial_affinity_mode", "differential lookup"),
@@ -195,9 +210,9 @@ def tmp_h5_path(tmp_path):
 
 
 @pytest.fixture(scope="session")
-def trained_shared_model(shared_model_factory, dataset_factory, context):
+def trained_shared_model(shared_model_factory, adata_factory, context):
     model = shared_model_factory(
-        datasets=dataset_factory(num_cells=48),
+        adata=adata_factory(num_cells=48),
         torch_context=context,
         initial_context=context,
     )
@@ -208,37 +223,35 @@ def trained_shared_model(shared_model_factory, dataset_factory, context):
 
 
 @pytest.fixture(scope="session")
-def initialized_shared_model(shared_model_factory, dataset_factory):
-    return shared_model_factory(datasets=dataset_factory(num_cells=48))
+def initialized_shared_model(shared_model_factory, adata_factory):
+    return shared_model_factory(adata=adata_factory(num_cells=48))
 
 
 @pytest.fixture(scope="session")
 def preprocessed_shared_model(initialized_shared_model):
     model = initialized_shared_model
-    tl.postprocess_embeddings(model.datasets)
-    pp.pca(model.datasets, joint=False, n_comps=3)
-    pp.pca(model.datasets, joint=True, n_comps=3)
+    tl.postprocess_embeddings(model.adata)
+    pp.pca(model.adata, n_comps=3)
     return model
 
 
 @pytest.fixture(scope="session")
 def analyzed_shared_model(preprocessed_shared_model):
     model = preprocessed_shared_model
-    tl.compute_columnwise_autocorrelation(model.datasets, uns="M")
-    tl.compute_empirical_correlations(model.datasets, output="empirical_correlation")
-    tl.compute_spatial_gene_correlation(model.datasets)
-    tl.cluster_domains(model.datasets, target_domains=2)
+    tl.compute_columnwise_autocorrelation(model.adata, uns="M")
+    tl.compute_empirical_correlations(model.adata, output="empirical_correlation")
+    tl.compute_spatial_gene_correlation(model.adata)
+    tl.cluster_domains(model.adata, target_domains=2)
     return model
 
 
 @pytest.fixture(scope="session")
 def clustered_shared_model(preprocessed_shared_model):
     model = preprocessed_shared_model
-    tl.leiden(model.datasets, joint=True, target_clusters=3)
-    tl.compute_ari_scores(model.datasets, labels="cell_type", predictions="leiden")
-    tl.compute_silhouette_scores(model.datasets, labels="cell_type", embeddings="normalized_X")
-    tl.evaluate_classification_task(model.datasets, labels="cell_type", embeddings="normalized_X", joint=False)
-    tl.evaluate_classification_task(model.datasets, labels="cell_type", embeddings="normalized_X", joint=True)
+    tl.leiden(model.adata, target_clusters=3)
+    tl.compute_ari_scores(model.adata, labels="cell_type", predictions="leiden")
+    tl.compute_silhouette_scores(model.adata, labels="cell_type", embeddings="normalized_X")
+    tl.evaluate_classification_task(model.adata, labels="cell_type", embeddings="normalized_X")
     return model
 
 
@@ -250,9 +263,4 @@ def shared_model_expected_metrics():
         "metagene_sum": 3.0,
         "embedding_sum_0": 139.86554004948852,
         "spatial_affinity_sum_0": 2.866319315960922,
-        "pca_norms": [30.21869468688965, 32.63429260253906],
-        "ari": [1.0, 1.0],
-        "silhouette": [0.9852840340378157, 0.955100150059938],
-        "microprecision_validation": [2 / 3, 2 / 3],
-        "macroprecision_validation": [0.5, 0.5],
     }

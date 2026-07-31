@@ -100,11 +100,6 @@ def get_parser():
         help="Number of epochs to do superresolution optimization.",
     )
     parser.add_argument(
-        "--metagene_groups",
-        type=json.loads,
-        help="defines a grouping of replicates for the metagene optimization.",
-    )
-    parser.add_argument(
         "--spatial_affinity_groups",
         type=json.loads,
         help="defines a grouping of replicates for the spatial affinity optimization.",
@@ -133,12 +128,6 @@ def get_parser():
         help="Method to use for downsampling in hierarchical mode. Default ``partition``",
     )
 
-    parser.add_argument("--metagene_mode", type=str, help="modality of metagene parameters. Default ``shared``")
-    parser.add_argument(
-        "--lambda_M",
-        type=float,
-        help="hyperparameter to constrain metagene deviation in differential case.",
-    )
     parser.add_argument(
         "--lambda_Sigma_bar",
         type=float,

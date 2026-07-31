@@ -148,7 +148,9 @@ def compute_metagene_enrichment(
 
     """
 
-    metagenes = np.asarray(dataset.popari.metagenes)
+    if "M" not in dataset.uns:
+        raise KeyError('dataset.uns["M"] is missing.')
+    metagenes = np.asarray(dataset.uns["M"])
     indices = range(metagenes.shape[1]) if metagene_indices is None else metagene_indices
     measured_genes = list(dataset.var_names if background is None else background)
     results = []
@@ -188,13 +190,19 @@ def order_columns_by_best_row(scores):
     return np.argsort(np.argmax(scores, axis=0) - np.max(scores, axis=0) / (np.max(scores) + 1))
 
 
-def compute_gene_set_auroc(dataset, gene_sets, metagene_key: str = "M"):
-    """Compute metagene correspondence to gene-set columns for one dataset."""
+def compute_gene_set_auroc(
+    dataset,
+    gene_sets,
+    metagene_key: str = "M",
+):
+    """Compute metagene correspondence to gene-set columns."""
 
     from scipy.stats import mannwhitneyu
     from sklearn.metrics import auc, roc_curve
 
-    metagenes = dataset.uns[metagene_key][dataset.popari.name]
+    if metagene_key not in dataset.uns:
+        raise KeyError(f"dataset.uns[{metagene_key!r}] is missing.")
+    metagenes = np.asarray(dataset.uns[metagene_key])
     _, num_metagenes = metagenes.shape
     num_gene_sets = len(gene_sets.columns)
 

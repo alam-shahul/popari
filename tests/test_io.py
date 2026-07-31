@@ -4,16 +4,10 @@ import pandas as pd
 import pytest
 from scipy.sparse import csr_array
 
-from popari.io import (
-    convert_legacy_anndata,
-    load_anndata,
-    load_anndata_hierarchy,
-    merge_anndata,
-    normalize_anndata_hierarchy,
-    save_anndata,
-    unmerge_anndata,
-)
+from popari.io import load_anndata, load_anndata_hierarchy, save_anndata
+from popari.legacy_io import convert_legacy_anndata, normalize_anndata_hierarchy
 from popari.model import load_trained_model
+from scripts.migrate_popari_artifact import migrate_artifact
 
 
 def test_convert_legacy_anndata_requires_adjacency_matrix():
@@ -25,6 +19,34 @@ def test_convert_legacy_anndata_requires_adjacency_matrix():
 
     with pytest.raises(KeyError, match="Missing spatial graph"):
         convert_legacy_anndata(merged_dataset)
+
+
+def test_load_anndata_rejects_legacy_artifact(tmp_path):
+    dataset = ad.AnnData(X=np.ones((2, 2)))
+    dataset.obs["batch"] = pd.Categorical(["sample", "sample"])
+    dataset.obsp["adjacency_matrix"] = csr_array((2, 2))
+    path = tmp_path / "legacy.h5ad"
+    dataset.write_h5ad(path)
+
+    with pytest.raises(ValueError, match="migrate_popari_artifact.py"):
+        load_anndata(path)
+
+
+def test_migrate_artifact_writes_canonical_h5ad(tmp_path):
+    legacy = ad.AnnData(X=np.ones((2, 2)))
+    legacy.obs_names = ["cell_0", "cell_1"]
+    legacy.obs["batch"] = pd.Categorical(["sample", "sample"])
+    legacy.uns["adjacency_matrix"] = {"sample": np.array([[0, 1], [1, 0]])}
+    source = tmp_path / "legacy.h5ad"
+    destination = tmp_path / "canonical.h5ad"
+    legacy.write_h5ad(source)
+
+    migrate_artifact(source, destination)
+
+    migrated = load_anndata(destination)
+    assert migrated.popari.sample_names == ("sample",)
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        migrate_artifact(source, destination)
 
 
 def test_convert_legacy_anndata_reconstructs_sample_graphs():
@@ -42,9 +64,71 @@ def test_convert_legacy_anndata_reconstructs_sample_graphs():
 
     assert canonical.popari.sample_names == ("replicate_0", "replicate_1")
     assert canonical.obs_names.is_unique
-    assert canonical.uns["popari_schema_version"] == 1
+    assert canonical.uns["popari_schema_version"] == 2
     assert canonical.obsp["adjacency_matrix"].shape == (5, 5)
     assert canonical.obsp["adjacency_matrix"][:2, 2:].nnz == 0
+
+
+def test_convert_legacy_anndata_collapses_shared_metagene_mappings():
+    dataset = ad.AnnData(X=np.ones((4, 3)))
+    dataset.obs["batch"] = pd.Categorical(["first", "first", "second", "second"])
+    dataset.obsp["adjacency_matrix"] = csr_array((4, 4))
+    metagenes = np.arange(6).reshape(3, 2)
+    dataset.uns["M"] = {"first": metagenes, "second": metagenes.copy()}
+    dataset.uns["ground_truth_M"] = {"first": metagenes, "second": metagenes.copy()}
+
+    canonical = convert_legacy_anndata(dataset)
+
+    np.testing.assert_array_equal(canonical.uns["M"], metagenes)
+    np.testing.assert_array_equal(canonical.uns["ground_truth_M"], metagenes)
+
+
+def test_convert_legacy_anndata_rejects_differential_metagenes():
+    dataset = ad.AnnData(X=np.ones((4, 3)))
+    dataset.obs["batch"] = pd.Categorical(["first", "first", "second", "second"])
+    dataset.obsp["adjacency_matrix"] = csr_array((4, 4))
+    dataset.uns["M"] = {
+        "first": np.ones((3, 2)),
+        "second": np.full((3, 2), 2),
+    }
+
+    with pytest.raises(ValueError, match="Differential metagenes are no longer supported"):
+        convert_legacy_anndata(dataset)
+
+
+def test_convert_legacy_anndata_reconstructs_duplicate_observation_names():
+    merged_dataset = ad.AnnData(X=np.ones((4, 2)))
+    merged_dataset.obs_names = ["Astro", "Astro", "Astro", "Oligo"]
+    merged_dataset.obs["batch"] = pd.Categorical(
+        ["replicate_0", "replicate_0", "replicate_1", "replicate_1"],
+        categories=["replicate_0", "replicate_1"],
+        ordered=True,
+    )
+    merged_dataset.uns["adjacency_matrix"] = {
+        "replicate_0": np.array([[0, 1], [1, 0]]),
+        "replicate_1": np.array([[0, 1], [1, 0]]),
+    }
+
+    canonical = convert_legacy_anndata(merged_dataset)
+
+    assert canonical.obs_names.tolist() == [
+        "replicate_0:0",
+        "replicate_0:1",
+        "replicate_1:0",
+        "replicate_1:1",
+    ]
+    assert canonical.obs["_legacy_obs_name"].tolist() == [
+        "Astro",
+        "Astro",
+        "Astro",
+        "Oligo",
+    ]
+    assert canonical.obs["batch"].astype(str).tolist() == [
+        "replicate_0",
+        "replicate_0",
+        "replicate_1",
+        "replicate_1",
+    ]
 
 
 @pytest.mark.baseline
@@ -55,22 +139,19 @@ def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
 
     save_anndata(filepath, canonical)
     reloaded = load_anndata(filepath)
-    datasets, replicate_names = unmerge_anndata(reloaded)
 
-    assert replicate_names == model.replicate_names
     assert reloaded.popari.sample_names == tuple(model.replicate_names)
-    assert len(datasets) == len(model.replicate_names)
-    for sample, sample_adata in zip(model.replicate_names, datasets):
-        indices = model.adata.popari.sample_indices(sample)
-        assert sample_adata.popari.name == sample
-        assert sample_adata.shape == (len(indices), model.adata.n_vars)
-        assert np.allclose(sample_adata.obsm["X"], model.adata.obsm["X"][indices])
-        assert np.allclose(
-            sample_adata.uns["M"][sample],
-            model.adata.uns["M"][sample],
+    assert reloaded.shape == model.adata.shape
+    assert reloaded.obs_names.equals(model.adata.obs_names)
+    assert np.allclose(reloaded.obsm["X"], model.adata.obsm["X"])
+    assert np.allclose(reloaded.uns["M"], model.adata.uns["M"])
+    for sample in model.replicate_names:
+        assert np.array_equal(
+            reloaded.popari.sample_indices(sample),
+            model.adata.popari.sample_indices(sample),
         )
         assert np.allclose(
-            sample_adata.uns["Sigma_x_inv"][sample],
+            reloaded.uns["Sigma_x_inv"][sample],
             model.adata.uns["Sigma_x_inv"][sample],
         )
 
@@ -115,14 +196,63 @@ def test_normalize_anndata_hierarchy_removes_legacy_level_suffixes(shared_model_
         categories=renames.values(),
         ordered=True,
     )
-    for key in ("M", "Sigma_x_inv", "sigma_yx"):
+    for key in ("Sigma_x_inv", "sigma_yx"):
         coarse.uns[key] = {renames[sample]: value for sample, value in coarse.uns[key].items()}
 
     hierarchy = normalize_anndata_hierarchy({0: fine, 1: coarse})
 
     assert hierarchy[1].popari.sample_names == tuple(model.replicate_names)
-    assert tuple(hierarchy[1].uns["M"]) == tuple(model.replicate_names)
+    np.testing.assert_array_equal(hierarchy[1].uns["M"], model.adata.uns["M"])
     assert tuple(hierarchy[1].uns["Sigma_x_inv"]) == tuple(model.replicate_names)
+
+
+def test_normalize_anndata_hierarchy_combines_legacy_bin_assignments():
+    fine = ad.AnnData(X=np.ones((5, 2)))
+    fine.obs_names = [f"fine_{index}" for index in range(5)]
+    fine.obs["batch"] = pd.Categorical(
+        ["sample_a", "sample_a", "sample_b", "sample_b", "sample_b"],
+        categories=["sample_a", "sample_b"],
+        ordered=True,
+    )
+    fine.uns["adjacency_matrix"] = {
+        "sample_a": np.eye(2),
+        "sample_b": np.eye(3),
+    }
+    fine = convert_legacy_anndata(fine)
+
+    coarse = ad.AnnData(X=np.ones((3, 2)))
+    coarse.obs_names = [f"coarse_{index}" for index in range(3)]
+    coarse.obs["batch"] = pd.Categorical(
+        ["sample_a_level_1", "sample_b_level_1", "sample_b_level_1"],
+        categories=["sample_a_level_1", "sample_b_level_1"],
+        ordered=True,
+    )
+    coarse.uns["adjacency_matrix"] = {
+        "sample_a_level_1": np.eye(1),
+        "sample_b_level_1": np.eye(2),
+    }
+    coarse.obsm["bin_assignments_sample_a_level_1"] = csr_array(
+        [[1, 1], [0, 0], [0, 0]],
+    )
+    coarse.obsm["bin_assignments_sample_b_level_1"] = csr_array(
+        [[0, 0, 0], [1, 1, 0], [0, 0, 1]],
+    )
+    coarse = convert_legacy_anndata(coarse)
+
+    hierarchy = normalize_anndata_hierarchy({0: fine, 1: coarse})
+
+    assert hierarchy[1].popari.sample_names == ("sample_a", "sample_b")
+    assert list(hierarchy[1].obsm) == ["bin_assignments"]
+    assert np.array_equal(
+        hierarchy[1].obsm["bin_assignments"].toarray(),
+        np.array(
+            [
+                [1, 1, 0, 0, 0],
+                [0, 0, 1, 1, 0],
+                [0, 0, 0, 0, 1],
+            ],
+        ),
+    )
 
 
 def test_save_and_load_supports_custom_sample_key(tmp_path):
@@ -155,32 +285,25 @@ def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
     reloaded = load_trained_model(filepath)
 
     assert reloaded.replicate_names == model.replicate_names
-    assert reloaded.metagene_mode == model.metagene_mode
     assert reloaded.spatial_affinity_mode == model.spatial_affinity_mode
 
     assert np.allclose(reloaded.adata.obsm["X"], model.adata.obsm["X"])
-    for sample in model.replicate_names:
-        assert np.allclose(
-            reloaded.adata.uns["M"][sample],
-            model.adata.uns["M"][sample],
-        )
+    assert np.allclose(reloaded.adata.uns["M"], model.adata.uns["M"])
 
     assert np.isfinite(reloaded.nll(level=0)).all()
 
 
 @pytest.mark.baseline
-def test_load_differential_from_shared_file(shared_model_factory, tmp_path):
+def test_load_differential_affinities_from_shared_file(shared_model_factory, tmp_path):
     model = shared_model_factory()
     filepath = tmp_path / "shared_model.h5ad"
     model.save_results(filepath, ignore_raw_data=False)
 
     differential = load_trained_model(
         filepath,
-        metagene_mode="differential",
         spatial_affinity_mode="differential lookup",
     )
 
-    assert differential.metagene_mode == "differential"
     assert differential.spatial_affinity_mode == "differential lookup"
 
 
@@ -220,3 +343,10 @@ def test_reload_expression_restores_trainability(hierarchical_model_factory, tmp
     reloaded._reload_expression(raw_adata)
 
     assert reloaded.hierarchy[0].adata.X.sum() > 0
+
+
+def test_reload_expression_rejects_sample_sequences(hierarchical_model_factory):
+    model = hierarchical_model_factory(hierarchical_levels=2)
+
+    with pytest.raises(TypeError, match="one unified AnnData"):
+        model._reload_expression([model.adata.copy()])

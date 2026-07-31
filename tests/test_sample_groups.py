@@ -15,10 +15,7 @@ def multisample_dataset():
             index=[f"cell_{index}" for index in range(4)],
         ),
     )
-    dataset.uns["M"] = {
-        "sample_a": np.ones((3, 2)),
-        "sample_b": np.full((3, 2), 2),
-    }
+    dataset.uns["M"] = np.ones((3, 2))
     dataset.uns["Sigma_x_inv"] = {
         "sample_a": np.eye(2),
         "sample_b": np.full((2, 2), 3),
@@ -38,10 +35,10 @@ def test_subset_samples_copies_groups_and_filters_parameters(multisample_dataset
     assert subsets["first"].n_obs == 2
     assert subsets["first"].popari.name == "first"
     assert subsets["first"].obs["batch"].unique().tolist() == ["sample_a"]
-    assert set(subsets["first"].uns["M"]) == {"sample_a"}
+    np.testing.assert_array_equal(subsets["first"].uns["M"], multisample_dataset.uns["M"])
     assert set(subsets["first"].uns["Sigma_x_inv"]) == {"sample_a"}
     assert subsets["both"].n_obs == 4
-    assert set(subsets["both"].uns["M"]) == {"sample_a", "sample_b"}
+    np.testing.assert_array_equal(subsets["both"].uns["M"], multisample_dataset.uns["M"])
     assert "dataset_name" not in multisample_dataset.uns
 
 

@@ -1,6 +1,7 @@
 # CLI
 
 Popari can also be used as a command line tool. After {ref}`installation <installation>` via pip, you can run Popari as below:
+
 ```
 popari --K={number of metagenes} \
        --num_iterations={number of iterations} \
@@ -9,11 +10,12 @@ popari --K={number of metagenes} \
 ```
 
 The above example includes just the required arguments. Below is the help message that includes the CLI including the names of all optional arguments (see {doc}`the Popari class documentation </api/popari.model.Popari>` for more details on these arguments):
+
 ```
 usage: popari [-h] --K K --num_iterations NUM_ITERATIONS --nmf_preiterations NMF_PREITERATIONS --output_path OUTPUT_PATH [--dataset_path DATASET_PATH] [--lambda_Sigma_x_inv LAMBDA_SIGMA_X_INV]
-              [--pretrained PRETRAINED] [--initialization_method INITIALIZATION_METHOD] [--metagene_groups METAGENE_GROUPS] [--spatial_affinity_groups SPATIAL_AFFINITY_GROUPS] [--betas BETAS]
+              [--pretrained PRETRAINED] [--initialization_method INITIALIZATION_METHOD] [--spatial_affinity_groups SPATIAL_AFFINITY_GROUPS] [--betas BETAS]
               [--prior_x_modes PRIOR_X_MODES] [--M_constraint M_CONSTRAINT] [--sigma_yx_inv_mode SIGMA_YX_INV_MODE] [--torch_context TORCH_CONTEXT] [--initial_context INITIAL_CONTEXT]
-              [--spatial_affinity_mode SPATIAL_AFFINITY_MODE] [--lambda_M LAMBDA_M] [--lambda_Sigma_bar LAMBDA_SIGMA_BAR] [--spatial_affinity_lr SPATIAL_AFFINITY_LR]
+              [--spatial_affinity_mode SPATIAL_AFFINITY_MODE] [--lambda_Sigma_bar LAMBDA_SIGMA_BAR] [--spatial_affinity_lr SPATIAL_AFFINITY_LR]
               [--spatial_affinity_tol SPATIAL_AFFINITY_TOL] [--spatial_affinity_constraint SPATIAL_AFFINITY_CONSTRAINT] [--spatial_affinity_centering SPATIAL_AFFINITY_CENTERING]
               [--spatial_affinity_scaling SPATIAL_AFFINITY_SCALING] [--spatial_affinity_regularization_power SPATIAL_AFFINITY_REGULARIZATION_POWER]
               [--embedding_mini_iterations EMBEDDING_MINI_ITERATIONS] [--embedding_acceleration_trick EMBEDDING_ACCELERATION_TRICK] [--embedding_step_size_multiplier EMBEDDING_STEP_SIZE_MULTIPLIER]
@@ -38,8 +40,6 @@ optional arguments:
                         if set, attempts to load model state from input files
   --initialization_method INITIALIZATION_METHOD
                         algorithm to use for initializing metagenes and embeddings. Default ``svd``
-  --metagene_groups METAGENE_GROUPS
-                        defines a grouping of replicates for the metagene optimization.
   --spatial_affinity_groups SPATIAL_AFFINITY_GROUPS
                         defines a grouping of replicates for the spatial affinity optimization.
   --betas BETAS         weighting of each dataset during optimization. Defaults to equally weighting each dataset
@@ -55,7 +55,6 @@ optional arguments:
                         keyword args to use during initialization of PyTorch tensors.
   --spatial_affinity_mode SPATIAL_AFFINITY_MODE
                         modality of spatial affinity parameters. Default ``shared lookup``
-  --lambda_M LAMBDA_M   hyperparameter to constrain metagene deviation in differential case.
   --lambda_Sigma_bar LAMBDA_SIGMA_BAR
                         hyperparameter to constrain spatial affinity deviation in differential case.
   --spatial_affinity_lr SPATIAL_AFFINITY_LR

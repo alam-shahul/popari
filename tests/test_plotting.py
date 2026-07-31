@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 import scanpy as sc
 from matplotlib import pyplot as plt
+from matplotlib.collections import LineCollection, PathCollection
 from matplotlib.figure import Figure
 from scipy.sparse import csr_matrix
 
@@ -319,9 +320,15 @@ def test_matrix_heatmap_panel_center_zero_without_shared_scale():
         _close_figures(figure)
 
 
-def _edge_interaction_dataset():
-    dataset = ad.AnnData(X=np.ones((3, 2)))
-    dataset.popari.name = "replicate_0"
+def _edge_interaction_dataset(sample="replicate_0"):
+    dataset = ad.AnnData(
+        X=np.ones((3, 2)),
+        obs=pd.DataFrame(
+            {"batch": pd.Categorical([sample] * 3, categories=[sample])},
+            index=[f"{sample}_cell_{index}" for index in range(3)],
+        ),
+    )
+    dataset.popari.name = sample
     dataset.obsm["spatial"] = np.array(
         [
             [0.0, 0.0],
@@ -344,7 +351,7 @@ def _edge_interaction_dataset():
             [1, 0, 0],
         ],
     )
-    dataset.uns["Sigma_x_inv"] = {"replicate_0": np.diag([2.0, 3.0])}
+    dataset.uns["Sigma_x_inv"] = {sample: np.diag([2.0, 3.0])}
     return dataset
 
 
@@ -384,15 +391,30 @@ def test_edge_interactions_plot_returns_figure():
 
 
 def test_edge_interactions_panel_uses_shared_category_pair_scale():
-    datasets = [_edge_interaction_dataset(), _edge_interaction_dataset()]
-    datasets[0].popari.name = "first"
-    datasets[1].popari.name = "second"
-    datasets[0].popari.spatial_affinity = np.diag([2.0, 3.0])
-    datasets[1].popari.spatial_affinity = np.diag([2.0, 3.0])
-    interactions = [tl.compute_edge_interactions(dataset) for dataset in datasets]
+    first = _edge_interaction_dataset("first")
+    second = _edge_interaction_dataset("second")
+    dataset = ad.concat(
+        {"first": first, "second": second},
+        label="batch",
+        index_unique=None,
+        merge="same",
+        pairwise=True,
+    )
+    dataset.obs["batch"] = pd.Categorical(
+        dataset.obs["batch"],
+        categories=["first", "second"],
+        ordered=True,
+    )
+    dataset.uns["Sigma_x_inv"] = {
+        "first": np.diag([2.0, 3.0]),
+        "second": np.diag([2.0, 3.0]),
+    }
+    interactions = {
+        sample: tl.compute_edge_interactions(dataset, sample=sample) for sample in dataset.obs["batch"].cat.categories
+    }
 
     figure = pl.edge_interactions_panel(
-        datasets,
+        dataset,
         interactions,
         category_key="cell_type",
         category_pair=("A", "B"),
@@ -403,13 +425,19 @@ def test_edge_interactions_panel_uses_shared_category_pair_scale():
     try:
         assert isinstance(figure, Figure)
         assert [axis.get_title() for axis in figure.axes[:2]] == ["first", "second"]
-        assert figure.axes[-1].get_ylabel() == "Edge interaction score"
+        assert figure.axes[-1].get_ylabel() == "Edge accordance score"
     finally:
         _close_figures(figure)
 
 
 def test_all_embeddings_without_adjacency_returns_figure():
-    dataset = ad.AnnData(X=np.ones((4, 3)))
+    dataset = ad.AnnData(
+        X=np.ones((4, 3)),
+        obs=pd.DataFrame(
+            {"batch": pd.Categorical(["replicate"] * 4)},
+            index=[f"cell_{index}" for index in range(4)],
+        ),
+    )
     dataset.obsm["spatial"] = np.array(
         [
             [0.0, 0.0],
@@ -425,6 +453,24 @@ def test_all_embeddings_without_adjacency_returns_figure():
     try:
         assert isinstance(figure, Figure)
         assert [axis.get_title() for axis in figure.axes[:2]] == ["X_0", "X_1"]
+    finally:
+        _close_figures(figure)
+
+
+def test_all_embeddings_restores_publication_size_scaling(monkeypatch):
+    dataset = _multisample_spatial_dataset()
+    dataset.obsm["X"] = np.arange(16, dtype=float).reshape(8, 2)
+    sizes = []
+
+    def fake_spatial_scatter(adata, **kwargs):
+        sizes.append(kwargs["size"])
+
+    monkeypatch.setattr("popari.plotting.spatial.sq.pl.spatial_scatter", fake_spatial_scatter)
+
+    figure = pl.all_embeddings(dataset, size=2)
+
+    try:
+        assert sizes == [pytest.approx(2 * dataset.n_obs / 100)] * 4
     finally:
         _close_figures(figure)
 
@@ -493,6 +539,129 @@ def test_in_situ_supports_categorical_observation_values():
     try:
         assert isinstance(figure, Figure)
         assert figure.axes[0].collections
+        point_collections = [collection for collection in figure.axes[0].collections if len(collection.get_offsets())]
+        assert point_collections
+        assert all(len(collection.get_edgecolors()) == 0 for collection in point_collections)
+        assert all(np.all(collection.get_linewidths() == 0) for collection in point_collections)
+    finally:
+        _close_figures(figure)
+
+
+def _multisample_spatial_dataset():
+    dataset = ad.AnnData(
+        X=np.ones((8, 1)),
+        obs=pd.DataFrame(
+            {
+                "batch": pd.Categorical(["sample_a"] * 4 + ["sample_b"] * 4),
+                "distance": [0.0, 1.0, 2.0, 3.0, 10.0, 11.0, 12.0, 13.0],
+                "domain": pd.Categorical(["A", "B", "A", "B"] * 2),
+            },
+            index=[f"cell_{index}" for index in range(8)],
+        ),
+    )
+    dataset.obsm["spatial"] = np.tile(
+        np.array(
+            [
+                [0.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 0.0],
+                [1.0, 1.0],
+            ],
+        ),
+        (2, 1),
+    )
+    dataset.obsp["adjacency_matrix"] = csr_matrix(
+        (
+            np.ones(8),
+            (
+                np.arange(8),
+                [1, 0, 3, 2, 5, 4, 7, 6],
+            ),
+        ),
+        shape=(8, 8),
+    )
+    return dataset
+
+
+def test_in_situ_restores_publication_plotting_defaults(monkeypatch):
+    dataset = _multisample_spatial_dataset()
+    captured = {}
+
+    def fake_spatial_scatter(adata, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("popari.plotting.spatial.sq.pl.spatial_scatter", fake_spatial_scatter)
+
+    figure = pl.in_situ(
+        dataset,
+        samples="sample_a",
+        color="domain",
+        edges_width=0,
+        size=2,
+        shape=None,
+    )
+
+    try:
+        assert captured["size"] == pytest.approx(2 * 5000 / 4)
+        assert captured["legend_fontsize"] == "xx-small"
+        expected_colors = np.asarray(sc.pl.palettes.godsnot_102)[[0, -1]]
+        np.testing.assert_array_equal(captured["palette"].colors, expected_colors)
+    finally:
+        _close_figures(figure)
+
+
+def test_in_situ_facets_selected_samples_with_total_figure_size():
+    dataset = _multisample_spatial_dataset()
+
+    figure = pl.in_situ(
+        dataset,
+        samples=["sample_b", "sample_a"],
+        color="distance",
+        edges_width=0,
+        colorbar=False,
+        figsize=(8, 3),
+        shape=None,
+    )
+
+    try:
+        np.testing.assert_allclose(figure.get_size_inches(), (8, 3))
+        assert [axis.get_title() for axis in figure.axes[:2]] == ["sample_b", "sample_a"]
+        for axis in figure.axes[:2]:
+            norms = [collection.norm for collection in axis.collections if collection.norm is not None]
+            assert norms
+            assert all(norm.vmin == pytest.approx(0.0) for norm in norms)
+            assert all(norm.vmax == pytest.approx(13.0) for norm in norms)
+    finally:
+        _close_figures(figure)
+
+
+def test_in_situ_uses_shared_categorical_palette_and_spatial_edges():
+    dataset = _multisample_spatial_dataset()
+    dataset.obs["domain"] = dataset.obs["domain"].astype(str)
+
+    figure = pl.in_situ(
+        dataset,
+        color="domain",
+        edges_width=1,
+        colorbar=False,
+        figsize=(8, 3),
+        shape=None,
+    )
+
+    try:
+        axes = figure.axes[:2]
+        assert all(any(isinstance(collection, LineCollection) for collection in axis.collections) for axis in axes)
+        palettes = []
+        for axis in axes:
+            colors = np.concatenate(
+                [
+                    collection.get_facecolors()
+                    for collection in axis.collections
+                    if isinstance(collection, PathCollection) and len(collection.get_facecolors())
+                ],
+            )
+            palettes.append(np.unique(colors, axis=0))
+        np.testing.assert_allclose(palettes[0], palettes[1])
     finally:
         _close_figures(figure)
 
@@ -501,17 +670,17 @@ def test_in_situ_supports_categorical_observation_values():
 def test_plotting_wrappers_return_figures(analyzed_shared_model):
     model = analyzed_shared_model
     marker_genes = {
-        "type_0": [model.datasets[0].var_names[0], model.datasets[0].var_names[1]],
-        "type_1": [model.datasets[0].var_names[2], model.datasets[0].var_names[3]],
+        "type_0": [model.adata.var_names[0], model.adata.var_names[1]],
+        "type_1": [model.adata.var_names[2], model.adata.var_names[3]],
     }
 
-    metagene_figure = pl.metagene_embedding(model.datasets, metagene_index=0)
-    heatmap_figure = pl.multireplicate_heatmap(model.datasets, uns="M")
-    affinity_figure = pl.spatial_affinity_heatmap(model.datasets)
-    embeddings_figure = pl.all_embeddings(model.datasets)
-    cell_type_figure, medians = pl.cell_type_to_metagene(model.datasets[0], marker_genes)
+    metagene_figure = pl.metagene_embedding(model.adata, metagene_index=0)
+    heatmap_figure = pl.multireplicate_heatmap(model.adata, uns="M")
+    affinity_figure = pl.spatial_affinity_heatmap(model.adata)
+    embeddings_figure = pl.all_embeddings(model.adata)
+    cell_type_figure, medians = pl.cell_type_to_metagene(model.adata, marker_genes)
     difference_figure, difference_medians = pl.cell_type_to_metagene_difference(
-        model.datasets[0],
+        model.adata,
         marker_genes,
         first_metagene=0,
         second_metagene=1,
@@ -546,19 +715,22 @@ def test_plotting_wrappers_return_figures(analyzed_shared_model):
 @pytest.mark.expensive
 def test_embedding_category_and_umap_plots(clustered_shared_model):
     model = clustered_shared_model
-    tl.umap(model.datasets, use_rep="normalized_X", joint=False)
-    tl.compute_confusion_matrix(model.datasets, labels="cell_type", predictions="cell_type", joint=False)
+    tl.umap(model.adata, use_rep="normalized_X")
+    tl.compute_confusion_matrix(model.adata, labels="cell_type", predictions="cell_type")
     marker_genes = {
-        "type_0": [model.datasets[0].var_names[0], model.datasets[0].var_names[1]],
-        "type_1": [model.datasets[0].var_names[2], model.datasets[0].var_names[3]],
+        "type_0": [model.adata.var_names[0], model.adata.var_names[1]],
+        "type_1": [model.adata.var_names[2], model.adata.var_names[3]],
     }
 
-    in_situ_figure = pl.in_situ(model.datasets, color="leiden")
-    umap_figure, _ = pl.umap(model.datasets, color="cell_type")
-    confusion_figure, _ = pl.confusion_matrix(model.datasets, labels="cell_type")
-    categories_figure = pl.clusters_to_categories(model.datasets, marker_genes)
+    in_situ_figure = pl.in_situ(model.adata, color="leiden")
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always", ad.ImplicitModificationWarning)
+        umap_figure, _ = pl.umap(model.adata, color="cell_type")
+    assert not any(isinstance(warning.message, ad.ImplicitModificationWarning) for warning in caught_warnings)
+    confusion_figure, _ = pl.confusion_matrix(model.adata, labels="cell_type")
+    categories_figure = pl.clusters_to_categories(model.adata, marker_genes)
     label_heatmap_figure, label_heatmap = pl.embedding_label_heatmap(
-        model.datasets,
+        model.adata,
         embedding_key="normalized_X",
         label_key="cell_type",
     )
@@ -575,9 +747,8 @@ def test_embedding_category_and_umap_plots(clustered_shared_model):
             assert figure.axes
 
         assert label_heatmap.shape[1] == model.K
-        for dataset in model.datasets:
-            assert "X_umap" in dataset.obsm
-            assert "confusion_matrix" in dataset.uns
+        assert "X_umap" in model.adata.obsm
+        assert "confusion_matrix" in model.adata.uns
     finally:
         _close_figures(
             in_situ_figure,
@@ -596,12 +767,12 @@ def test_affinity_magnitude_plot(differential_model_factory, gpu_context):
         model.estimate_parameters()
         model.estimate_weights()
 
-    figure, top_pairs = pl.affinity_magnitude_vs_difference(model.datasets, n_best=2)
+    figure, top_pairs = pl.affinity_magnitude_vs_difference(model.adata, n_best=2)
 
     try:
         assert isinstance(figure, Figure)
         assert figure.axes
-        assert len(top_pairs) == len(model.datasets)
+        assert len(top_pairs) == len(model.adata.popari.sample_names)
         assert all(len(dataset_pairs) == 2 for dataset_pairs in top_pairs)
     finally:
         _close_figures(figure)
@@ -610,10 +781,10 @@ def test_affinity_magnitude_plot(differential_model_factory, gpu_context):
 @pytest.mark.expensive
 def test_affinity_trend_plot(analyzed_shared_model):
     model = analyzed_shared_model
-    timepoints = list(range(len(model.datasets)))
-    tl.normalized_affinity_trends(model.datasets, timepoint_values=timepoints, n_best=2)
+    timepoints = list(range(len(model.adata.popari.sample_names)))
+    tl.normalized_affinity_trends(model.adata, timepoint_values=timepoints, n_best=2)
 
-    trend_figure = pl.normalized_affinity_trends(model.datasets, timepoint_values=timepoints, n_best=2)
+    trend_figure = pl.normalized_affinity_trends(model.adata, timepoint_values=timepoints, n_best=2)
 
     try:
         assert isinstance(trend_figure, Figure)
@@ -624,16 +795,16 @@ def test_affinity_trend_plot(analyzed_shared_model):
 
 @pytest.mark.gpu
 @pytest.mark.expensive
-def test_multigroup_heatmap_with_differential_model(differential_model_factory, gpu_context):
+def test_multigroup_heatmap_with_differential_affinities(differential_model_factory, gpu_context):
     model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     for _ in range(2):
         model.estimate_parameters()
         model.estimate_weights()
 
     figure = pl.multigroup_heatmap(
-        model.datasets,
-        groups=model.metagene_groups,
-        key="M_bar",
+        model.adata,
+        groups=model.spatial_affinity_groups,
+        key="spatial_affinity_bar",
     )
 
     try:

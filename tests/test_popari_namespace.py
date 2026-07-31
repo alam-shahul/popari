@@ -125,7 +125,7 @@ def test_multisample_namespace_accessors_use_named_parameters():
         (np.ones(4), ([0, 1, 2, 3], [2, 3, 0, 1])),
         shape=(4, 4),
     )
-    dataset.uns["M"] = {"sample_a": np.ones((3, 2)), "sample_b": np.full((3, 2), 2)}
+    dataset.uns["M"] = np.full((3, 2), 2)
     dataset.uns["Sigma_x_inv"] = {
         "sample_a": np.eye(2),
         "sample_b": np.full((2, 2), 3),
@@ -134,8 +134,18 @@ def test_multisample_namespace_accessors_use_named_parameters():
     assert dataset.popari.sample_names == ("sample_a", "sample_b")
     np.testing.assert_array_equal(dataset.popari.sample_indices("sample_a"), [1, 3])
     np.testing.assert_array_equal(dataset.popari.sample_mask("sample_b"), [True, False, True, False])
-    np.testing.assert_array_equal(dataset.popari.metagenes_for("sample_b"), np.full((3, 2), 2))
+    np.testing.assert_array_equal(dataset.popari.metagenes, np.full((3, 2), 2))
     np.testing.assert_array_equal(dataset.popari.spatial_affinity_for("sample_a"), np.eye(2))
 
-    with pytest.raises(ValueError, match="multiple samples"):
-        _ = dataset.popari.metagenes
+
+def test_sample_axis_accessors_do_not_require_a_spatial_graph():
+    dataset = ad.AnnData(
+        X=np.ones((3, 1)),
+        obs=pd.DataFrame(
+            {"batch": pd.Categorical(["first", "second", "first"])},
+            index=["cell_0", "cell_1", "cell_2"],
+        ),
+    )
+
+    assert dataset.popari.sample_names == ("first", "second")
+    np.testing.assert_array_equal(dataset.popari.sample_indices("first"), [0, 2])
