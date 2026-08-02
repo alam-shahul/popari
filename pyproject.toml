@@ -18,6 +18,7 @@ dependencies = [
     "anndata",
     "torch",
     "tqdm",
+    "loguru",
     "umap-learn",
     "scanpy",
     "seaborn",

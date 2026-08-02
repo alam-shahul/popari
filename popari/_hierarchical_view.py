@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 from anndata import AnnData
+from loguru import logger
 from scipy.sparse import csr_array
 from torch import nn
 from tqdm.auto import trange
@@ -21,7 +22,7 @@ from popari.initialization import (
 from popari.preprocessing import compute_spatial_neighbors
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.schema import BIN_ASSIGNMENTS_KEY, DATASET_NAME_KEY, SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
-from popari.util import convert_adjacency_matrix_to_awkward_array, convert_numpy_to_pytorch_sparse_coo, get_datetime
+from popari.util import convert_adjacency_matrix_to_awkward_array, convert_numpy_to_pytorch_sparse_coo
 
 
 class HierarchicalView(nn.Module):
@@ -152,8 +153,8 @@ class HierarchicalView(nn.Module):
         )
         self.superresolution_lr = superresolution_lr
 
-        if self.verbose:
-            print(f"{get_datetime()} Initializing EmbeddingOptimizer")
+        if self.verbose >= 1:
+            logger.info("Initializing embedding optimizer")
         self.embedding_optimizer = EmbeddingOptimizer(
             self.K,
             self.Ys,
@@ -192,8 +193,8 @@ class HierarchicalView(nn.Module):
             if self.level < self.hierarchical_levels - 1:
                 method = "dummy"
 
-            if self.verbose:
-                print(f"{get_datetime()} Initializing metagenes and hidden states using {method} method")
+            if self.verbose >= 1:
+                logger.info("Initializing metagenes and embeddings using {}", method)
 
             if method == "dummy":
                 self.M, self.X = initialize_dummy(
@@ -255,8 +256,8 @@ class HierarchicalView(nn.Module):
             initial_embeddings = [self.embedding_optimizer.embedding_state[sample] for sample in self.replicate_names]
 
             # Initializing spatial affinities
-            if self.verbose:
-                print(f"{get_datetime()} Initializing Sigma_x_inv with empirical correlations")
+            if self.verbose >= 1:
+                logger.info("Initializing spatial affinities with empirical correlations")
             self.parameter_optimizer.spatial_affinity.initialize(
                 initial_embeddings,
                 self.parameter_optimizer.spatial_affinity_bar,
@@ -407,7 +408,14 @@ class HierarchicalView(nn.Module):
 
                 return loss.detach().item()
 
-            progress_bar = trange(n_epochs, leave=True, disable=(verbose < 5), miniters=10000)
+            progress_bar = trange(
+                n_epochs,
+                desc="Superresolution embeddings",
+                leave=False,
+                disable=verbose < 2,
+                dynamic_ncols=True,
+                mininterval=1,
+            )
             for epoch in progress_bar:
                 X_prev = X.clone().detach()
                 if update_alg == "mu":
@@ -636,7 +644,8 @@ class Hierarchy:
         context = base_view.context
         previous_view = base_view
         for level in range(1, levels):
-            print(f"{get_datetime()} Initializing hierarchy level {level}")
+            if base_view.verbose >= 1:
+                logger.info("Initializing hierarchy level {}", level)
             binned_datasets = []
             binned_Ys = []
             local_assignments = []
@@ -656,9 +665,13 @@ class Hierarchy:
                 binned_dataset.obs[previous_view.sample_key] = sample
                 binned_dataset.obs_names = [f"{sample}_level_{level}_{index}" for index in range(binned_dataset.n_obs)]
 
-                print(
-                    f"{get_datetime()} Downsized dataset from {len(previous_dataset)} to {len(binned_dataset)} spots.",
-                )
+                if base_view.verbose >= 1:
+                    logger.info(
+                        "Downsampled {} from {} to {} observations",
+                        sample,
+                        len(previous_dataset),
+                        len(binned_dataset),
+                    )
 
                 binned_datasets.append(binned_dataset)
                 assignments = csr_array(binned_dataset.obsm.pop(bin_assignments_key))
@@ -727,7 +740,8 @@ class Hierarchy:
             adata: AnnData,
             previous_view: "HierarchicalView | None",
         ):
-            print(f"{get_datetime()} Reloading level {level}")
+            if hierarchical_view_kwargs["verbose"] >= 1:
+                logger.info("Reloading hierarchy level {}", level)
             if previous_view is not None:
                 binned_Ys = []
                 assignments = csr_array(adata.obsm[BIN_ASSIGNMENTS_KEY])

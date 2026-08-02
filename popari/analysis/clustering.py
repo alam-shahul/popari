@@ -6,6 +6,7 @@ import anndata as ad
 import numpy as np
 import scanpy as sc
 import scanpy.external as sce
+from loguru import logger
 
 from popari._sample_axis import SampleAxis
 from popari.util import normalize_expression_by_threshold, smooth_labels, smooth_metagene_expression
@@ -89,8 +90,7 @@ def cluster(
             upper_bound = effective_resolution
 
         if verbose:
-            print(f"Current number of clusters: {num_clusters}")
-            print(f"Resolution: {effective_resolution}")
+            logger.info("Clustering resolution {:.3g} produced {} clusters", effective_resolution, num_clusters)
 
 
 def umap(dataset: ad.AnnData, use_rep: str = "X", compute_neighbors: bool = True, n_neighbors: int = 20):

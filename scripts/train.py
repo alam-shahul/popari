@@ -1,10 +1,13 @@
 import hashlib
+import sys
 import uuid
 from pathlib import Path
 
 import hydra
 import torch
+from loguru import logger
 from omegaconf import DictConfig, OmegaConf
+from tqdm.auto import tqdm
 
 from popari.model import Popari
 from popari.train import Trainer, TrainParameters
@@ -17,6 +20,18 @@ RESULT_CONFIG_KEYS = (
     "initial_device",
     "torch_device",
 )
+
+
+def configure_logging(verbose: int) -> None:
+    """Configure canonical training logs without disrupting tqdm bars."""
+
+    level = "WARNING" if verbose == 0 else "DEBUG" if verbose >= 3 else "INFO"
+    logger.remove()
+    logger.add(
+        lambda message: tqdm.write(message, end="", file=sys.stderr),
+        level=level,
+        colorize=sys.stderr.isatty(),
+    )
 
 
 def select_minimal_config(config: DictConfig, keys: tuple[str, ...]) -> DictConfig:
@@ -107,6 +122,7 @@ def train_from_config(config: DictConfig) -> Path:
 def main(config: DictConfig) -> None:
     """Hydra entry point for one Popari training run."""
 
+    configure_logging(config.verbose)
     train_from_config(config)
 
 
