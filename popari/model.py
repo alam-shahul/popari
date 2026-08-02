@@ -476,7 +476,7 @@ class Popari(nn.Module):
             for level in range(self.hierarchical_levels):
                 self.hierarchy[level].synchronize_datasets()
 
-    def save_results(self, dataset_path: str, ignore_raw_data: bool = True):
+    def save_results(self, dataset_path: str, ignore_raw_data: bool = True) -> Path:
         """Save datasets and learned Popari parameters to disk.
 
         Args:
@@ -494,21 +494,24 @@ class Popari(nn.Module):
         self.synchronize_datasets()
 
         if self.hierarchical_levels == 1:
+            result_path = path_without_extension.with_suffix(".h5ad")
             if self.verbose:
-                print(f"{get_datetime()} Writing results to {path_without_extension}.h5ad")
+                print(f"{get_datetime()} Writing results to {result_path}")
             save_anndata(
-                f"{path_without_extension}.h5ad",
+                result_path,
                 self.adata,
                 ignore_raw_data=ignore_raw_data,
                 sample_key=self.sample_key,
             )
         else:
+            result_path = path_without_extension
             save_anndata_hierarchy(
-                path_without_extension,
+                result_path,
                 {level: self.hierarchy[level].adata for level in range(self.hierarchical_levels)},
                 ignore_raw_data=ignore_raw_data,
                 sample_key=self.sample_key,
             )
+        return result_path
 
     def _reload_expression(self, raw_adata: AnnData):
         """Can be used to recover expression values for training model if saved
