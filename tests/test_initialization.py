@@ -13,6 +13,8 @@ def test_random_state_controls_initialization(shared_model_factory):
     model_0 = shared_model_factory(random_state=0, initialization_method="dummy")
     model_1 = shared_model_factory(random_state=0, initialization_method="dummy")
     model_2 = shared_model_factory(random_state=1, initialization_method="dummy")
+    for model in (model_0, model_1, model_2):
+        model.materialize_results()
 
     assert np.allclose(model_0.adata.obsm["X"], model_1.adata.obsm["X"])
     assert not np.allclose(model_0.adata.obsm["X"], model_2.adata.obsm["X"])
@@ -28,6 +30,7 @@ def test_random_state_controls_initialization(shared_model_factory):
 @pytest.mark.baseline
 def test_ground_truth_initialization_uses_cell_type_labels(shared_model_factory):
     model = shared_model_factory(initialization_method="ground_truth")
+    model.materialize_results()
 
     label_indices = model.adata.obs["cell_type"].str.removeprefix("type_").astype(int).to_numpy()
     assert np.array_equal(model.adata.obsm["X"].argmax(axis=1), label_indices)
@@ -59,6 +62,7 @@ def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(
         random_state=0,
         verbose=0,
     )
+    model.materialize_results()
 
     sample = model.replicate_names[0]
     assert np.all(model.adata.obsm["X"].argmax(axis=1) == 0)
@@ -88,6 +92,7 @@ def test_differential_affinity_initialization_creates_group_averages(differentia
 @pytest.mark.expensive
 def test_hierarchical_initialization_builds_resolution_stack(hierarchical_model_factory):
     model = hierarchical_model_factory(hierarchical_levels=3, binning_downsample_rate=0.4)
+    model.materialize_results()
 
     assert model.hierarchical_levels == 3
     assert len(model.hierarchy.view_container) == 3

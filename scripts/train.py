@@ -102,7 +102,6 @@ def train_from_config(config: DictConfig) -> Path:
         spatial_preiterations=config.training.spatial_preiterations,
         iterations=config.training.iterations,
         savepath=savepath,
-        synchronization_frequency=config.training.synchronization_frequency,
     )
 
     with Trainer(

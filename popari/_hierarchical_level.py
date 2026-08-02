@@ -22,10 +22,10 @@ from popari.initialization import (
 from popari.preprocessing import compute_spatial_neighbors
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.schema import BIN_ASSIGNMENTS_KEY, DATASET_NAME_KEY, SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
-from popari.util import convert_adjacency_matrix_to_awkward_array, convert_numpy_to_pytorch_sparse_coo
+from popari.util import convert_numpy_to_pytorch_sparse_coo
 
 
-class HierarchicalView(nn.Module):
+class HierarchicalLevel(nn.Module):
     """View of SRT multisample dataset at a set resolution.
 
     Includes the scaled (i.e. binned data) as well as the learnable Popari
@@ -59,15 +59,20 @@ class HierarchicalView(nn.Module):
 
         self.adata = adata
         self.sample_key = sample_key
+        self.context = context
+        self.initial_context = initial_context
         self.sample_axis = SampleAxis.from_anndata(adata, sample_key=sample_key)
         adata.popari.validate_spatial_graph()
+        self.adjacency = adata.obsp["adjacency_matrix"]
+        self.register_buffer(
+            "adjacency_matrix",
+            convert_numpy_to_pytorch_sparse_coo(self.adjacency, self.context),
+        )
         self.replicate_names = list(self.sample_axis.names)
         self.K = K
         self.level = level
         self.hierarchical_levels = hierarchical_levels
         self.level_suffix = "" if self.level == 0 else f"_level_{self.level}"
-        self.context = context
-        self.initial_context = initial_context
         self.use_inplace_ops = use_inplace_ops
         self.verbose = verbose
         self.random_state = random_state
@@ -75,6 +80,7 @@ class HierarchicalView(nn.Module):
 
         self.num_replicates = len(self.sample_axis)
         self._legacy_datasets = None
+        self._dirty = True
 
         def fill_groups(groups, are_exclusive=False):
             if not groups:
@@ -143,6 +149,8 @@ class HierarchicalView(nn.Module):
             self.Ys,
             self.adata,
             self.sample_axis,
+            self.adjacency,
+            self.adjacency_matrix,
             self.betas,
             prior_x_modes,
             initial_context=self.initial_context,
@@ -160,6 +168,8 @@ class HierarchicalView(nn.Module):
             self.Ys,
             self.adata,
             self.sample_axis,
+            self.adjacency,
+            self.adjacency_matrix,
             initial_context=self.initial_context,
             context=self.context,
             use_inplace_ops=self.use_inplace_ops,
@@ -263,12 +273,6 @@ class HierarchicalView(nn.Module):
                 self.parameter_optimizer.spatial_affinity_bar,
             )
 
-            self.adata.uns["M"] = self.parameter_optimizer.metagenes.cpu().detach().numpy()
-            self.adata.obsm["X"] = self.embedding_optimizer.embedding_state.embedding.cpu().detach().numpy()
-            self.adata.uns["Sigma_x_inv"] = {
-                sample: self.parameter_optimizer.spatial_affinity[sample].cpu().detach().numpy()
-                for sample in self.replicate_names
-            }
             self.adata.uns["popari_hyperparameters"] = {
                 "prior_x": {
                     sample: self.parameter_optimizer.prior_xs[index][0].cpu().detach().numpy()
@@ -281,13 +285,6 @@ class HierarchicalView(nn.Module):
                 **parameter_optimizer_hyperparameters,
                 **embedding_optimizer_hyperparameters,
             }
-
-            if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
-                spatial_affinity_bar = {
-                    group_name: self.parameter_optimizer.spatial_affinity_bar[group_name].cpu().detach().numpy()
-                    for group_name in self.parameter_optimizer.spatial_affinity_groups
-                }
-                self.adata.uns["spatial_affinity_bar"] = spatial_affinity_bar
 
         self.superresolution_optimizers = {}
         self.adata.uns["losses"] = {key: list(values) for key, values in self.adata.uns.get("losses", {}).items()}
@@ -302,11 +299,7 @@ class HierarchicalView(nn.Module):
         dataset = self.adata[self.sample_axis.indices(sample)].copy()
         dataset.obs[self.sample_key] = dataset.obs[self.sample_key].cat.remove_unused_categories()
         dataset.popari.name = sample
-        adjacency = csr_array(dataset.obsp["adjacency_matrix"])
-        dataset.obsp["adjacency_matrix"] = adjacency
-        dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(
-            adjacency.tocoo(),
-        )
+        dataset.obsp["adjacency_matrix"] = csr_array(dataset.obsp["adjacency_matrix"])
         return dataset
 
     @property
@@ -317,7 +310,7 @@ class HierarchicalView(nn.Module):
             self._legacy_datasets = [self.sample_adata(sample) for sample in self.replicate_names]
         return self._legacy_datasets
 
-    def link(self, low_res_view: "HierarchicalView"):
+    def link(self, low_res_view: "HierarchicalLevel"):
         """Link a view to the resolution right below it in the hierarchy."""
         self.low_res_view = low_res_view
 
@@ -327,7 +320,7 @@ class HierarchicalView(nn.Module):
         with torch.no_grad():
             self.parameter_optimizer.metagenes.copy_(self.low_res_view.parameter_optimizer.metagenes)
 
-        self.synchronize_datasets()
+        self.mark_dirty()
 
     def _superresolve_embeddings(
         self,
@@ -482,8 +475,11 @@ class HierarchicalView(nn.Module):
 
         self.parameter_optimizer.update_sigma_yx()
 
-    def synchronize_datasets(self):
-        """Synchronize learned state into the unified level AnnData."""
+    def materialize_results(self, *, force: bool = False) -> AnnData:
+        """Write authoritative tensor state into this level's AnnData."""
+
+        if not self._dirty and not force:
+            return self.adata
 
         self.adata.uns["M"] = self.parameter_optimizer.metagenes.cpu().detach().numpy()
         self.adata.obsm["X"] = self.embedding_optimizer.embedding_state.embedding.cpu().detach().numpy()
@@ -515,16 +511,30 @@ class HierarchicalView(nn.Module):
                 if "spatial_affinity_bar" in self.adata.uns:
                     dataset.uns["spatial_affinity_bar"] = self.adata.uns["spatial_affinity_bar"]
 
+        self._dirty = False
+        return self.adata
+
+    def mark_dirty(self) -> None:
+        """Record that learned tensor state is newer than materialized
+        AnnData."""
+
+        self._dirty = True
+
+    def synchronize_datasets(self):
+        """Deprecated alias for :meth:`materialize_results`."""
+
+        return self.materialize_results(force=True)
+
     def forward(self, use_spatial: bool = False):
         """Compute overall negative log-likelihood for the current model
         parameters."""
 
         total_loss = torch.zeros((), **self.context)
         if use_spatial:
-            weighted_total_cells = 0
-            for sample in self.replicate_names:
-                E_adjacency_list = self.embedding_optimizer.adjacency_lists[sample]
-                weighted_total_cells += sum(map(len, E_adjacency_list))
+            weighted_total_cells = self.adjacency.nnz
+            global_X = self.embedding_optimizer.embedding_state.embedding
+            global_Z = global_X / torch.linalg.norm(global_X, dim=1, ord=1, keepdim=True)
+            global_nu = self.adjacency_matrix @ global_Z
 
         for dataset_index, sample in enumerate(self.replicate_names):
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
@@ -551,13 +561,11 @@ class HierarchicalView(nn.Module):
                     logZ_i_X += torch.full((N,), self.K * torch.log(prior_x[0]).item(), **self.context)
                 log_partition_function = (logZ_i_Y + logZ_i_X).sum()
             else:
-                adjacency_matrix = self.embedding_optimizer.adjacency_matrices[sample].to(
-                    self.context["device"],
-                )
                 Sigma_x_inv = self.parameter_optimizer.spatial_affinity[sample].to(
                     self.context["device"],
                 )
-                nu = adjacency_matrix @ Z
+                sample_indices = torch.as_tensor(self.sample_axis.indices(sample), device=global_nu.device)
+                nu = global_nu.index_select(0, sample_indices)
                 eta = nu @ Sigma_x_inv
                 logZ_i_s = torch.full((N,), 0, **self.context)
                 if (prior_x[0] != 0).all():
@@ -621,7 +629,7 @@ class Hierarchy:
 
     def __init__(
         self,
-        base_view: "HierarchicalView",
+        base_view: "HierarchicalLevel",
         downsampling_method: str = "grid",
         **hierarchical_view_kwargs,
     ):
@@ -633,7 +641,7 @@ class Hierarchy:
 
         self.hierarchical_view_kwargs = hierarchical_view_kwargs
 
-    def __setitem__(self, index: int, view: "HierarchicalView"):
+    def __setitem__(self, index: int, view: "HierarchicalLevel"):
         self.view_container[index] = view
 
     def __getitem__(self, index: int):
@@ -718,7 +726,7 @@ class Hierarchy:
                 shape=(binned_adata.n_obs, previous_view.adata.n_obs),
             )
             compute_spatial_neighbors(binned_adata, sample_key=previous_view.sample_key)
-            level_view = HierarchicalView(
+            level_view = HierarchicalLevel(
                 binned_adata,
                 level=level,
                 binned_Ys=binned_Ys,
@@ -738,7 +746,7 @@ class Hierarchy:
         def reconstruct_level(
             level: int,
             adata: AnnData,
-            previous_view: "HierarchicalView | None",
+            previous_view: "HierarchicalLevel | None",
         ):
             if hierarchical_view_kwargs["verbose"] >= 1:
                 logger.info("Reloading hierarchy level {}", level)
@@ -765,7 +773,7 @@ class Hierarchy:
             else:
                 binned_Ys = None
 
-            level_view = HierarchicalView(
+            level_view = HierarchicalLevel(
                 adata,
                 level=level,
                 binned_Ys=binned_Ys,

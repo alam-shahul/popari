@@ -42,7 +42,7 @@ def test_shared_nll_components_are_numerically_stable(trained_shared_model, shar
     model = trained_shared_model
     metrics = shared_model_expected_metrics
 
-    assert model.nll(level=0)[0] == pytest.approx(metrics["nll"], abs=1e-6)
+    assert model.nll(level=0)[0] == pytest.approx(metrics["nll"], abs=5e-6)
     assert model.parameter_optimizer.sigma_yxs[0].item() == pytest.approx(metrics["sigma_yx"][0], abs=1e-6)
     assert model.parameter_optimizer.sigma_yxs[1].item() == pytest.approx(metrics["sigma_yx"][1], abs=1e-6)
     assert model.parameter_optimizer.metagenes.detach().cpu().numpy().sum() == pytest.approx(

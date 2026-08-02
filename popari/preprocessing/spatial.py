@@ -10,7 +10,6 @@ from scipy.sparse import csr_matrix
 
 from popari._sample_axis import SampleAxis
 from popari.schema import DEFAULT_SAMPLE_KEY, SAMPLE_KEY_KEY
-from popari.util import convert_adjacency_matrix_to_awkward_array
 
 
 def remove_connectivity_artifacts(
@@ -82,7 +81,4 @@ def compute_spatial_neighbors(
     for key, blocks in graph_blocks.items():
         dataset.obsp[key] = sum(blocks[1:], start=blocks[0]) if blocks else csr_matrix((dataset.n_obs, dataset.n_obs))
     dataset.obsp["adjacency_matrix"] = dataset.obsp["spatial_connectivities"].copy()
-    dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(
-        dataset.obsp["adjacency_matrix"],
-    )
     dataset.popari.validate_spatial_graph()

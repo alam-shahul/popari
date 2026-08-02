@@ -1,4 +1,3 @@
-import awkward as ak
 import numpy as np
 import pandas as pd
 import torch
@@ -183,6 +182,12 @@ def project2simplex_(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Te
     return y_copy
 
 
+def graph_neighbors(adjacency: csr_array, index: int) -> np.ndarray:
+    """Return neighbors of one node from a CSR graph."""
+
+    return adjacency.indices[adjacency.indptr[index] : adjacency.indptr[index + 1]]
+
+
 class IndependentSet:
     """Iterator class that yields a list of batch_size independent nodes from a
     spatial graph.
@@ -192,15 +197,16 @@ class IndependentSet:
 
     Attributes:
         N: number of nodes in graph
-        adjacency_list: graph neighbor information stored in adjacency list format
+        adjacency: spatial graph in CSR format
         batch_size: number of nodes to draw independently every iteration
 
     """
 
-    def __init__(self, adjacency_list, device, batch_size=50):
-        self.N = len(adjacency_list)
-        self.adjacency_list = adjacency_list
+    def __init__(self, adjacency, device, batch_size=50, indices=None):
+        self.N = adjacency.shape[0] if hasattr(adjacency, "shape") else len(adjacency)
+        self.adjacency = adjacency
         self.batch_size = batch_size
+        self.indices = np.arange(self.N) if indices is None else np.asarray(indices, dtype=np.int64)
         self.indices_remaining = None
         self.device = device
 
@@ -210,7 +216,7 @@ class IndependentSet:
         Resets indices_remaining before returning the iterator.
 
         """
-        self.indices_remaining = set(range(self.N))
+        self.indices_remaining = set(self.indices)
         return self
 
     def __next__(self):
@@ -224,13 +230,13 @@ class IndependentSet:
         if len(self.indices_remaining) == 0:
             raise StopIteration
 
-        valid_indices = sample_graph_iid(self.adjacency_list, self.indices_remaining, self.batch_size)
+        valid_indices = sample_graph_iid(self.adjacency, self.indices_remaining, self.batch_size)
         self.indices_remaining -= set(valid_indices)
 
         return torch.tensor(valid_indices, device=self.device, dtype=torch.long)
 
 
-def sample_graph_iid(adjacency_list, indices_remaining, sample_size):
+def sample_graph_iid(adjacency, indices_remaining, sample_size):
     valid_indices = []
     excluded_indices = set()
     effective_batch_size = min(sample_size, len(indices_remaining))
@@ -242,22 +248,20 @@ def sample_graph_iid(adjacency_list, indices_remaining, sample_size):
     for index in candidate_indices:
         if index not in excluded_indices:
             valid_indices.append(index)
-            excluded_indices |= set(adjacency_list[index])
+            excluded_indices.update(graph_neighbors(adjacency, index))
 
     return valid_indices
 
 
 def convert_numpy_to_pytorch_sparse_coo(numpy_coo, context):
-    indices = np.array(numpy_coo.nonzero())
-    values = numpy_coo.data[numpy_coo.data.nonzero()]
-
-    i = torch.LongTensor(indices)
-    v = torch.FloatTensor(values)
-    size = numpy_coo.shape
-
-    torch_coo = torch.sparse_coo_tensor(i, v, size=size, **context)
-
-    return torch_coo
+    matrix = csr_array(numpy_coo)
+    if np.any(matrix.data == 0):
+        matrix = matrix.copy()
+        matrix.eliminate_zeros()
+    coo = matrix.tocoo()
+    indices = torch.from_numpy(np.vstack((coo.row, coo.col)).astype(np.int64, copy=False))
+    values = torch.as_tensor(coo.data, dtype=context["dtype"])
+    return torch.sparse_coo_tensor(indices, values, size=coo.shape, **context).coalesce()
 
 
 def compute_neighborhood_enrichment(features: np.ndarray, adjacency_matrix: csr_array):
@@ -307,32 +311,20 @@ def normalize_expression_by_threshold(dataset, thresholded_key: str = "elbowed_X
 def smooth_metagene_expression(
     dataset,
     processed_key: str = "normalized_thresholded_expression",
-    adjacency_list_key: str = "adjacency_list",
     adjacency_key: str = "adjacency_matrix",
 ):
     """"""
     processed_expression = dataset.obsm[processed_key]
-    if adjacency_key in dataset.obsp:
-        adjacency = csr_array(dataset.obsp[adjacency_key]).astype(bool).astype(float)
-        degree = np.asarray(adjacency.sum(axis=1)).reshape(-1, 1)
-        smoothed_expression = (processed_expression + adjacency @ processed_expression) / (degree + 1)
-    else:
-        adjacency_list = dataset.obsm[adjacency_list_key]
-        smoothed_expression = np.zeros_like(processed_expression)
-        for entity in np.arange(len(dataset)):
-            adjacencies = adjacency_list[entity]
-            neighbor_expressions = processed_expression[adjacencies]
-            average_expression = (processed_expression[entity] + neighbor_expressions.sum(axis=0)) / (
-                len(neighbor_expressions) + 1
-            )
-            smoothed_expression[entity] = average_expression
+    adjacency = csr_array(dataset.obsp[adjacency_key]).astype(bool).astype(float)
+    degree = np.asarray(adjacency.sum(axis=1)).reshape(-1, 1)
+    smoothed_expression = (processed_expression + adjacency @ processed_expression) / (degree + 1)
 
     dataset.obsm["smoothed_expression"] = smoothed_expression
 
     return smoothed_expression
 
 
-def spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=1, smoothing_threshold=0.5):
+def spatially_smooth_feature(labels, adjacency, max_smoothing_rounds=1, smoothing_threshold=0.5):
     """"""
     labels = np.asarray(labels)
     num_entities = len(labels)
@@ -343,7 +335,7 @@ def spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=1, smo
         for entity in np.arange(num_entities):
             current_cluster = smoothed_labels[entity]
 
-            adjacencies = adjacency_list[entity]
+            adjacencies = graph_neighbors(adjacency, entity)
             neighbor_labels = smoothed_labels[adjacencies]
             num_neighbors = len(neighbor_labels)
             if num_neighbors == 0:
@@ -375,22 +367,16 @@ def smooth_labels(
     output_key: str = "smoothed_leiden",
     smoothing_threshold: float = 0.5,
     max_smoothing_rounds: int = 1,
-    adjacency_list_key: str = "adjacency_list",
     adjacency_key: str = "adjacency_matrix",
 ):
     """"""
-    if adjacency_list_key in dataset.obsm:
-        adjacency_list = dataset.obsm[adjacency_list_key]
-    else:
-        adjacency_list = convert_adjacency_matrix_to_awkward_array(
-            dataset.obsp[adjacency_key],
-        )
+    adjacency = csr_array(dataset.obsp[adjacency_key])
 
     labels = dataset.obs[label_key]
     dataset.obs[output_key] = pd.Categorical(
         spatially_smooth_feature(
             labels,
-            adjacency_list,
+            adjacency,
             max_smoothing_rounds,
             smoothing_threshold,
         ),
@@ -435,16 +421,3 @@ def get_matching_order(scores):
     order = np.argsort(np.argmax(scores, axis=0) - np.max(scores, axis=0) / (np.max(scores) + 1))
 
     return order
-
-
-def convert_adjacency_matrix_to_awkward_array(adjacency_matrix: sparray):
-    """Convert COO adjacency matrix to ragged Awkward Array."""
-
-    num_cells, _ = adjacency_matrix.shape
-    adjacency_list = [[] for _ in range(num_cells)]
-    for x, y in zip(*adjacency_matrix.nonzero()):
-        adjacency_list[x].append(y)
-
-    adjacency_list = ak.Array(adjacency_list)
-
-    return adjacency_list

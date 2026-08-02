@@ -19,6 +19,7 @@ def test_popari_constructor_exposes_only_unified_inputs():
 
 
 def test_popari_init(shared_mock_model, mock_datasets):
+    shared_mock_model.materialize_results()
     assert shared_mock_model.adata.n_obs == sum(dataset.n_obs for dataset in mock_datasets)
     assert shared_mock_model.adata.obsm["X"].shape == (
         shared_mock_model.adata.n_obs,
@@ -74,22 +75,20 @@ def test_popari_registers_parameters_and_state_dict_roundtrip(shared_model_facto
     )
 
 
-def test_module_to_updates_adjacency_parameters(shared_model_factory):
+def test_module_to_updates_global_adjacency_buffer(shared_model_factory):
     model = shared_model_factory()
-    dataset_name = model.replicate_names[0]
-    adjacency_before = model.parameter_optimizer.adjacency_matrices[dataset_name]
-    assert isinstance(adjacency_before, nn.Parameter)
+    adjacency_before = model.base_view.adjacency_matrix
+    assert adjacency_before.is_sparse
     assert not adjacency_before.requires_grad
 
     model.to(dtype=torch.float32)
 
-    adjacency_after = model.parameter_optimizer.adjacency_matrices[dataset_name]
-    assert isinstance(adjacency_after, nn.Parameter)
+    adjacency_after = model.base_view.adjacency_matrix
     assert not adjacency_after.requires_grad
     assert adjacency_after.dtype == torch.float32
 
 
-def test_load_pretrained_preserves_adjacency_parameters(shared_model_factory, context):
+def test_load_pretrained_preserves_global_adjacency_buffer(shared_model_factory, context):
     trained_model = shared_model_factory(torch_context=context, initial_context=context)
     trained_model.synchronize_datasets()
     adata = trained_model.adata.copy()
@@ -99,9 +98,8 @@ def test_load_pretrained_preserves_adjacency_parameters(shared_model_factory, co
         reloaded_hierarchy={0: adata},
     )
 
-    dataset_name = reloaded_model.replicate_names[0]
-    adjacency_matrix = reloaded_model.parameter_optimizer.adjacency_matrices[dataset_name]
-    assert isinstance(adjacency_matrix, nn.Parameter)
+    adjacency_matrix = reloaded_model.base_view.adjacency_matrix
+    assert adjacency_matrix.is_sparse
     assert not adjacency_matrix.requires_grad
 
 

@@ -15,7 +15,6 @@ EMBEDDING_KEY = "X"
 METAGENE_KEY = "M"
 SPATIAL_AFFINITY_KEY = "Sigma_x_inv"
 ADJACENCY_MATRIX_KEY = "adjacency_matrix"
-ADJACENCY_LIST_KEY = "adjacency_list"
 BIN_ASSIGNMENTS_KEY = "bin_assignments"
 HYPERPARAMETERS_KEY = "popari_hyperparameters"
 SCHEMA_VERSION_KEY = "popari_schema_version"
@@ -39,14 +38,20 @@ def _validate_spatial_graph(
             f"`obsp[{adjacency_key!r}]` has shape {adjacency.shape}; expected {expected_shape}.",
         )
 
-    if sparse.issparse(adjacency):
-        graph = adjacency.tocoo(copy=True)
-        graph.eliminate_zeros()
-        rows, columns = graph.row, graph.col
-    else:
-        rows, columns = np.nonzero(np.asarray(adjacency))
-    if np.any(sample_axis.codes[rows] != sample_axis.codes[columns]):
-        raise ValueError(f"`obsp[{adjacency_key!r}]` contains cross-sample edges.")
+    if not sparse.issparse(adjacency) or adjacency.format != "csr":
+        raise TypeError(f"`obsp[{adjacency_key!r}]` must use CSR sparse format.")
+
+    row_chunk_size = 100_000
+    for row_start in range(0, adata.n_obs, row_chunk_size):
+        row_stop = min(row_start + row_chunk_size, adata.n_obs)
+        edge_counts = np.diff(adjacency.indptr[row_start : row_stop + 1])
+        rows = np.repeat(np.arange(row_start, row_stop), edge_counts)
+        edge_start = adjacency.indptr[row_start]
+        edge_stop = adjacency.indptr[row_stop]
+        columns = adjacency.indices[edge_start:edge_stop]
+        nonzero = adjacency.data[edge_start:edge_stop] != 0
+        if np.any(sample_axis.codes[rows[nonzero]] != sample_axis.codes[columns[nonzero]]):
+            raise ValueError(f"`obsp[{adjacency_key!r}]` contains cross-sample edges.")
 
 
 @ad.register_anndata_namespace("popari")
@@ -181,16 +186,6 @@ class PopariNamespace:
         self._adata.obsp[ADJACENCY_MATRIX_KEY] = value
 
     @property
-    def adjacency_list(self):
-        """Spatial neighbors stored as an Awkward array."""
-
-        return self._adata.obsm[ADJACENCY_LIST_KEY]
-
-    @adjacency_list.setter
-    def adjacency_list(self, value) -> None:
-        self._adata.obsm[ADJACENCY_LIST_KEY] = value
-
-    @property
     def hyperparameters(self):
         """Hyperparameters saved with a trained Popari result."""
 
@@ -244,7 +239,7 @@ def validate_anndata_hierarchy(hierarchy: Mapping[int, ad.AnnData]) -> None:
             )
 
         if BIN_ASSIGNMENTS_KEY not in current.obsm:
-            continue
+            raise ValueError(f"Hierarchy level {level} is missing obsm[{BIN_ASSIGNMENTS_KEY!r}].")
         assignments = current.obsm[BIN_ASSIGNMENTS_KEY]
         expected_shape = (current.n_obs, previous.n_obs)
         if assignments.shape != expected_shape:

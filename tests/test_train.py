@@ -68,19 +68,20 @@ class FakeModel:
 
     def __init__(self):
         self.parameter_optimizer = FakeParameterOptimizer()
+        self.base_view = SimpleNamespace(mark_dirty=lambda: None)
         self.parameter_updates = []
         self.weight_updates = []
-        self.synchronizations = 0
+        self.materializations = 0
         self.nll_calls = []
 
-    def estimate_parameters(self, **kwargs):
+    def _update_parameters(self, **kwargs):
         self.parameter_updates.append(kwargs)
 
-    def estimate_weights(self, **kwargs):
+    def _update_embeddings(self, **kwargs):
         self.weight_updates.append(kwargs)
 
-    def synchronize_datasets(self):
-        self.synchronizations += 1
+    def materialize_results(self):
+        self.materializations += 1
 
     def nll(self, use_spatial=False):
         self.nll_calls.append(use_spatial)
@@ -154,7 +155,6 @@ def test_trainer_logs_wandb_metrics_and_final_artifact(
         spatial_preiterations=1,
         iterations=1,
         savepath=savepath,
-        synchronization_frequency=1,
     )
 
     with Trainer(
@@ -199,9 +199,11 @@ def test_trainer_logs_wandb_metrics_and_final_artifact(
     assert aliases == ["latest"]
     assert run.finish_calls == [0]
     assert model.parameter_updates == [
-        {"differentiate_spatial_affinities": False, "synchronize": True},
-        {"synchronize": True},
+        {"differentiate_spatial_affinities": False},
+        {},
     ]
+    assert model.weight_updates == [{}, {}]
+    assert model.materializations == 1
 
 
 def test_trainer_reuses_active_wandb_run(tmp_path, monkeypatch):
@@ -306,7 +308,6 @@ def test_local_trainer_does_not_compute_tracking_metrics(tmp_path):
             spatial_preiterations=1,
             iterations=1,
             savepath=tmp_path / "unused.h5ad",
-            synchronization_frequency=1,
         ),
         model,
     )
@@ -314,3 +315,4 @@ def test_local_trainer_does_not_compute_tracking_metrics(tmp_path):
     trainer.train()
 
     assert not model.nll_calls
+    assert model.materializations == 1

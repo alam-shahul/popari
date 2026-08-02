@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,6 @@ class TrainParameters:
     iterations: int
     savepath: Path
     spatial_preiterations: int = 0
-    synchronization_frequency: int = field(default=10, kw_only=True)
 
 
 class Trainer:
@@ -31,9 +30,6 @@ class Trainer:
         use_wandb: bool = False,
         wandb_kwargs: dict[str, Any] | None = None,
     ):
-        if parameters.synchronization_frequency < 1:
-            raise ValueError("synchronization_frequency must be positive.")
-
         self.model = model
         self.parameters = parameters
         self.verbose = verbose
@@ -69,9 +65,6 @@ class Trainer:
         if self.wandb_run is not None:
             self.wandb_run.log(values, step=self.global_step)
 
-    def _should_synchronize(self, iteration: int) -> bool:
-        return not (iteration % self.parameters.synchronization_frequency)
-
     def train(self) -> None:
         if self.verbose >= 1:
             logger.info(
@@ -95,18 +88,17 @@ class Trainer:
             mininterval=1,
         )
         for _ in nmf_progress_bar:
-            synchronize = self._should_synchronize(self.nmf_iterations)
-            self.model.estimate_parameters(update_spatial_affinities=False, synchronize=synchronize)
-            self.model.estimate_weights(use_neighbors=False, synchronize=synchronize)
+            self.model._update_parameters(update_spatial_affinities=False)
+            self.model._update_embeddings(use_neighbors=False)
             self.nmf_iterations += 1
             self.global_step += 1
-            if self.wandb_run is not None and (synchronize or self.nmf_iterations == self.parameters.nmf_iterations):
+            if self.wandb_run is not None:
                 self._log({"nll": self.model.nll()})
 
         has_spatial_training = self.parameters.spatial_preiterations > 0 or self.parameters.iterations > 0
         if self.parameters.nmf_iterations > 0 and has_spatial_training:
             self.model.parameter_optimizer.reinitialize_spatial_affinities()
-            self.model.synchronize_datasets()
+            self.model.base_view.mark_dirty()
 
         spatial_preprogress_bar = trange(
             self.parameters.spatial_preiterations,
@@ -117,17 +109,13 @@ class Trainer:
             mininterval=1,
         )
         for _ in spatial_preprogress_bar:
-            synchronize = self._should_synchronize(self.spatial_preiterations)
-            self.model.estimate_parameters(
+            self.model._update_parameters(
                 differentiate_spatial_affinities=False,
-                synchronize=synchronize,
             )
-            self.model.estimate_weights(synchronize=synchronize)
+            self.model._update_embeddings()
             self.spatial_preiterations += 1
             self.global_step += 1
-            if self.wandb_run is not None and (
-                synchronize or self.spatial_preiterations == self.parameters.spatial_preiterations
-            ):
+            if self.wandb_run is not None:
                 self._log({"nll_spatial_preiteration": self.model.nll(use_spatial=True)})
 
         progress_bar = trange(
@@ -139,13 +127,14 @@ class Trainer:
             mininterval=1,
         )
         for _ in progress_bar:
-            synchronize = self._should_synchronize(self.iterations)
-            self.model.estimate_parameters(synchronize=synchronize)
-            self.model.estimate_weights(synchronize=synchronize)
+            self.model._update_parameters()
+            self.model._update_embeddings()
             self.iterations += 1
             self.global_step += 1
-            if self.wandb_run is not None and (synchronize or self.iterations == self.parameters.iterations):
+            if self.wandb_run is not None:
                 self._log({"nll_spatial": self.model.nll(use_spatial=True)})
+
+        self.model.materialize_results()
 
         if self.verbose >= 1:
             logger.info("Finished Popari training after {} outer iterations", self.global_step)

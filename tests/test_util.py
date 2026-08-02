@@ -1,9 +1,9 @@
 import anndata as ad
-import awkward as ak
 import numpy as np
 import pandas as pd
 import pytest
 import torch
+from scipy.sparse import csr_array
 
 from popari.util import project2simplex, project2simplex_, smooth_labels, spatially_smooth_feature
 
@@ -37,11 +37,14 @@ def test_project2simplex_inplace_matches_functional():
 @pytest.mark.baseline
 def test_spatial_smoothing_propagates_across_rounds():
     labels = np.array(["A", "B", "A", "A"])
-    adjacency_list = np.asarray([[1], [0, 2], [1, 3], [2]], dtype=object)
+    adjacency = csr_array(
+        ([1] * 6, ([0, 1, 1, 2, 2, 3], [1, 0, 2, 1, 3, 2])),
+        shape=(4, 4),
+    )
 
-    one_round = spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=1)
-    default = spatially_smooth_feature(labels, adjacency_list)
-    converged = spatially_smooth_feature(labels, adjacency_list, max_smoothing_rounds=10)
+    one_round = spatially_smooth_feature(labels, adjacency, max_smoothing_rounds=1)
+    default = spatially_smooth_feature(labels, adjacency)
+    converged = spatially_smooth_feature(labels, adjacency, max_smoothing_rounds=10)
 
     assert np.array_equal(one_round, ["B", "A", "A", "A"])
     assert np.array_equal(default, one_round)
@@ -52,7 +55,10 @@ def test_spatial_smoothing_propagates_across_rounds():
 def test_smooth_labels_stores_categorical_annotation():
     dataset = ad.AnnData(np.ones((3, 1)))
     dataset.obs["leiden"] = pd.Categorical(["A", "A", "B"])
-    dataset.obsm["adjacency_list"] = ak.Array([[1], [0, 2], [1]])
+    dataset.obsp["adjacency_matrix"] = csr_array(
+        ([1] * 4, ([0, 1, 1, 2], [1, 0, 2, 1])),
+        shape=(3, 3),
+    )
 
     smooth_labels(dataset)
 

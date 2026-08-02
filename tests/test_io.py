@@ -7,6 +7,7 @@ from scipy.sparse import csr_array
 from popari.io import load_anndata, load_anndata_hierarchy, save_anndata
 from popari.legacy_io import convert_legacy_anndata, normalize_anndata_hierarchy
 from popari.model import load_trained_model
+from popari.schema import validate_anndata_hierarchy
 from scripts.migrate_popari_artifact import migrate_artifact
 
 
@@ -134,6 +135,7 @@ def test_convert_legacy_anndata_reconstructs_duplicate_observation_names():
 @pytest.mark.baseline
 def test_save_and_load_anndata_roundtrip(shared_model_factory, tmp_path):
     model = shared_model_factory()
+    model.materialize_results()
     filepath = tmp_path / "results.h5ad"
     canonical = model.adata.copy()
 
@@ -176,8 +178,10 @@ def test_load_anndata_hierarchy_returns_one_anndata_per_level(shared_model_facto
     result_path = tmp_path / "hierarchy"
     result_path.mkdir()
     canonical = model.adata
+    coarse = canonical.copy()
+    coarse.obsm["bin_assignments"] = csr_array(np.eye(canonical.n_obs))
     save_anndata(result_path / "level_0.h5ad", canonical)
-    save_anndata(result_path / "level_1.h5ad", canonical)
+    save_anndata(result_path / "level_1.h5ad", coarse)
 
     hierarchy = load_anndata_hierarchy(result_path)
 
@@ -188,6 +192,7 @@ def test_load_anndata_hierarchy_returns_one_anndata_per_level(shared_model_facto
 
 def test_normalize_anndata_hierarchy_removes_legacy_level_suffixes(shared_model_factory):
     model = shared_model_factory()
+    model.materialize_results()
     fine = model.adata.copy()
     coarse = model.adata.copy()
     renames = {sample: f"{sample}_level_1" for sample in model.replicate_names}
@@ -274,6 +279,15 @@ def test_save_and_load_supports_custom_sample_key(tmp_path):
 
     assert reloaded.popari.sample_key == "library"
     assert reloaded.popari.sample_names == ("sample_b", "sample_a")
+
+
+def test_hierarchy_validation_requires_coarse_bin_assignments(hierarchical_model_factory):
+    model = hierarchical_model_factory(hierarchical_levels=2)
+    hierarchy = {level: model.hierarchy[level].adata.copy() for level in range(2)}
+    del hierarchy[1].obsm["bin_assignments"]
+
+    with pytest.raises(ValueError, match=r"missing obsm\['bin_assignments'\]"):
+        validate_anndata_hierarchy(hierarchy)
 
 
 @pytest.mark.baseline

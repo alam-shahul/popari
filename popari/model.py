@@ -10,7 +10,7 @@ from loguru import logger
 from torch import nn
 from tqdm.auto import trange
 
-from popari._hierarchical_view import HierarchicalView, Hierarchy
+from popari._hierarchical_level import HierarchicalLevel, Hierarchy
 from popari.io import load_anndata, load_anndata_hierarchy, save_anndata, save_anndata_hierarchy
 from popari.schema import SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
 from popari.util import convert_numpy_to_pytorch_sparse_coo
@@ -236,7 +236,7 @@ class Popari(nn.Module):
     def load_anndata(self, adata: ad.AnnData):
         """Load one unified Popari AnnData."""
 
-        self._adata = adata.copy()
+        self._adata = adata
         if self.sample_key is not None:
             self._adata.uns[SAMPLE_KEY_KEY] = self.sample_key
         self._adata.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
@@ -294,8 +294,6 @@ class Popari(nn.Module):
         bin_assignment_kwargs = {}
         if self.downsampling_method == "grid":
             bin_assignment_kwargs["chunks"] = self.chunks
-        elif self.downsampling_method == "partition":
-            bin_assignment_kwargs["adjacency_list_key"] = "adjacency_list"
 
         if self.pretrained:
             if self.reloaded_hierarchy is None:
@@ -305,7 +303,7 @@ class Popari(nn.Module):
                 **hierarchical_view_kwargs,
             )
         else:
-            base_view = HierarchicalView(self.adata, level=0, **hierarchical_view_kwargs)
+            base_view = HierarchicalLevel(self.adata, level=0, **hierarchical_view_kwargs)
             self.hierarchy = Hierarchy(
                 downsampling_method=self.downsampling_method,
                 base_view=base_view,
@@ -320,7 +318,41 @@ class Popari(nn.Module):
 
         self.views = nn.ModuleList([self.hierarchy[level] for level in range(self.hierarchical_levels)])
 
-        self.synchronize_datasets()
+    def _update_embeddings(self, use_neighbors: bool = True) -> None:
+        """Update authoritative embedding tensors without materializing
+        AnnData."""
+
+        if self.verbose >= 2:
+            logger.info("Updating embeddings")
+        self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
+        self.base_view.mark_dirty()
+
+    def _update_parameters(
+        self,
+        update_spatial_affinities: bool = True,
+        differentiate_spatial_affinities: bool = True,
+        simplex_projection_mode: bool = "exact",
+        edge_subsample_rate: Optional[float] = None,
+        spatial_affinity_epochs: int = 1000,
+    ) -> None:
+        """Update authoritative parameter tensors without materializing
+        AnnData."""
+
+        if update_spatial_affinities:
+            if self.verbose >= 2:
+                logger.info("Updating spatial affinities")
+            self.parameter_optimizer.update_spatial_affinity(
+                differentiate_spatial_affinities=differentiate_spatial_affinities,
+                subsample_rate=edge_subsample_rate,
+                n_epochs=spatial_affinity_epochs,
+            )
+        if self.verbose >= 2:
+            logger.info("Updating metagenes")
+        self.parameter_optimizer.update_metagenes(simplex_projection_mode=simplex_projection_mode)
+        if self.verbose >= 2:
+            logger.info("Updating observation noise")
+        self.parameter_optimizer.update_sigma_yx()
+        self.base_view.mark_dirty()
 
     def estimate_weights(self, use_neighbors: bool = True, synchronize: bool = True):
         """Update embeddings (latent states) for each replicate.
@@ -330,12 +362,10 @@ class Popari(nn.Module):
                 interactions. Default: ``True``
 
         """
-        if self.verbose >= 2:
-            logger.info("Updating embeddings")
-        self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
+        self._update_embeddings(use_neighbors=use_neighbors)
 
         if synchronize:
-            self.synchronize_datasets()
+            self.materialize_results()
 
     def estimate_parameters(
         self,
@@ -357,27 +387,16 @@ class Popari(nn.Module):
                 ``Sigma_x_inv``. Default: ``1000``.
 
         """
-        if update_spatial_affinities:
-            if self.verbose >= 2:
-                logger.info("Updating spatial affinities")
-            self.parameter_optimizer.update_spatial_affinity(
-                differentiate_spatial_affinities=differentiate_spatial_affinities,
-                subsample_rate=edge_subsample_rate,
-                n_epochs=spatial_affinity_epochs,
-            )
-
-        if self.verbose >= 2:
-            logger.info("Updating metagenes")
-
-        self.parameter_optimizer.update_metagenes(simplex_projection_mode=simplex_projection_mode)
-
-        if self.verbose >= 2:
-            logger.info("Updating observation noise")
-
-        self.parameter_optimizer.update_sigma_yx()
+        self._update_parameters(
+            update_spatial_affinities=update_spatial_affinities,
+            differentiate_spatial_affinities=differentiate_spatial_affinities,
+            simplex_projection_mode=simplex_projection_mode,
+            edge_subsample_rate=edge_subsample_rate,
+            spatial_affinity_epochs=spatial_affinity_epochs,
+        )
 
         if synchronize:
-            self.synchronize_datasets()
+            self.materialize_results()
 
     def superresolve(
         self,
@@ -473,13 +492,16 @@ class Popari(nn.Module):
             if change_all or (level == target_level):
                 self.hierarchy[level].superresolution_lr = new_lr
 
-    def synchronize_datasets(self):
-        """Synchronize unified AnnData objects across hierarchy levels."""
+    def materialize_results(self, *, force: bool = False) -> None:
+        """Write learned tensor state into each hierarchy-level AnnData."""
 
-        self.base_view.synchronize_datasets()
-        if self.hierarchical_levels > 1:
-            for level in range(self.hierarchical_levels):
-                self.hierarchy[level].synchronize_datasets()
+        for level in range(self.hierarchical_levels):
+            self.hierarchy[level].materialize_results(force=force)
+
+    def synchronize_datasets(self):
+        """Deprecated alias for :meth:`materialize_results`."""
+
+        self.materialize_results(force=True)
 
     def save_results(self, dataset_path: str, ignore_raw_data: bool = True) -> Path:
         """Save datasets and learned Popari parameters to disk.
@@ -496,7 +518,7 @@ class Popari(nn.Module):
         dataset_path = Path(dataset_path)
         path_without_extension = dataset_path.parent / dataset_path.stem
 
-        self.synchronize_datasets()
+        self.materialize_results()
 
         if self.hierarchical_levels == 1:
             result_path = path_without_extension.with_suffix(".h5ad")
@@ -636,6 +658,7 @@ def load_pretrained(
 def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambda_Sigma_bar: float = 1e-3):
     """Initialize Popari object from a SpiceMix pretrained model."""
 
+    pretrained_model.materialize_results()
     adata = pretrained_model.adata.copy()
     reloaded_hierarchy = {
         level: pretrained_model.hierarchy[level].adata.copy() for level in range(pretrained_model.hierarchical_levels)

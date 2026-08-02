@@ -1,4 +1,3 @@
-import awkward as ak
 import numpy as np
 import torch
 from anndata import AnnData
@@ -7,14 +6,13 @@ from scipy.sparse import csr_array
 from torch import nn
 from tqdm.auto import trange
 
-from popari._named_state import BufferDict, ParameterDict
+from popari._named_state import ParameterDict
 from popari._sample_axis import SampleAxis
 from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.util import (
     IndependentSet,
     NesterovGD,
-    convert_adjacency_matrix_to_awkward_array,
-    convert_numpy_to_pytorch_sparse_coo,
+    graph_neighbors,
     project2simplex,
     project2simplex_,
     project_M,
@@ -32,6 +30,8 @@ class ParameterOptimizer(nn.Module):
         Ys,
         adata: AnnData,
         sample_axis: SampleAxis,
+        adjacency,
+        adjacency_matrix,
         betas,
         prior_x_modes,
         spatial_affinity_groups,
@@ -81,18 +81,8 @@ class ParameterOptimizer(nn.Module):
             "betas",
             torch.as_tensor(betas, dtype=self.context["dtype"], device=self.context["device"]),
         )
-        self.adjacency_lists = {}
-        self.adjacency_matrices = BufferDict(prefix="dataset")
-        for sample in self.sample_names:
-            indices = sample_axis.indices(sample)
-            adjacency = csr_array(adata.obsp["adjacency_matrix"])[indices][:, indices]
-            self.adjacency_lists[sample] = convert_adjacency_matrix_to_awkward_array(
-                adjacency.tocoo(),
-            )
-            self.adjacency_matrices[sample] = convert_numpy_to_pytorch_sparse_coo(
-                adjacency,
-                self.context,
-            )
+        self.adjacency = adjacency
+        object.__setattr__(self, "adjacency_matrix", adjacency_matrix)
 
         if self.verbose >= 1:
             logger.info("Initializing metagene state")
@@ -105,7 +95,8 @@ class ParameterOptimizer(nn.Module):
         self.spatial_affinity = SpatialAffinity(
             self.K,
             self.sample_names,
-            self.adjacency_lists,
+            self.adjacency,
+            self.sample_axis,
             self.spatial_affinity_groups,
             self.betas,
             scaling=self.spatial_affinity_scaling,
@@ -178,27 +169,29 @@ class ParameterOptimizer(nn.Module):
         )
         betas = betas / betas.sum()
 
-        Xs = [self.embedding_optimizer.embedding_state[sample].detach() for sample in samples]
-        num_edges_per_fov = [ak.count(self.adjacency_lists[sample], axis=None) for sample in samples]
+        global_X = self.embedding_optimizer.embedding_state.embedding.detach()
+        global_Z = global_X / torch.linalg.norm(global_X, axis=1, ord=1, keepdim=True)
+        global_nu = self.adjacency_matrix @ global_Z
+        num_edges_per_fov = [
+            int(np.diff(self.adjacency.indptr)[self.sample_axis.indices(sample)].sum()) for sample in samples
+        ]
 
         if not any(num_edges > 0 for num_edges in num_edges_per_fov):
             return
 
         linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
-        size_factors = [torch.linalg.norm(X, axis=1, ord=1, keepdim=True) for X in Xs]
-        Zs = [X.to(self.context["device"]) / size_factor for X, size_factor in zip(Xs, size_factors)]
         nus = []  # sum of neighbors' z
         weighted_total_cells = 0
 
-        for Z, sample, num_edges, beta in zip(Zs, samples, num_edges_per_fov, betas):
-            adjacency_matrix = self.adjacency_matrices[sample]
-            nu = adjacency_matrix @ Z
+        for sample, num_edges, beta in zip(samples, num_edges_per_fov, betas):
+            indices = torch.as_tensor(self.sample_axis.indices(sample), device=global_Z.device)
+            Z = global_Z.index_select(0, indices)
+            nu = global_nu.index_select(0, indices)
             linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
 
             nus.append(nu)
             weighted_total_cells += beta * num_edges
-            del Z, adjacency_matrix
-        # linear_term_coefficient = (linear_term_coefficient + linear_term_coefficient.T) / 2 # should be unnecessary as long as adjacency_list is symmetric
+            del Z
         if self.verbose >= 3:
             logger.debug(
                 "Spatial-affinity linear coefficient range: {:.2e} to {:.2e}",
@@ -249,15 +242,14 @@ class ParameterOptimizer(nn.Module):
 
             log_partition_function = 0
             for nu, beta, sample in zip(nus, betas, samples):
-                sample_size = len(self.sample_axis.indices(sample))
-                adjacency_list = self.adjacency_lists[sample]
+                sample_indices = self.sample_axis.indices(sample)
+                sample_size = len(sample_indices)
                 if subsample_rate is None:
                     subsample_multiplier = 1
                 else:
                     node_limit = int(subsample_rate * sample_size)
-                    subsample_index = np.sort(
-                        sample_graph_iid(adjacency_list, range(sample_size), node_limit),
-                    )
+                    sample_adjacency = self.adjacency[sample_indices][:, sample_indices]
+                    subsample_index = np.sort(sample_graph_iid(sample_adjacency, range(sample_size), node_limit))
                     subsample_multiplier = 1 / subsample_rate
                     nu = nu[subsample_index]
 
@@ -338,7 +330,6 @@ class ParameterOptimizer(nn.Module):
         #             subsample_multiplier = 1
         #         else:
         #             node_limit = int(subsample_rate * len(dataset))
-        #             subsample_index = np.sort(sample_graph_iid(adjacency_list, range(len(dataset)), node_limit))
         #             subsample_multiplier = 1 / subsample_rate
         #             nu = nu[subsample_index]
 
@@ -369,26 +360,29 @@ class ParameterOptimizer(nn.Module):
         )
         betas = betas / betas.sum()
 
-        Xs = [self.embedding_optimizer.embedding_state[sample] for sample in samples]
-        num_edges_per_fov = [ak.count(self.adjacency_lists[sample], axis=None) for sample in samples]
+        global_X = self.embedding_optimizer.embedding_state.embedding
+        global_Z = global_X / torch.linalg.norm(global_X, axis=1, ord=1, keepdim=True)
+        global_nu = self.adjacency_matrix @ global_Z
+        num_edges_per_fov = [
+            int(np.diff(self.adjacency.indptr)[self.sample_axis.indices(sample)].sum()) for sample in samples
+        ]
 
         if not any(num_edges > 0 for num_edges in num_edges_per_fov):
             return
 
         linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
-        size_factors = [torch.linalg.norm(X, axis=1, ord=1, keepdim=True) for X in Xs]
-        Zs = [X.to(self.context["device"]) / size_factor for X, size_factor in zip(Xs, size_factors)]
         nus = []  # sum of neighbors' z
         weighted_total_cells = 0
 
-        for Z, sample, num_edges, beta in zip(Zs, samples, num_edges_per_fov, betas):
-            adjacency_matrix = self.adjacency_matrices[sample]
-            nu = adjacency_matrix @ Z
+        for sample, num_edges, beta in zip(samples, num_edges_per_fov, betas):
+            indices = torch.as_tensor(self.sample_axis.indices(sample), device=global_Z.device)
+            Z = global_Z.index_select(0, indices)
+            nu = global_nu.index_select(0, indices)
             linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
 
             nus.append(nu)
             weighted_total_cells += beta * num_edges
-            del Z, adjacency_matrix
+            del Z
 
         loss_prev, loss = np.inf, np.nan
 
@@ -413,7 +407,7 @@ class ParameterOptimizer(nn.Module):
         )
 
         log_partition_function = 0
-        for nu, beta in zip(nus, self.betas):
+        for nu, beta in zip(nus, betas):
             if nu is None:
                 continue
             assert torch.isfinite(nu).all()
@@ -827,7 +821,8 @@ class SpatialAffinity(nn.Module):
         self,
         K,
         sample_names,
-        adjacency_lists,
+        adjacency,
+        sample_axis,
         groups,
         betas,
         scaling=10,
@@ -842,7 +837,8 @@ class SpatialAffinity(nn.Module):
         self._ordered_dataset_names = list(sample_names)
         self._ordered_group_names = list(groups)
         self.sample_names = tuple(sample_names)
-        self.adjacency_lists = adjacency_lists
+        self.adjacency = adjacency
+        self.sample_axis = sample_axis
         self._dataset_group = {}
         for group_name, group_replicates in groups.items():
             for dataset_name in group_replicates:
@@ -875,13 +871,17 @@ class SpatialAffinity(nn.Module):
         for replicate, (initial_embedding, sample) in enumerate(
             zip(initial_embeddings, self.sample_names),
         ):
-            adjacency_list = self.adjacency_lists[sample]
-            if ak.count(adjacency_list, axis=None) == 0:
+            sample_indices = self.sample_axis.indices(sample)
+            edge_rows = np.repeat(np.arange(self.adjacency.shape[0]), np.diff(self.adjacency.indptr))
+            edge_mask = self.sample_axis.codes[edge_rows] == self.sample_axis.position(sample)
+            rows = edge_rows[edge_mask]
+            columns = self.adjacency.indices[edge_mask]
+            if len(rows) == 0:
                 continue
 
             X = initial_embedding
             Z = X / torch.linalg.norm(X, dim=1, keepdim=True, ord=1)
-            edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
+            edges = np.column_stack((np.searchsorted(sample_indices, rows), np.searchsorted(sample_indices, columns)))
 
             x = Z[edges[:, 0]]
             y = Z[edges[:, 1]]

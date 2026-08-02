@@ -120,7 +120,7 @@ def test_generation_returns_plain_anndata_with_expected_schema():
     assert dataset.obs["cell_type"].dtype.name == "category"
     assert dataset.obs["batch"].dtype.name == "category"
     assert "adjacency_matrix" in dataset.obsp
-    assert "adjacency_list" in dataset.obsm
+    assert "adjacency_list" not in dataset.obsm
 
 
 def test_generation_is_deterministic_and_shares_metagenes():
@@ -201,4 +201,4 @@ def test_spatial_affinity_demo_datasets_use_simulation_schema():
         assert np.all(np.count_nonzero(dataset.simulation.ground_truth_X, axis=1) == 1)
         assert np.all(dataset.X.toarray()[clean_expression == 0] == 0)
         assert "adjacency_matrix" in dataset.obsp
-        assert "adjacency_list" in dataset.obsm
+        assert "adjacency_list" not in dataset.obsm

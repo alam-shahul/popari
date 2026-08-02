@@ -297,19 +297,17 @@ def metagene_neighbor_interactions(dataset: ad.AnnData, interaction_key: str = "
     """
     embeddings = dataset.obsm["X"]
     X = embeddings
-    adjacency_matrix = dataset.obsp["adjacency_matrix"].toarray()
-
-    adjacency_list = dataset.obsm["adjacency_list"]
+    adjacency_matrix = dataset.obsp["adjacency_matrix"].tocoo()
     num_cells, num_metagenes = embeddings.shape
 
     Z = X / np.linalg.norm(X, axis=1, keepdims=True, ord=1)
-    edges = np.array([(i, j) for i, e in enumerate(adjacency_list) for j in e])
+    edges = np.column_stack((adjacency_matrix.row, adjacency_matrix.col))
 
     x = Z[edges[:, 0]]
     y = Z[edges[:, 1]]
 
     pair_interactions = np.zeros((num_cells, num_cells, num_metagenes, num_metagenes))
-    cell_i, cell_j = adjacency_matrix.nonzero()
+    cell_i, cell_j = adjacency_matrix.row, adjacency_matrix.col
     for i in range(num_metagenes):
         for j in range(i, num_metagenes):
             pair_interactions[cell_i, cell_j, i, j] = 1 - x[:, i] * y[:, j]

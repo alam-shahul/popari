@@ -9,12 +9,14 @@ from popari.io import save_anndata
 from popari.wandb_util import load_popari_model_from_wandb, read_popari_anndata_hierarchy
 
 
-def _write_h5ad(path):
+def _write_h5ad(path, *, coarse=False):
     dataset = ad.AnnData(X=np.ones((2, 2)))
     dataset.obs_names = ["cell_0", "cell_1"]
     dataset.var_names = ["gene_0", "gene_1"]
     dataset.obs["batch"] = pd.Categorical(["replicate", "replicate"])
     dataset.obsp["adjacency_matrix"] = csr_array(np.eye(2))
+    if coarse:
+        dataset.obsm["bin_assignments"] = csr_array(np.eye(2))
     dataset.popari.name = "replicate"
     save_anndata(path, dataset)
     return dataset
@@ -35,7 +37,7 @@ def test_read_popari_anndata_hierarchy_loads_level_h5ads(tmp_path, monkeypatch):
     level_0_path = tmp_path / "level_0.h5ad"
     level_1_path = tmp_path / "level_1.h5ad"
     _write_h5ad(level_0_path)
-    _write_h5ad(level_1_path)
+    _write_h5ad(level_1_path, coarse=True)
 
     hierarchy = read_popari_anndata_hierarchy(tmp_path)
 

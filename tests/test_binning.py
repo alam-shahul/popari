@@ -39,7 +39,6 @@ def test_partition_binning_produces_valid_assignments(shared_model_factory, adat
             dataset,
             bin_assignments_key=key,
             downsample_rate=0.5,
-            adjacency_list_key="adjacency_list",
         )
 
         assignments = binned_dataset.obsm[key].toarray()

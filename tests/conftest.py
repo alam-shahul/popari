@@ -230,6 +230,7 @@ def initialized_shared_model(shared_model_factory, adata_factory):
 @pytest.fixture(scope="session")
 def preprocessed_shared_model(initialized_shared_model):
     model = initialized_shared_model
+    model.materialize_results()
     tl.postprocess_embeddings(model.adata)
     pp.pca(model.adata, n_comps=3)
     return model

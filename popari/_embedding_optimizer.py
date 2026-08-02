@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from anndata import AnnData
 from loguru import logger
-from scipy.sparse import csr_array
 from torch import nn
 from tqdm.auto import tqdm, trange
 
@@ -13,8 +12,6 @@ from popari._sample_axis import SampleAxis
 from popari.util import (
     IndependentSet,
     NesterovGD,
-    convert_adjacency_matrix_to_awkward_array,
-    convert_numpy_to_pytorch_sparse_coo,
     project2simplex,
     project2simplex_,
     project_M,
@@ -32,6 +29,8 @@ class EmbeddingOptimizer(nn.Module):
         Ys,
         adata: AnnData,
         sample_axis: SampleAxis,
+        adjacency,
+        adjacency_matrix,
         initial_context=None,
         context=None,
         use_inplace_ops=False,
@@ -51,18 +50,8 @@ class EmbeddingOptimizer(nn.Module):
         self.Ys = Ys
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self.adjacency_lists = {}
-        self.adjacency_matrices = BufferDict(prefix="dataset")
-        for sample in self.sample_names:
-            indices = self.sample_axis.indices(sample)
-            adjacency = csr_array(adata.obsp["adjacency_matrix"])[indices][:, indices]
-            self.adjacency_lists[sample] = convert_adjacency_matrix_to_awkward_array(
-                adjacency.tocoo(),
-            )
-            self.adjacency_matrices[sample] = convert_numpy_to_pytorch_sparse_coo(
-                adjacency,
-                self.context,
-            )
+        self.adjacency = adjacency
+        object.__setattr__(self, "adjacency_matrix", adjacency_matrix)
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
         self.embedding_mini_iterations = embedding_mini_iterations
         self.embedding_acceleration_trick = embedding_acceleration_trick
@@ -77,6 +66,8 @@ class EmbeddingOptimizer(nn.Module):
     def update_embeddings(self, use_neighbors=True):
         """Update Popari embeddings according to optimization scheme."""
         loss_list = []
+        global_embedding = self.embedding_state.embedding
+        global_Z = global_embedding / torch.linalg.norm(global_embedding, dim=1, ord=1, keepdim=True)
         for dataset_index, sample in enumerate(self.sample_names):
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
@@ -102,14 +93,20 @@ class EmbeddingOptimizer(nn.Module):
                     prior_x_mode,
                     prior_x,
                     sample,
+                    global_Z,
                 )
             self.embedding_state[sample] = updated_embedding
+            sample_indices = self.embedding_state.sample_indices[sample]
+            updated_Z = updated_embedding / torch.linalg.norm(updated_embedding, dim=1, ord=1, keepdim=True)
+            global_Z.index_copy_(0, sample_indices, updated_Z)
 
             loss_list.append(loss)
 
     def nll_embeddings(self, use_neighbors=True):
         with torch.no_grad():
             loss_embeddings = torch.zeros(1, **self.context)
+            global_embedding = self.embedding_state.embedding
+            global_Z = global_embedding / torch.linalg.norm(global_embedding, dim=1, ord=1, keepdim=True)
             for dataset_index, sample in enumerate(self.sample_names):
                 sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
                 Y = self.Ys[dataset_index].to(self.context["device"])
@@ -135,6 +132,7 @@ class EmbeddingOptimizer(nn.Module):
                         prior_x_mode,
                         prior_x,
                         sample,
+                        global_Z,
                     )
 
                 loss_embeddings += loss
@@ -284,6 +282,7 @@ class EmbeddingOptimizer(nn.Module):
         prior_x_mode,
         prior_x,
         sample,
+        global_Z=None,
         tol=1e-5,
         update_alg="nesterov",
     ):
@@ -318,8 +317,15 @@ class EmbeddingOptimizer(nn.Module):
         Z = X / S
         N = len(Z)
 
-        E_adjacency_list = self.adjacency_lists[sample]
-        adjacency_matrix = self.adjacency_matrices[sample].to(self.context["device"])
+        sample_indices = self.embedding_state.sample_indices[sample]
+        sample_indices_numpy = self.sample_axis.indices(sample)
+        sample_adjacency = self.adjacency[sample_indices_numpy][:, sample_indices_numpy]
+        if global_Z is None:
+            global_embedding = self.embedding_state.embedding
+            global_Z = global_embedding / torch.linalg.norm(global_embedding, dim=1, ord=1, keepdim=True)
+        global_Z = global_Z.clone()
+        global_Z.index_copy_(0, sample_indices, Z)
+        adjacency_matrix = self.adjacency_matrix
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity[sample].to(self.context["device"])
 
         def update_s():
@@ -350,10 +356,17 @@ class EmbeddingOptimizer(nn.Module):
         def update_z_gd(Z):
             step_size = base_step_size / S.square()
             pbar = tqdm(range(N), leave=False, disable=True)
-            for idx in IndependentSet(E_adjacency_list, device=self.context["device"], batch_size=128):
+            for idx in IndependentSet(
+                sample_adjacency,
+                device=self.context["device"],
+                batch_size=128,
+            ):
+                global_idx = sample_indices.index_select(0, idx)
                 step_size_scale = 1
                 quad_batch = MTM
-                linear_batch = YM[idx] * S[idx] - torch.index_select(adjacency_matrix, 0, idx) @ Z @ Sigma_x_inv
+                linear_batch = (
+                    YM[idx] * S[idx] - torch.index_select(adjacency_matrix, 0, global_idx) @ global_Z @ Sigma_x_inv
+                )
                 Z_batch = Z[idx].contiguous()
                 S_batch = S[idx].contiguous()
                 step_size_batch = step_size[idx].contiguous()
@@ -378,6 +391,7 @@ class EmbeddingOptimizer(nn.Module):
                         break
                 assert step_size_scale > 0.1
                 Z[idx] = Z_batch
+                global_Z.index_copy_(0, global_idx, Z_batch)
                 pbar.set_description(f"Updating Z w/ nbrs via line search: lr={step_size_scale:.1e}")
                 pbar.update(len(idx))
             pbar.close()
@@ -387,10 +401,16 @@ class EmbeddingOptimizer(nn.Module):
         def update_z_gd_nesterov(Z):
             pbar = trange(N, leave=False, disable=True, desc="Updating Z w/ nbrs via Nesterov GD")
 
-            func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
-            for idx in IndependentSet(E_adjacency_list, device=self.context["device"], batch_size=1024):
+            neighbor_Z = torch.index_select(adjacency_matrix, 0, sample_indices) @ global_Z
+            func, grad = calc_func_grad(Z, S, MTM, YM * S - neighbor_Z @ Sigma_x_inv / 2)
+            for idx in IndependentSet(
+                sample_adjacency,
+                device=self.context["device"],
+                batch_size=1024,
+            ):
+                global_idx = sample_indices.index_select(0, idx)
                 quad_batch = MTM
-                linear_batch_spatial = -torch.index_select(adjacency_matrix, 0, idx) @ Z @ Sigma_x_inv
+                linear_batch_spatial = -torch.index_select(adjacency_matrix, 0, global_idx) @ global_Z @ Sigma_x_inv
                 Z_batch = Z[idx].contiguous()
                 S_batch = S[idx].contiguous()
 
@@ -403,7 +423,8 @@ class EmbeddingOptimizer(nn.Module):
                     linear_batch = linear_batch_spatial + YM[idx] * S_batch
                     if i_iter == 0:
                         func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-                        func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
+                        neighbor_Z = torch.index_select(adjacency_matrix, 0, sample_indices) @ global_Z
+                        func, grad = calc_func_grad(Z, S, MTM, YM * S - neighbor_Z @ Sigma_x_inv / 2)
                     NesterovGD.step_size = (
                         base_step_size / S_batch.square()
                     )  # TM: I think this converges as s converges
@@ -433,6 +454,7 @@ class EmbeddingOptimizer(nn.Module):
 
                     dZ = (Z_batch_prev - Z_batch).abs().max().item()
                     Z[idx] = Z_batch
+                    global_Z.index_copy_(0, global_idx, Z_batch)
                     description = f"func={func:.1e}, dZ={dZ:.1e}"
                     ppbar.set_description(description)
                     if dZ < tol:
@@ -440,11 +462,14 @@ class EmbeddingOptimizer(nn.Module):
                 ppbar.close()
 
                 Z[idx] = Z_batch
+                global_Z.index_copy_(0, global_idx, Z_batch)
                 func, grad = calc_func_grad(Z_batch, S_batch, quad_batch, linear_batch)
-                func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
+                neighbor_Z = torch.index_select(adjacency_matrix, 0, sample_indices) @ global_Z
+                func, grad = calc_func_grad(Z, S, MTM, YM * S - neighbor_Z @ Sigma_x_inv / 2)
                 pbar.update(len(idx))
             pbar.close()
-            func, grad = calc_func_grad(Z, S, MTM, YM * S - adjacency_matrix @ Z @ Sigma_x_inv / 2)
+            neighbor_Z = torch.index_select(adjacency_matrix, 0, sample_indices) @ global_Z
+            func, grad = calc_func_grad(Z, S, MTM, YM * S - neighbor_Z @ Sigma_x_inv / 2)
 
             return Z
 
@@ -459,7 +484,8 @@ class EmbeddingOptimizer(nn.Module):
                 raise NotImplementedError
 
             if Sigma_x_inv is not None:
-                loss += ((adjacency_matrix @ Z) @ Sigma_x_inv).mul(Z).sum() / 2
+                neighbor_Z = torch.index_select(adjacency_matrix, 0, sample_indices) @ global_Z
+                loss += (neighbor_Z @ Sigma_x_inv).mul(Z).sum() / 2
             loss = loss.item()
             # assert loss <= loss_prev, (loss_prev, loss)
             return loss
@@ -511,6 +537,7 @@ class EmbeddingOptimizer(nn.Module):
         prior_x_mode,
         prior_x,
         sample,
+        global_Z=None,
         tol=1e-5,
         update_alg="nesterov",
     ):
@@ -523,8 +550,11 @@ class EmbeddingOptimizer(nn.Module):
         Z = X / S
         N = len(Z)
 
-        E_adjacency_list = self.adjacency_lists[sample]
-        adjacency_matrix = self.adjacency_matrices[sample].to(self.context["device"])
+        sample_indices = self.embedding_state.sample_indices[sample]
+        adjacency_matrix = self.adjacency_matrix
+        if global_Z is None:
+            global_embedding = self.embedding_state.embedding
+            global_Z = global_embedding / torch.linalg.norm(global_embedding, dim=1, ord=1, keepdim=True)
         Sigma_x_inv = self.parameter_optimizer.spatial_affinity[sample].to(self.context["device"])
 
         def compute_loss():
@@ -538,7 +568,8 @@ class EmbeddingOptimizer(nn.Module):
                 raise NotImplementedError
 
             if Sigma_x_inv is not None:
-                loss += ((adjacency_matrix @ Z) @ Sigma_x_inv).mul(Z).sum() / 2
+                neighbor_Z = torch.index_select(adjacency_matrix, 0, sample_indices) @ global_Z
+                loss += (neighbor_Z @ Sigma_x_inv).mul(Z).sum() / 2
             loss = loss.item()
             # assert loss <= loss_prev, (loss_prev, loss)
             return loss
