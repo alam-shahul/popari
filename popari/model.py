@@ -566,17 +566,6 @@ class Popari(nn.Module):
             low_res_view.parameter_optimizer.update_sigma_yx()
 
 
-class SpiceMix(Popari):
-    """Wrapper to produce SpiceMix hyperparameter configuration."""
-
-    def __init__(self, **spicemix_hyperparameters):
-        spatial_affinity_mode = "shared lookup"
-        if "spatial_affinity_mode" in spicemix_hyperparameters:
-            spicemix_hyperparameters.pop("spatial_affinity_mode")
-
-        super().__init__(spatial_affinity_mode="shared lookup", **spicemix_hyperparameters)
-
-
 def load_trained_model(
     dataset_path: Union[str, Path],
     context=dict(device="cpu", dtype=torch.float64),

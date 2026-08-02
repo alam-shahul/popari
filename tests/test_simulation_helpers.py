@@ -13,6 +13,8 @@ from popari.simulation.recipes import (
 )
 from popari.simulation.synthetic import (
     SPATIAL_AFFINITY_DEMO_SCENARIOS,
+    _assign_domains,
+    _create_dataset,
     _grid_coordinates,
     create_spatial_affinity_demo_datasets,
     four_neighbor_grid_adjacency,
@@ -64,6 +66,37 @@ def test_grid_coordinates_respect_recipe_dimensions():
             [2, 3],
         ],
     )
+
+
+def test_assign_domains_uses_nearest_landmarks_and_preserves_metadata():
+    recipe = SimulationRecipe(
+        cell_type_definitions={"cell": [1]},
+        spatial_distributions={"left": {"cell": 1}, "right": {"cell": 1}},
+        metagene_variation_probabilities=[0],
+        width=4,
+        height=4,
+    )
+    dataset = _create_dataset("sample", recipe, SimulationConfig(num_genes=2, grid_size=3))
+    landmarks = {
+        "left": np.array([[0.0, 0.0], [0.0, 4.0]]),
+        "right": np.array([[3.0, 0.0], [3.0, 4.0]]),
+    }
+
+    _assign_domains(dataset, recipe, landmarks)
+
+    assert dataset.obs[recipe.domain_key].tolist() == [
+        "left",
+        "right",
+        "right",
+        "left",
+        "right",
+        "right",
+        "left",
+        "right",
+        "right",
+    ]
+    for domain_name, coordinates in landmarks.items():
+        np.testing.assert_array_equal(dataset.uns["domain_landmarks"][domain_name], coordinates)
 
 
 def test_generation_returns_plain_anndata_with_expected_schema():

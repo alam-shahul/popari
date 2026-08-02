@@ -10,7 +10,6 @@ import anndata as ad
 import torch
 
 from popari.io import load_anndata
-from popari.legacy_io import load_legacy_anndata
 from popari.model import load_pretrained
 from popari.schema import validate_anndata_hierarchy
 
@@ -98,23 +97,6 @@ def _download_popari_artifacts(
         )
 
     return [Path(artifact.download(root=str(root) if root is not None else None)) for artifact in artifacts]
-
-
-def read_popari_artifact(path: str | Path) -> ad.AnnData:
-    """Read a downloaded Popari artifact in either .h5ad or legacy Zarr
-    format."""
-
-    path = Path(path)
-    if path.is_file() and path.suffix == ".h5ad":
-        return load_anndata(path)
-
-    h5ad_files = sorted(path.glob("*.h5ad")) if path.is_dir() else []
-    if len(h5ad_files) == 1:
-        return load_anndata(h5ad_files[0])
-    if len(h5ad_files) > 1:
-        raise ValueError(f"Expected one .h5ad file in {path}; found {len(h5ad_files)}.")
-
-    return load_legacy_anndata(path)
 
 
 def _h5ad_files_from_artifact_path(path: str | Path) -> list[Path]:

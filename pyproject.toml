@@ -58,7 +58,6 @@ path = "popari/__about__.py"
 [project.optional-dependencies]
 simulation = [
   "jupyterlab",
-  "ipycanvas",
   "jupyterlab_execute_time",
 ]
 jupyter = [
@@ -146,6 +145,5 @@ test = [
     "pytest",
     "python-dotenv",
     "jupyterlab",
-    "ipycanvas",
     "jupyterlab_execute_time",
 ]
