@@ -252,10 +252,8 @@ def compile_de_genes(
         keep = valid_names & np.isfinite(category_pvals) & (category_pvals < p_value_threshold)
         filtered_genes = category_genes[keep][:max_genes]
         cell_type_de_genes[category] = filtered_genes
-        print(category, len(filtered_genes))
         all_de_genes.update(filtered_genes)
 
-    print(len(all_de_genes))
     return cell_type_de_genes, all_de_genes
 
 

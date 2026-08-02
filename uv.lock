@@ -2517,6 +2517,19 @@ wheels = [
 ]
 
 [[package]]
+name = "loguru"
+version = "0.7.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "win32-setctime", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3a/05/a1dae3dffd1116099471c643b8924f5aa6524411dc6c63fdae648c4f1aca/loguru-0.7.3.tar.gz", hash = "sha256:19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6", size = 63559, upload-time = "2024-12-06T11:20:56.608Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/29/0348de65b8cc732daa3e33e67806420b2ae89bdce2b04af740289c5c6c8c/loguru-0.7.3-py3-none-any.whl", hash = "sha256:31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c", size = 61595, upload-time = "2024-12-06T11:20:54.538Z" },
+]
+
+[[package]]
 name = "louvain"
 version = "0.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3466,15 +3479,6 @@ wheels = [
 ]
 
 [[package]]
-name = "nvidia-ml-py"
-version = "13.595.45"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ce/49/c29f6e30d8662d2e94fef17739ea7309cc76aba269922ae999e4cc07f268/nvidia_ml_py-13.595.45.tar.gz", hash = "sha256:c9f34897fe0441ff35bc8f35baf80f830a20b0f4e6ce71e0a325bc0e66acf079", size = 50780, upload-time = "2026-03-19T16:59:44.956Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/24/fc256107d23597fa33d319505ce77160fa1a2349c096d01901ffc7cb7fc4/nvidia_ml_py-13.595.45-py3-none-any.whl", hash = "sha256:b65a7977f503d56154b14d683710125ef93594adb63fbf7e559336e3318f1376", size = 51776, upload-time = "2026-03-19T16:59:43.603Z" },
-]
-
-[[package]]
 name = "nvidia-nccl-cu12"
 version = "2.29.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3948,11 +3952,14 @@ dependencies = [
     { name = "anndata" },
     { name = "awkward" },
     { name = "gseapy" },
+    { name = "hydra-core" },
     { name = "kneed" },
     { name = "leidenalg" },
+    { name = "loguru" },
     { name = "louvain" },
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "omegaconf" },
     { name = "ortools" },
     { name = "pandas" },
     { name = "pymetis" },
@@ -3985,15 +3992,13 @@ migration = [
     { name = "tenacity" },
     { name = "wandb" },
 ]
-mlflow = [
-    { name = "mlflow" },
-    { name = "pynvml" },
-    { name = "toml" },
-]
 simulation = [
     { name = "ipycanvas" },
     { name = "jupyterlab" },
     { name = "jupyterlab-execute-time" },
+]
+wandb = [
+    { name = "wandb" },
 ]
 
 [package.dev-dependencies]
@@ -4022,6 +4027,7 @@ requires-dist = [
     { name = "anndata" },
     { name = "awkward" },
     { name = "gseapy" },
+    { name = "hydra-core", specifier = ">=1.3,<1.4" },
     { name = "ipycanvas", marker = "extra == 'simulation'" },
     { name = "jupyter-resource-usage", marker = "extra == 'jupyter'" },
     { name = "jupyterlab", marker = "extra == 'jupyter'" },
@@ -4030,16 +4036,16 @@ requires-dist = [
     { name = "jupyterlab-execute-time", marker = "extra == 'simulation'" },
     { name = "kneed" },
     { name = "leidenalg" },
+    { name = "loguru" },
     { name = "louvain" },
     { name = "matplotlib" },
     { name = "mlflow", marker = "extra == 'migration'", specifier = ">=2.5.0" },
-    { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.5.0" },
     { name = "multiprocess", marker = "extra == 'benchmark'", specifier = ">=0.70.15" },
     { name = "numpy" },
+    { name = "omegaconf", specifier = ">=2.3,<2.4" },
     { name = "ortools" },
     { name = "pandas" },
     { name = "pymetis" },
-    { name = "pynvml", marker = "extra == 'mlflow'" },
     { name = "scanorama" },
     { name = "scanpy" },
     { name = "scikit-learn" },
@@ -4049,15 +4055,15 @@ requires-dist = [
     { name = "seaborn" },
     { name = "squidpy" },
     { name = "tenacity", marker = "extra == 'migration'" },
-    { name = "toml", marker = "extra == 'mlflow'", specifier = ">=0.10.2" },
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform != 'linux'" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", index = "https://download.pytorch.org/whl/cu126" },
     { name = "tqdm" },
     { name = "umap-learn" },
     { name = "upsetplot", specifier = ">=0.9" },
     { name = "wandb", marker = "extra == 'migration'", specifier = ">=0.17.9,<0.18" },
+    { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.17.9,<0.18" },
 ]
-provides-extras = ["benchmark", "jupyter", "migration", "mlflow", "simulation"]
+provides-extras = ["benchmark", "jupyter", "migration", "simulation", "wandb"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -4498,18 +4504,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4a/fb/7f58c397fb31666756457ee2ac4c0289ef2daad57f4ae4be8dec12f80b03/pynndescent-0.6.0.tar.gz", hash = "sha256:7ffde0fb5b400741e055a9f7d377e3702e02250616834231f6c209e39aac24f5", size = 2992987, upload-time = "2026-01-08T21:29:58.943Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b2/e6/94145d714402fd5ade00b5661f2d0ab981219e07f7db9bfa16786cdb9c04/pynndescent-0.6.0-py3-none-any.whl", hash = "sha256:dc8c74844e4c7f5cbd1e0cd6909da86fdc789e6ff4997336e344779c3d5538ef", size = 73511, upload-time = "2026-01-08T21:29:57.306Z" },
-]
-
-[[package]]
-name = "pynvml"
-version = "13.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "nvidia-ml-py" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5c/57/da7dc63a79f59e082e26a66ac02d87d69ea316b35b35b7a00d82f3ce3d2f/pynvml-13.0.1.tar.gz", hash = "sha256:1245991d9db786b4d2f277ce66869bd58f38ac654e38c9397d18f243c8f6e48f", size = 35226, upload-time = "2025-09-05T20:33:25.377Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/4a/cac76c174bb439a0c46c9a4413fcbea5c6cabfb01879f7bbdb9fdfaed76c/pynvml-13.0.1-py3-none-any.whl", hash = "sha256:e2b20e0a501eeec951e2455b7ab444759cf048e0e13a57b08049fa2775266aa8", size = 28810, upload-time = "2025-09-05T20:33:24.13Z" },
 ]
 
 [[package]]
@@ -5878,15 +5872,6 @@ wheels = [
 ]
 
 [[package]]
-name = "toml"
-version = "0.10.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/be/ba/1f744cdc819428fc6b5084ec34d9b30660f6f9daaf70eead706e3203ec3c/toml-0.10.2.tar.gz", hash = "sha256:b3bda1d108d5dd99f4a20d24d9c348e91c4db7ab1b749200bded2f839ccbe68f", size = 22253, upload-time = "2020-11-01T01:40:22.204Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl", hash = "sha256:806143ae5bfb6a3c6e736a764057db0e6a0e05e338b5630894a5f779cabb4f9b", size = 16588, upload-time = "2020-11-01T01:40:20.672Z" },
-]
-
-[[package]]
 name = "toolz"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -6270,6 +6255,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/bd/f4/c67440c7fb409a71b7404b7aefcd7569a9c0d6bd071299bf4198ae7a5d95/widgetsnbextension-4.0.15.tar.gz", hash = "sha256:de8610639996f1567952d763a5a41af8af37f2575a41f9852a38f947eb82a3b9", size = 1097402, upload-time = "2025-11-01T21:15:55.178Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/0e/fa3b193432cfc60c93b42f3be03365f5f909d2b3ea410295cf36df739e31/widgetsnbextension-4.0.15-py3-none-any.whl", hash = "sha256:8156704e4346a571d9ce73b84bee86a29906c9abfd7223b7228a28899ccf3366", size = 2196503, upload-time = "2025-11-01T21:15:53.565Z" },
+]
+
+[[package]]
+name = "win32-setctime"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
 ]
 
 [[package]]

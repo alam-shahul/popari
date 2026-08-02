@@ -1,5 +1,4 @@
 import copy
-import logging
 from pathlib import Path
 from typing import Optional, Sequence, Union
 
@@ -7,13 +6,14 @@ import anndata as ad
 import numpy as np
 import torch
 from anndata import AnnData
+from loguru import logger
 from torch import nn
-from tqdm import trange
+from tqdm.auto import trange
 
 from popari._hierarchical_view import HierarchicalView, Hierarchy
 from popari.io import load_anndata, load_anndata_hierarchy, save_anndata, save_anndata_hierarchy
 from popari.schema import SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
-from popari.util import convert_numpy_to_pytorch_sparse_coo, get_datetime
+from popari.util import convert_numpy_to_pytorch_sparse_coo
 
 
 class Popari(nn.Module):
@@ -330,8 +330,8 @@ class Popari(nn.Module):
                 interactions. Default: ``True``
 
         """
-        if self.verbose:
-            print(f"{get_datetime()} Updating latent states")
+        if self.verbose >= 2:
+            logger.info("Updating embeddings")
         self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
 
         if synchronize:
@@ -357,24 +357,22 @@ class Popari(nn.Module):
                 ``Sigma_x_inv``. Default: ``1000``.
 
         """
-        logging.info(f"{get_datetime()}Updating model parameters")
-
         if update_spatial_affinities:
-            if self.verbose:
-                print(f"{get_datetime()} Updating spatial affinities")
+            if self.verbose >= 2:
+                logger.info("Updating spatial affinities")
             self.parameter_optimizer.update_spatial_affinity(
                 differentiate_spatial_affinities=differentiate_spatial_affinities,
                 subsample_rate=edge_subsample_rate,
                 n_epochs=spatial_affinity_epochs,
             )
 
-        if self.verbose:
-            print(f"{get_datetime()} Updating metagenes")
+        if self.verbose >= 2:
+            logger.info("Updating metagenes")
 
         self.parameter_optimizer.update_metagenes(simplex_projection_mode=simplex_projection_mode)
 
-        if self.verbose:
-            print(f"{get_datetime()} Updating sigma_yx")
+        if self.verbose >= 2:
+            logger.info("Updating observation noise")
 
         self.parameter_optimizer.update_sigma_yx()
 
@@ -404,12 +402,19 @@ class Popari(nn.Module):
         effective_epochs = n_epochs // miniepochs + 1
 
         for level in range(self.hierarchical_levels - 2, -1, -1):
-            if self.verbose:
-                print(f"{get_datetime()} Superresolving level {level} embeddings")
+            if self.verbose >= 1:
+                logger.info("Superresolving hierarchy level {}", level)
             view = self.hierarchy[level]
             view._propagate_parameters()
 
-            progress_bar = trange(effective_epochs, leave=True, disable=not self.verbose, miniters=10000)
+            progress_bar = trange(
+                effective_epochs,
+                desc=f"Superresolution level {level}",
+                leave=True,
+                disable=self.verbose < 1,
+                dynamic_ncols=True,
+                mininterval=1,
+            )
             previous_losses = np.full(view.num_replicates, np.inf)
             for epoch in progress_bar:
                 view.parameter_optimizer.update_sigma_yx()
@@ -476,7 +481,7 @@ class Popari(nn.Module):
             for level in range(self.hierarchical_levels):
                 self.hierarchy[level].synchronize_datasets()
 
-    def save_results(self, dataset_path: str, ignore_raw_data: bool = True):
+    def save_results(self, dataset_path: str, ignore_raw_data: bool = True) -> Path:
         """Save datasets and learned Popari parameters to disk.
 
         Args:
@@ -494,21 +499,24 @@ class Popari(nn.Module):
         self.synchronize_datasets()
 
         if self.hierarchical_levels == 1:
-            if self.verbose:
-                print(f"{get_datetime()} Writing results to {path_without_extension}.h5ad")
+            result_path = path_without_extension.with_suffix(".h5ad")
+            if self.verbose >= 1:
+                logger.info("Writing results to {}", result_path)
             save_anndata(
-                f"{path_without_extension}.h5ad",
+                result_path,
                 self.adata,
                 ignore_raw_data=ignore_raw_data,
                 sample_key=self.sample_key,
             )
         else:
+            result_path = path_without_extension
             save_anndata_hierarchy(
-                path_without_extension,
+                result_path,
                 {level: self.hierarchy[level].adata for level in range(self.hierarchical_levels)},
                 ignore_raw_data=ignore_raw_data,
                 sample_key=self.sample_key,
             )
+        return result_path
 
     def _reload_expression(self, raw_adata: AnnData):
         """Can be used to recover expression values for training model if saved

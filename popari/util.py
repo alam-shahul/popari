@@ -1,4 +1,3 @@
-import datetime
 import logging
 import os
 import pickle
@@ -231,14 +230,6 @@ class NesterovGD:
         self.y = y_new
 
         return self.parameters
-
-
-def print_datetime():
-    return datetime.datetime.now().strftime("[%Y/%m/%d %H:%M:%S]\t")
-
-
-def get_datetime():
-    return datetime.datetime.now().strftime("[%Y/%m/%d %H:%M:%S]\t")
 
 
 def getRank(m, thr=0):

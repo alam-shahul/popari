@@ -16,10 +16,10 @@ To use the Jupyter Lab-based GUI for designing simulated multisample spatially r
 pip install popari[simulation]
 ```
 
-To use the optional experiment tracking/grid search functionality, install Popari with MLflow:
+Hydra-based local training is included in the core package. To track runs and model artifacts with Weights & Biases, install the optional tracking dependency:
 
 ```
-pip install popari[mlflow]
+pip install popari[wandb]
 ```
 
 ````{note}
@@ -30,6 +30,6 @@ Thus, it may be necessary to install as follows:
 ```bash
 git clone https://github.com/alam-shahul/popari.git
 cd popari
-pip install .[mlflow,simulation]
+pip install .[wandb,simulation]
 ```
 ````
