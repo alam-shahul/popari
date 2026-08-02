@@ -158,7 +158,16 @@ def test_trainer_logs_wandb_metrics_and_final_artifact(
         parameters,
         model,
         use_wandb=True,
-        wandb_kwargs={"project": "test-project", "mode": "disabled"},
+        wandb_kwargs={
+            "project": "test-project",
+            "mode": "disabled",
+            "config": {
+                "training": {
+                    "spatial_preiterations": 1,
+                    "iterations": 1,
+                },
+            },
+        },
     ) as trainer:
         trainer.train()
         first_result = trainer.save_results()
@@ -167,8 +176,12 @@ def test_trainer_logs_wandb_metrics_and_final_artifact(
     run, init_kwargs = created_runs[0]
     assert first_result == savepath
     assert init_kwargs["project"] == "test-project"
-    assert run.config["spatial_preiterations"] == 1
-    assert run.config["num_iterations"] == 1
+    assert run.config == {
+        "training": {
+            "spatial_preiterations": 1,
+            "iterations": 1,
+        },
+    }
     assert [step for step, _ in run.history] == sorted(step for step, _ in run.history)
     assert {key for _, values in run.history for key in values} == {
         "nll",
@@ -197,12 +210,29 @@ def test_trainer_reuses_active_wandb_run(tmp_path, monkeypatch):
         TrainParameters(nmf_iterations=0, iterations=0, savepath=tmp_path / "unused.h5ad"),
         model,
         use_wandb=True,
+        wandb_kwargs={"config": {"model": {"K": model.K}}},
     )
     trainer.finish()
 
     assert not created_runs
-    assert active_run.config["K"] == model.K
+    assert active_run.config == {"model": {"K": model.K}}
     assert not active_run.finish_calls
+
+
+def test_trainer_does_not_generate_wandb_config(tmp_path, monkeypatch):
+    _, created_runs = fake_wandb(monkeypatch)
+    trainer = Trainer(
+        TrainParameters(nmf_iterations=0, iterations=0, savepath=tmp_path / "unused.h5ad"),
+        FakeModel(),
+        use_wandb=True,
+        wandb_kwargs={"project": "test-project"},
+    )
+
+    trainer.finish()
+
+    run, init_kwargs = created_runs[0]
+    assert "config" not in init_kwargs
+    assert not run.config
 
 
 def test_trainer_logs_hierarchical_model_directory(tmp_path, monkeypatch):

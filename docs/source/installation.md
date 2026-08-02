@@ -16,7 +16,7 @@ To use the Jupyter Lab-based GUI for designing simulated multisample spatially r
 pip install popari[simulation]
 ```
 
-To track training runs and model artifacts with Weights & Biases, install the optional W&B dependencies:
+Hydra-based local training is included in the core package. To track runs and model artifacts with Weights & Biases, install the optional tracking dependency:
 
 ```
 pip install popari[wandb]

@@ -40,31 +40,12 @@ class Trainer:
         self.spatial_preiterations = 0
         self.iterations = 0
         self.global_step = 0
-        self.use_wandb = use_wandb
         self.wandb_run = None
         self._owns_wandb_run = False
         self._wandb_artifact_logged = False
 
         if use_wandb:
             self._initialize_wandb(wandb_kwargs or {})
-
-    def _training_config(self) -> dict[str, Any]:
-        model_keys = (
-            "K",
-            "lambda_Sigma_bar",
-            "lambda_Sigma_x_inv",
-            "hierarchical_levels",
-            "downsampling_method",
-            "binning_downsample_rate",
-            "spatial_affinity_mode",
-            "random_state",
-        )
-        return {
-            **{key: getattr(self.model, key) for key in model_keys},
-            "nmf_preiterations": self.parameters.nmf_iterations,
-            "spatial_preiterations": self.parameters.spatial_preiterations,
-            "num_iterations": self.parameters.iterations,
-        }
 
     def _initialize_wandb(self, wandb_kwargs: dict[str, Any]) -> None:
         try:
@@ -74,15 +55,14 @@ class Trainer:
                 "W&B tracking requires the optional dependency; install Popari with `pip install popari[wandb]`.",
             ) from error
 
-        init_kwargs = dict(wandb_kwargs)
-        config = self._training_config()
-        config.update(init_kwargs.pop("config", {}))
         if wandb.run is None:
-            self.wandb_run = wandb.init(config=config, **init_kwargs)
+            self.wandb_run = wandb.init(**wandb_kwargs)
             self._owns_wandb_run = True
         else:
             self.wandb_run = wandb.run
-            self.wandb_run.config.update(config, allow_val_change=True)
+            config = wandb_kwargs.get("config")
+            if config is not None:
+                self.wandb_run.config.update(config, allow_val_change=True)
 
     def _log(self, values: dict[str, Any]) -> None:
         if self.wandb_run is not None:
