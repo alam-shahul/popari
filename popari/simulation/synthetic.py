@@ -25,9 +25,9 @@ import anndata as ad
 import numpy as np
 import squidpy as sq
 from scipy.sparse import csr_array
+from scipy.spatial import KDTree
 from scipy.stats import gamma, truncnorm
 
-from popari._canvas import DomainCanvas
 from popari._sample_axis import SampleAxis
 from popari.io import save_anndata
 from popari.schema import DATASET_NAME_KEY, SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
@@ -113,15 +113,14 @@ def _assign_domains(
 
     """
 
-    canvas = DomainCanvas(
-        dataset.obsm["spatial"],
-        list(recipe.domain_names),
-        canvas_width=600,
-        density=1,
+    landmark_coordinates = np.concatenate(tuple(landmarks.values()))
+    landmark_labels = np.concatenate(
+        [np.repeat(domain_name, len(coordinates)) for domain_name, coordinates in landmarks.items()],
     )
-    canvas.load_domains(dict(landmarks))
-    dataset.obs[recipe.domain_key] = canvas.generate_domain_kd_tree().query(dataset.obsm["spatial"])
-    dataset.uns["domain_landmarks"] = dict(canvas.domains)
+    _, nearest_landmarks = KDTree(landmark_coordinates).query(dataset.obsm["spatial"])
+
+    dataset.obs[recipe.domain_key] = landmark_labels[nearest_landmarks]
+    dataset.uns["domain_landmarks"] = dict(landmarks)
 
 
 def _sample_metagenes(
