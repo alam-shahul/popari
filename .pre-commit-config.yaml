@@ -1,8 +1,10 @@
+default_stages: [pre-commit]
+
 repos:
   - repo: local
     hooks:
       - id: codex-coauthor
-        name: Add Codex coauthor trailer
+        name: check Codex coauthor trailer
         entry: scripts/add_codex_coauthor.sh
         language: system
         stages: [commit-msg]

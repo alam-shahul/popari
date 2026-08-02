@@ -1,15 +1,19 @@
 import logging
 import time
-from typing import Sequence
 
 import numpy as np
 import torch
+from anndata import AnnData
+from scipy.sparse import csr_array
+from torch import nn
 from tqdm.auto import tqdm, trange
 
-from popari._popari_dataset import PopariDataset
+from popari._named_state import BufferDict
+from popari._sample_axis import SampleAxis
 from popari.util import (
     IndependentSet,
     NesterovGD,
+    convert_adjacency_matrix_to_awkward_array,
     convert_numpy_to_pytorch_sparse_coo,
     get_datetime,
     project2simplex,
@@ -20,14 +24,15 @@ from popari.util import (
 )
 
 
-class EmbeddingOptimizer:
+class EmbeddingOptimizer(nn.Module):
     """Optimizer and state for Popari embeddings."""
 
     def __init__(
         self,
         K,
         Ys,
-        datasets,
+        adata: AnnData,
+        sample_axis: SampleAxis,
         initial_context=None,
         context=None,
         use_inplace_ops=False,
@@ -36,78 +41,86 @@ class EmbeddingOptimizer:
         embedding_acceleration_trick=True,
         verbose=0,
     ):
+        super().__init__()
         self.verbose = verbose
         self.use_inplace_ops = use_inplace_ops
-        self.datasets = datasets
+        self.adata = adata
+        self.sample_axis = sample_axis
+        self.sample_names = sample_axis.names
         self.hierarchical = False
         self.K = K
         self.Ys = Ys
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        self.adjacency_lists = {dataset.name: dataset.obsm["adjacency_list"] for dataset in self.datasets}
-        self.adjacency_matrices = {
-            dataset.name: convert_numpy_to_pytorch_sparse_coo(dataset.obsp["adjacency_matrix"], self.context)
-            for dataset in self.datasets
-        }
+        self.adjacency_lists = {}
+        self.adjacency_matrices = BufferDict(prefix="dataset")
+        for sample in self.sample_names:
+            indices = self.sample_axis.indices(sample)
+            adjacency = csr_array(adata.obsp["adjacency_matrix"])[indices][:, indices]
+            self.adjacency_lists[sample] = convert_adjacency_matrix_to_awkward_array(
+                adjacency.tocoo(),
+            )
+            self.adjacency_matrices[sample] = convert_numpy_to_pytorch_sparse_coo(
+                adjacency,
+                self.context,
+            )
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
         self.embedding_mini_iterations = embedding_mini_iterations
         self.embedding_acceleration_trick = embedding_acceleration_trick
 
         if self.verbose:
             print(f"{get_datetime()} Initializing EmbeddingState")
-        self.embedding_state = EmbeddingState(K, self.datasets, context=self.context)
+        self.embedding_state = EmbeddingState(K, sample_axis, context=self.context)
 
     def link(self, parameter_optimizer):
-        self.parameter_optimizer = parameter_optimizer
+        object.__setattr__(self, "parameter_optimizer", parameter_optimizer)
 
     def update_embeddings(self, use_neighbors=True):
         """Update Popari embeddings according to optimization scheme."""
         logging.info(f"{get_datetime()}Updating latent states")
 
         loss_list = []
-        for dataset_index, dataset in enumerate(self.datasets):
-            is_spatial_replicate = "adjacency_list" in dataset.obsm
+        for dataset_index, sample in enumerate(self.sample_names):
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
             Y = self.Ys[dataset_index].to(self.context["device"])
-            X = self.embedding_state[dataset.name].to(self.context["device"])
-            M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+            X = self.embedding_state[sample].to(self.context["device"])
+            M = self.parameter_optimizer.metagenes.to(self.context["device"])
             prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
             prior_x = self.parameter_optimizer.prior_xs[dataset_index]
-            if not is_spatial_replicate or not use_neighbors:
-                loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wonbr(
+            if not use_neighbors:
+                loss, updated_embedding = self.estimate_weight_wonbr(
                     Y,
                     M,
                     X,
                     sigma_yx,
                     prior_x_mode,
                     prior_x,
-                    dataset,
                 )
             else:
-                loss, self.embedding_state[dataset.name][:] = self.estimate_weight_wnbr(
+                loss, updated_embedding = self.estimate_weight_wnbr(
                     Y,
                     M,
                     X,
                     sigma_yx,
                     prior_x_mode,
                     prior_x,
-                    dataset,
+                    sample,
                 )
+            self.embedding_state[sample] = updated_embedding
 
             loss_list.append(loss)
 
     def nll_embeddings(self, use_neighbors=True):
         with torch.no_grad():
             loss_embeddings = torch.zeros(1, **self.context)
-            for dataset_index, dataset in enumerate(self.datasets):
-                is_spatial_replicate = "adjacency_list" in dataset.obsm
+            for dataset_index, sample in enumerate(self.sample_names):
                 sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
                 Y = self.Ys[dataset_index].to(self.context["device"])
-                X = self.embedding_state[dataset.name].to(self.context["device"])
-                M = self.parameter_optimizer.metagene_state[dataset.name].to(self.context["device"])
+                X = self.embedding_state[sample].to(self.context["device"])
+                M = self.parameter_optimizer.metagenes.to(self.context["device"])
                 prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
                 prior_x = self.parameter_optimizer.prior_xs[dataset_index]
-                if not is_spatial_replicate or not use_neighbors:
+                if not use_neighbors:
                     loss = self.nll_weight_wonbr(
                         Y,
                         M,
@@ -115,7 +128,6 @@ class EmbeddingOptimizer:
                         sigma_yx,
                         prior_x_mode,
                         prior_x,
-                        dataset,
                     )
                 else:
                     loss = self.nll_weight_wnbr(
@@ -125,7 +137,7 @@ class EmbeddingOptimizer:
                         sigma_yx,
                         prior_x_mode,
                         prior_x,
-                        dataset,
+                        sample,
                     )
 
                 loss_embeddings += loss
@@ -141,7 +153,6 @@ class EmbeddingOptimizer:
         sigma_yx,
         prior_x_mode,
         prior_x,
-        dataset,
         n_epochs=1000,
         tol=1e-6,
         update_alg="gd",
@@ -247,7 +258,7 @@ class EmbeddingOptimizer:
         return loss, X
 
     @torch.no_grad()
-    def nll_weight_wonbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset):
+    def nll_weight_wonbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x):
         # Precomputing quantities
         MTM = M.T @ M / (sigma_yx**2)
         YM = Y @ M / (sigma_yx**2)
@@ -260,7 +271,18 @@ class EmbeddingOptimizer:
         return loss
 
     @torch.no_grad()
-    def estimate_weight_wnbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, tol=1e-5, update_alg="nesterov"):
+    def estimate_weight_wnbr(
+        self,
+        Y,
+        M,
+        X,
+        sigma_yx,
+        prior_x_mode,
+        prior_x,
+        sample,
+        tol=1e-5,
+        update_alg="nesterov",
+    ):
         """Estimate updated weights taking neighbor-neighbor interactions into
         account.
 
@@ -293,9 +315,9 @@ class EmbeddingOptimizer:
         Z = X / S
         N = len(Z)
 
-        E_adjacency_list = self.adjacency_lists[dataset.name]
-        adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
-        Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
+        E_adjacency_list = self.adjacency_lists[sample]
+        adjacency_matrix = self.adjacency_matrices[sample].to(self.context["device"])
+        Sigma_x_inv = self.parameter_optimizer.spatial_affinity[sample].to(self.context["device"])
 
         def update_s():
             S[:] = (YM * Z).sum(axis=1, keepdim=True)
@@ -470,7 +492,18 @@ class EmbeddingOptimizer:
         return loss, X_final
 
     @torch.no_grad()
-    def nll_weight_wnbr(self, Y, M, X, sigma_yx, prior_x_mode, prior_x, dataset, tol=1e-5, update_alg="nesterov"):
+    def nll_weight_wnbr(
+        self,
+        Y,
+        M,
+        X,
+        sigma_yx,
+        prior_x_mode,
+        prior_x,
+        sample,
+        tol=1e-5,
+        update_alg="nesterov",
+    ):
         # Precomputing quantities
         MTM = M.T @ M / (sigma_yx**2)
         YM = Y.to(M.device) @ M / (sigma_yx**2)
@@ -480,9 +513,9 @@ class EmbeddingOptimizer:
         Z = X / S
         N = len(Z)
 
-        E_adjacency_list = self.adjacency_lists[dataset.name]
-        adjacency_matrix = self.adjacency_matrices[dataset.name].to(self.context["device"])
-        Sigma_x_inv = self.parameter_optimizer.spatial_affinity_state[dataset.name].to(self.context["device"])
+        E_adjacency_list = self.adjacency_lists[sample]
+        adjacency_matrix = self.adjacency_matrices[sample].to(self.context["device"])
+        Sigma_x_inv = self.parameter_optimizer.spatial_affinity[sample].to(self.context["device"])
 
         def compute_loss():
             X = Z * S
@@ -505,7 +538,7 @@ class EmbeddingOptimizer:
         return loss
 
 
-class EmbeddingState(dict):
+class EmbeddingState(nn.Module):
     """Collections of cell embeddings for all ST replicates.
 
     Attributes:
@@ -513,17 +546,45 @@ class EmbeddingState(dict):
 
     """
 
-    def __init__(self, K: int, datasets: Sequence[PopariDataset], initial_context=None, context=None):
-        self.datasets = datasets
-        self.K = K
+    def __init__(self, K: int, sample_axis: SampleAxis, initial_context=None, context=None):
+        super().__init__()
         self.initial_context = initial_context if initial_context else {"device": "cpu", "dtype": torch.float32}
         self.context = context if context else {"device": "cpu", "dtype": torch.float32}
-        super().__init__()
+        self._ordered_dataset_names = list(sample_axis.names)
+        self.sample_indices = BufferDict(prefix="sample_indices")
+        for sample in sample_axis.names:
+            self.sample_indices[sample] = torch.as_tensor(
+                sample_axis.indices(sample),
+                dtype=torch.long,
+                device=self.context["device"],
+            )
+        self.embedding = nn.Parameter(
+            torch.zeros((len(sample_axis.codes), K), **self.context),
+            requires_grad=False,
+        )
+        self.K = K
 
-        self.embeddings = []
+    @property
+    def embeddings(self):
+        return [self[dataset_name] for dataset_name in self._ordered_dataset_names]
 
-        for dataset in self.datasets:
-            num_cells, _ = dataset.shape
-            replicate_embeddings = torch.zeros((num_cells, K), **self.context)
-            self.__setitem__(dataset.name, replicate_embeddings)
-            self.embeddings.append(replicate_embeddings)
+    def __getitem__(self, dataset_name: str):
+        return torch.index_select(self.embedding, 0, self.sample_indices[dataset_name])
+
+    def __setitem__(self, dataset_name: str, value):
+        with torch.no_grad():
+            self.embedding.index_copy_(0, self.sample_indices[dataset_name], value.to(self.embedding.device))
+
+    def keys(self):
+        return list(self._ordered_dataset_names)
+
+    def get_extra_state(self):
+        return {"dataset_names": tuple(self._ordered_dataset_names)}
+
+    def set_extra_state(self, state):
+        expected = tuple(self._ordered_dataset_names)
+        loaded = tuple(state["dataset_names"])
+        if loaded != expected:
+            raise RuntimeError(
+                f"{self.__class__.__name__} checkpoint datasets {loaded} do not match current datasets {expected}.",
+            )

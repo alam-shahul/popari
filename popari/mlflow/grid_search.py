@@ -50,7 +50,6 @@ def run():
         "num_iterations",
         "spatial_preiterations",
         "save_figs",
-        "metagene_groups",
         "spatial_affinity_groups",
         "dtype",
         "downsampling_method",
@@ -154,7 +153,6 @@ def run():
             "dtype": "torch32",
             "spatial_preiterations": 0,
             "save_figs": False,
-            "metagene_groups": json.dumps(None),
             "spatial_affinity_groups": json.dumps(None),
             "downsampling_method": "partition",
             "dataset_path": dataset_paths[0],
@@ -184,7 +182,6 @@ def run():
                 "spatial_preiterations": 200,
                 "num_iterations": 0,
                 "lambda_Sigma_bar": 0,
-                "metagene_groups": json.dumps("disjoint"),
                 "spatial_affinity_groups": json.dumps("disjoint"),
             },
         }

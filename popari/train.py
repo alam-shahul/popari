@@ -10,10 +10,8 @@ except ImportError:
 
 from tqdm.auto import trange
 
-from popari import analysis as tl
-from popari import plotting as pl
-from popari._dataset_utils import setup_squarish_axes
 from popari.model import Popari
+from popari.plotting import metagene_embedding, spatial_affinity_heatmap
 from popari.util import get_datetime
 
 
@@ -112,7 +110,6 @@ class MLFlowTrainer(Trainer):
             synchronize = not (self.nmf_iterations % self.parameters.synchronization_frequency)
             self.model.estimate_parameters(
                 update_spatial_affinities=False,
-                differentiate_metagenes=False,
                 synchronize=synchronize,
             )
             self.model.estimate_weights(use_neighbors=False, synchronize=synchronize)
@@ -174,9 +171,12 @@ class MLFlowTrainer(Trainer):
                 if self.verbose:
                     print(f"{get_datetime()} Logging `nll_spatial`")
 
-                checkpoint_path = f"{self.torch_device}_checkpoint_{self.iterations}_iterations"
+                checkpoint_path = (
+                    Path(self.parameters.savepath).parent
+                    / f"{self.torch_device}_checkpoint_{self.iterations}_iterations"
+                )
                 if not self.is_hierarchical:
-                    checkpoint_path = f"{checkpoint_path}.h5ad"
+                    checkpoint_path = checkpoint_path.with_suffix(".h5ad")
 
                 nll_spatial = self.model.nll(use_spatial=True)
                 mlflow.log_metric("nll_spatial", nll_spatial, step=self.iterations)
@@ -230,7 +230,7 @@ class MLFlowTrainer(Trainer):
             if self.verbose:
                 print(f"{get_datetime()} Plotting spatial affinities at level {level}")
 
-            pl.spatial_affinities(self.model, level=level)
+            spatial_affinity_heatmap(self.model.hierarchy[level].adata)
 
             plt.savefig(f"Sigma_x_inv{suffix}")
             plt.close()
@@ -240,7 +240,7 @@ class MLFlowTrainer(Trainer):
             if self.verbose:
                 print(f"{get_datetime()} Plotting 'in situ' metagene {self.model.K} at level {level}")
 
-            pl.metagene_embedding(self.model, metagene, level=level)
+            metagene_embedding(self.model.hierarchy[level].adata, metagene)
             plt.savefig(f"metagene_{metagene}_in_situ{suffix}")
             plt.close()
 

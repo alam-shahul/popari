@@ -1,64 +1,52 @@
-import itertools
-from typing import Sequence, Tuple
+"""Initialization strategies for unified Popari AnnData objects."""
 
+from __future__ import annotations
+
+import anndata as ad
 import numpy as np
+import pandas as pd
 import torch
-from scipy import sparse as sp
+from scipy import sparse
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA, TruncatedSVD
 
-from popari._dataset_utils import _cluster, _pca
-from popari._popari_dataset import PopariDataset
-from popari.util import concatenate
+from popari._sample_axis import SampleAxis
+from popari.analysis import cluster
+from popari.preprocessing import pca
+
+
+def _dense(matrix) -> np.ndarray:
+    return matrix.toarray() if sparse.issparse(matrix) else np.asarray(matrix)
 
 
 def initialize_kmeans(
-    datasets: Sequence[PopariDataset],
+    adata: ad.AnnData,
+    sample_axis: SampleAxis,
     K: int,
     context: dict,
     kwargs_kmeans: dict,
-) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
-    """Initialize metagenes and hidden states using k-means clustering.
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Initialize metagenes and global embeddings using k-means."""
 
-    Args:
-        datasets: input ST replicates to use for initialization
-        K: dimension of latent states for cell embeddings
-        context: context to use for creating PyTorch tensors
-        kwargs_kmeans: parameters to pass to KMeans classifier
+    if "random_state" not in kwargs_kmeans:
+        raise ValueError("kwargs_kmeans must specify random_state.")
 
-    Returns:
-        A tuple (M, Xs), where M is the initial estimate of the metagene
-        values and Xs is the list of initial estimates of the hidden states
-        of each replicate.
-
-    """
-    assert "random_state" in kwargs_kmeans
-    Ns, Gs = zip(*[dataset.X.shape for dataset in datasets])
-    Ys = [dataset.X for dataset in datasets]
-    Y_cat = np.concatenate(Ys, axis=0)
-    pca = PCA(n_components=20)
-    # pca = None
-    Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
+    expression = _dense(adata.X)
+    n_components = min(20, expression.shape[0], expression.shape[1])
+    reducer = PCA(n_components=n_components)
+    reduced = reducer.fit_transform(expression)
     kmeans = KMeans(n_clusters=K, **kwargs_kmeans)
-    label = kmeans.fit_predict(Y_cat_reduced)
-    M = np.stack([Y_cat[label == l].mean(0) for l in np.unique(label)]).T
-    # M = kmeans.cluster_centers_.T
-    Xs = []
-    for N, Y in zip(Ns, Ys):
-        Y_reduced = Y if pca is None else pca.transform(Y)
-        label = kmeans.predict(Y_reduced)
-        X = np.full([N, K], 1e-10)
-        X[(range(N), label)] = 1
+    labels = kmeans.fit_predict(reduced)
 
-        Xs.append(X)
-    M = torch.tensor(M, **context)
-    Xs = [torch.tensor(X, **context) for X in Xs]
-
-    return M, Xs
+    metagenes = np.stack([expression[labels == label].mean(axis=0) for label in range(K)]).T
+    embeddings = np.full((adata.n_obs, K), 1e-10)
+    embeddings[np.arange(adata.n_obs), labels] = 1
+    return torch.tensor(metagenes, **context), torch.tensor(embeddings, **context)
 
 
 def initialize_leiden(
-    datasets: Sequence[PopariDataset],
+    adata: ad.AnnData,
+    sample_axis: SampleAxis,
     K: int,
     context: dict,
     kwargs_leiden: dict,
@@ -66,32 +54,16 @@ def initialize_leiden(
     n_components: int = 50,
     eps: float = 1e-10,
     verbose: bool = True,
-) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
-    """Initialize metagenes and hidden states using k-means clustering.
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Initialize metagenes and global embeddings using Leiden clusters."""
 
-    Args:
-        datasets: input ST replicates to use for initialization
-        K: dimension of latent states for cell embeddings
-        context: context to use for creating PyTorch tensors
-        kwargs_kmeans: parameters to pass to KMeans classifier
+    if "random_state" not in kwargs_leiden:
+        raise ValueError("kwargs_leiden must specify random_state.")
 
-    Returns:
-        A tuple (M, Xs), where M is the initial estimate of the metagene
-        values and Xs is the list of initial estimates of the hidden states
-        of each replicate.
-
-    """
-
-    assert "random_state" in kwargs_leiden
-
-    _pca(datasets, n_comps=n_components, joint=True)
-
-    # Y_cat_reduced = Y_cat if pca is None else pca.fit_transform(Y_cat)
-
+    pca(adata, n_comps=min(n_components, adata.n_obs - 1, adata.n_vars - 1))
     while True:
-        _cluster(
-            datasets,
-            joint=True,
+        cluster(
+            adata,
             method="leiden",
             use_rep="X_pca",
             target_clusters=K,
@@ -99,150 +71,155 @@ def initialize_leiden(
             verbose=verbose,
             **kwargs_leiden,
         )
-
-        merged_dataset = concatenate(datasets)
-        labels = merged_dataset.obs["leiden"].astype(int)
-        num_clusters = len(labels.unique())
-        if num_clusters == K:
+        labels = adata.obs["leiden"].astype(int).to_numpy()
+        if len(np.unique(labels)) == K:
             break
-
         n_neighbors = int(n_neighbors * 1.5)
 
-    # Initialize based on clustering
-    indices = merged_dataset.obs.groupby("batch").indices.values()
-    unmerged_datasets = [merged_dataset[index] for index in indices]
-    unmerged_labels = [unmerged_dataset.obs["leiden"].astype(int).values for unmerged_dataset in unmerged_datasets]
-
-    M = np.stack([merged_dataset[labels == cluster].X.mean(axis=0) for cluster in labels.unique()]).T
-
-    Xs = []
-    for unmerged_label in unmerged_labels:
-        unique_labels = np.unique(unmerged_label)
-        if len(unique_labels) == 1:
+    for sample in sample_axis.names:
+        if len(np.unique(labels[sample_axis.indices(sample)])) == 1:
             raise ValueError(
-                "All spots from a replicate are being assigned to a single cluster "
-                "during Louvain initialization. This indicates that there is a "
-                "noticeable batch effect. This may be due to 1) too few spots, "
-                "2) too few metagenes (i.e. clusters), or a truly significant batch "
-                "effect. Try addressing these issues, or switch to a different "
-                "initialization method.",
+                "All spots from a sample were assigned to one cluster during "
+                "Leiden initialization. Try a different K or initialization method.",
             )
-        N = len(unmerged_label)
-        X = np.full([N, K], eps)
-        X[np.arange(N), unmerged_label] = 1
-        Xs.append(X)
 
-    M = torch.tensor(M, **context)
-    Xs = [torch.tensor(X, **context) for X in Xs]
+    metagenes = np.stack(
+        [np.asarray(adata[labels == label].X.mean(axis=0)).ravel() for label in range(K)],
+    ).T
+    embeddings = np.full((adata.n_obs, K), eps)
+    embeddings[np.arange(adata.n_obs), labels] = 1
+    return torch.tensor(metagenes, **context), torch.tensor(embeddings, **context)
 
-    return M, Xs
+
+def initialize_ground_truth(
+    adata: ad.AnnData,
+    sample_axis: SampleAxis,
+    K: int,
+    context: dict,
+    label_key: str = "cell_type",
+    random_state: int = 0,
+    eps: float = 1e-10,
+    absent_class_embedding_scale: float = 0.05,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Initialize metagenes and global embeddings from simulation truth or
+    labels."""
+
+    rng = np.random.default_rng(random_state)
+    if "ground_truth_X" in adata.obsm and "ground_truth_M" in adata.uns:
+        metagenes = np.asarray(adata.uns["ground_truth_M"])
+        embeddings = np.asarray(adata.obsm["ground_truth_X"]).copy()
+        if metagenes.shape[1] != K:
+            raise ValueError(
+                f"ground_truth_M has {metagenes.shape[1]} factors, but Popari was configured with K={K}.",
+            )
+        if embeddings.shape != (adata.n_obs, K):
+            raise ValueError(
+                f"ground_truth_X has shape {embeddings.shape}; expected {(adata.n_obs, K)}.",
+            )
+
+        for sample in sample_axis.names:
+            indices = sample_axis.indices(sample)
+            sample_embeddings = embeddings[indices]
+            absent = np.flatnonzero(np.isclose(sample_embeddings.sum(axis=0), 0))
+            if len(absent):
+                sample_embeddings[:, absent] = rng.random((len(indices), len(absent))) * absent_class_embedding_scale
+                embeddings[indices] = sample_embeddings
+        return torch.tensor(metagenes, **context), torch.tensor(embeddings, **context)
+
+    if label_key not in adata.obs:
+        raise KeyError(f"Ground-truth initialization requires adata.obs[{label_key!r}].")
+
+    observed_labels = adata.obs[label_key]
+    definitions = adata.uns.get("cell_type_definitions")
+    if isinstance(definitions, dict) and sample_axis.names[0] in definitions:
+        labels = list(definitions[sample_axis.names[0]])
+    elif isinstance(observed_labels.dtype, pd.CategoricalDtype):
+        labels = list(observed_labels.cat.categories)
+    else:
+        labels = sorted(observed_labels.dropna().unique())
+
+    if len(labels) != K:
+        raise ValueError(
+            f"Ground-truth initialization found {len(labels)} labels in obs[{label_key!r}], "
+            f"but Popari was configured with K={K}.",
+        )
+
+    label_to_index = {label: index for index, label in enumerate(labels)}
+    label_values = observed_labels.to_numpy()
+    unknown = set(label_values) - set(label_to_index)
+    if unknown:
+        raise ValueError(f"Found labels not included in initialization order: {sorted(unknown)}")
+
+    expression = _dense(adata.X)
+    metagenes = []
+    for label in labels:
+        mask = label_values == label
+        metagenes.append(expression[mask].mean(axis=0) if mask.any() else rng.random(adata.n_vars))
+    metagenes = np.stack(metagenes).T
+
+    embeddings = rng.random((adata.n_obs, K)) * eps
+    embeddings[np.arange(adata.n_obs), [label_to_index[label] for label in label_values]] = 1
+    for sample in sample_axis.names:
+        indices = sample_axis.indices(sample)
+        sample_labels = label_values[indices]
+        absent = [label_to_index[label] for label in labels if not np.any(sample_labels == label)]
+        if absent:
+            embeddings[np.ix_(indices, absent)] = rng.random((len(indices), len(absent))) * absent_class_embedding_scale
+
+    return torch.tensor(metagenes, **context), torch.tensor(embeddings, **context)
 
 
 def initialize_svd(
-    datasets: Sequence[PopariDataset],
+    adata: ad.AnnData,
+    sample_axis: SampleAxis,
     K: int,
     context: dict,
     M_nonneg: bool = True,
     X_nonneg: bool = True,
-) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
-    """Initialize metagenes and hidden states using SVD.
-
-    Args:
-        datasets: input ST replicates to use for initialization
-        K: dimension of latent states for cell embeddings
-        context: context to use for creating PyTorch tensors
-        M_nonneg: if specified, initial M estimate will contain only non-negative values
-        X_nonneg: if specified, initial X estimate will contain only non-negative values
-
-    Returns:
-        A tuple (M, Xs), where M is the initial estimate of the metagene
-        values and Xs is the list of initial estimates of the hidden states
-        of each replicate.
-
-    """
-
-    # TODO: add check that number of genes is the same for all datasets
-    Y_cat = sp.vstack([dataset.X for dataset in datasets])
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Initialize metagenes and global embeddings using truncated SVD."""
 
     svd = TruncatedSVD(K)
-    X_cat = svd.fit_transform(Y_cat)
-    M = svd.components_.T
-    norm_p = np.ones([1, K])
-    norm_n = np.ones([1, K])
+    embeddings = svd.fit_transform(adata.X)
+    metagenes = svd.components_.T
+    positive_norm = np.ones((1, K))
+    negative_norm = np.ones((1, K))
 
     if M_nonneg:
-        M_positive = np.clip(M, a_min=0, a_max=None)
-        M_negative = np.clip(M, a_min=None, a_max=0)
-        norm_p *= np.linalg.norm(M_positive, axis=0, ord=1, keepdims=True)
-        norm_n *= np.linalg.norm(M_negative, axis=0, ord=1, keepdims=True)
-
+        positive_norm *= np.linalg.norm(np.clip(metagenes, 0, None), axis=0, ord=1, keepdims=True)
+        negative_norm *= np.linalg.norm(np.clip(metagenes, None, 0), axis=0, ord=1, keepdims=True)
     if X_nonneg:
-        X_cat_positive = np.clip(X_cat, a_min=0, a_max=None)
-        X_cat_negative = np.clip(X_cat, a_min=None, a_max=0)
-        norm_p *= np.linalg.norm(X_cat_positive, axis=0, ord=1, keepdims=True)
-        norm_n *= np.linalg.norm(X_cat_negative, axis=0, ord=1, keepdims=True)
+        positive_norm *= np.linalg.norm(np.clip(embeddings, 0, None), axis=0, ord=1, keepdims=True)
+        negative_norm *= np.linalg.norm(np.clip(embeddings, None, 0), axis=0, ord=1, keepdims=True)
 
-    # Since M must be non-negative, choose the_value that yields greater L1-norm
-    sign = np.where(norm_p >= norm_n, 1.0, -1.0)
-    M *= sign
-    X_cat *= sign
-    X_cat_iter = X_cat
+    sign = np.where(positive_norm >= negative_norm, 1.0, -1.0)
+    metagenes *= sign
+    embeddings *= sign
     if M_nonneg:
-        M = np.clip(M, a_min=1e-10, a_max=None)
+        metagenes = np.clip(metagenes, 1e-10, None)
+    if X_nonneg:
+        for sample in sample_axis.names:
+            sample_embeddings = embeddings[sample_axis.indices(sample)]
+            for component in sample_embeddings.T:
+                negative = component < 1e-10
+                if np.any(~negative):
+                    component[negative] = component[~negative].mean()
+            embeddings[sample_axis.indices(sample)] = sample_embeddings
+    else:
+        embeddings = np.full((adata.n_obs, K), 1 / K)
 
-    Xs = []
-    for dataset in datasets:
-        Y = dataset.X
-        N = len(dataset)
-
-        X = X_cat_iter[:N]
-        X_cat_iter = X_cat_iter[N:]
-        if X_nonneg:
-            # fill negative elements by zero
-            # X = np.clip(X, a_min=1e-10, a_max=None)
-            # fill negative elements by the average of nonnegative elements
-            for x in X.T:
-                idx = x < 1e-10
-                # Bugfix below: if statement necessary, otherwise nan elements may be introduced...
-                if len(x[~idx]) > 0:
-                    x[idx] = x[~idx].mean()
-        else:
-            X = np.full([N, K], 1 / K)
-        Xs.append(X)
-
-    M = torch.tensor(M, **context)
-    Xs = [torch.tensor(X, **context) for X in Xs]
-
-    return M, Xs
+    return torch.tensor(metagenes, **context), torch.tensor(embeddings, **context)
 
 
 def initialize_dummy(
-    datasets: Sequence[PopariDataset],
+    adata: ad.AnnData,
+    sample_axis: SampleAxis,
     K: int,
     context: dict,
-) -> Tuple[torch.Tensor, Sequence[torch.Tensor]]:
-    """Initialize metagenes and hidden states with random values.
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Initialize metagenes and global embeddings with random values."""
 
-    Internal method used simply for code
-
-    Args:
-        datasets: input ST replicates to use for initialization
-        K: dimension of latent states for cell embeddings
-        context: context to use for creating PyTorch tensors
-        M_nonneg: if specified, initial M estimate will contain only non-negative values
-        X_nonneg: if specified, initial X estimate will contain only non-negative values
-
-    Returns:
-        A tuple (M, Xs), where M is the initial estimate of the metagene
-        values and Xs is the list of initial estimates of the hidden states
-        of each replicate.
-
-    """
-
-    first_dataset = datasets[0]
-    _, num_genes = first_dataset.shape
-
-    M = torch.rand((num_genes, K), **context)
-    Xs = [torch.rand((dataset.shape[0], K), **context) for dataset in datasets]
-
-    return M, Xs
+    return (
+        torch.rand((adata.n_vars, K), **context),
+        torch.rand((adata.n_obs, K), **context),
+    )

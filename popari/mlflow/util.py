@@ -28,7 +28,6 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
           lambda_Sigma_bar: {{type: float, default: 0}}
           spatial_affinity_groups: {{type: str, default: 'null'}}
           spatial_affinity_mode: {{type: str, default: 'shared lookup'}}
-          metagene_groups: {{type: str, default: 'null'}}
           downsampling_method: {{type: str, default: 'partition'}}
           initialization_method: {{type: str, default: 'leiden'}}
           hierarchical_levels: {{type: int}}
@@ -45,7 +44,6 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
                                      --lambda_Sigma_bar={{lambda_Sigma_bar}}
                                      --spatial_affinity_groups={{spatial_affinity_groups}}
                                      --spatial_affinity_mode={{spatial_affinity_mode}}
-                                     --metagene_groups={{metagene_groups}}
                                      --downsampling_method={{downsampling_method}}
                                      --initialization_method={{initialization_method}}
                                      --hierarchical_levels={{hierarchical_levels}}
@@ -68,7 +66,6 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
           lambda_Sigma_bar: {{type: float, default: 0}}
           spatial_affinity_groups: {{type: str, default: 'null'}}
           spatial_affinity_mode: {{type: str, default: 'shared lookup'}}
-          metagene_groups: {{type: str, default: 'null'}}
           downsampling_method: {{type: str, default: 'partition'}}
           initialization_method: {{type: str, default: 'leiden'}}
           hierarchical_levels: {{type: int}}
@@ -85,7 +82,6 @@ def generate_mlproject_file(project_name: str, output_filepath: str = "MLproject
                                      --lambda_Sigma_bar={{lambda_Sigma_bar}}
                                      --spatial_affinity_groups={{spatial_affinity_groups}}
                                      --spatial_affinity_mode={{spatial_affinity_mode}}
-                                     --metagene_groups={{metagene_groups}}
                                      --downsampling_method={{downsampling_method}}
                                      --initialization_method={{initialization_method}}
                                      --hierarchical_levels={{hierarchical_levels}}

@@ -10,9 +10,12 @@ from popari.train import Trainer, TrainParameters
 
 from . import analysis as tl
 from . import plotting as pl
+from . import preprocessing as pp
 from .__about__ import __version__
+from .schema import PopariNamespace
+from .simulation.schema import MetageneSimulationNamespace
 
-sys.modules.update({f"{__name__}.{m}": globals()[m] for m in ["tl", "pl"]})
+sys.modules.update({f"{__name__}.{m}": globals()[m] for m in ["tl", "pl", "pp"]})
 
 
 def get_parser():
@@ -70,7 +73,10 @@ def get_parser():
     parser.add_argument(
         "--initialization_method",
         type=str,
-        help="algorithm to use for initializing metagenes and embeddings. Default ``svd``",
+        help=(
+            "algorithm to use for initializing metagenes and embeddings. "
+            "Supports dummy, kmeans, svd, leiden, and ground_truth. Default ``svd``"
+        ),
     )
     parser.add_argument(
         "--hierarchical_levels",
@@ -92,11 +98,6 @@ def get_parser():
         type=int,
         default=10000,
         help="Number of epochs to do superresolution optimization.",
-    )
-    parser.add_argument(
-        "--metagene_groups",
-        type=json.loads,
-        help="defines a grouping of replicates for the metagene optimization.",
     )
     parser.add_argument(
         "--spatial_affinity_groups",
@@ -127,12 +128,6 @@ def get_parser():
         help="Method to use for downsampling in hierarchical mode. Default ``partition``",
     )
 
-    parser.add_argument("--metagene_mode", type=str, help="modality of metagene parameters. Default ``shared``")
-    parser.add_argument(
-        "--lambda_M",
-        type=float,
-        help="hyperparameter to constrain metagene deviation in differential case.",
-    )
     parser.add_argument(
         "--lambda_Sigma_bar",
         type=float,
