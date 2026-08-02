@@ -186,7 +186,6 @@ class DomainCanvas:
 
         self.set_color(self.current_domain)
         if points is not None:
-            print("Appending predefined `points` to domain...")
             x, y = np.around(points, decimals=self.precision)
             self.draw_points(x * self.scaling_factor, y * self.scaling_factor, fill=True)
 

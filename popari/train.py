@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
 from tqdm.auto import trange
 
 from popari.model import Popari
@@ -72,14 +73,28 @@ class Trainer:
         return not (iteration % self.parameters.synchronization_frequency)
 
     def train(self) -> None:
+        if self.verbose >= 1:
+            logger.info(
+                "Training Popari: observations={}, samples={}, K={}, hierarchy_levels={}, device={}, dtype={}",
+                self.model.adata.n_obs,
+                len(self.model.replicate_names),
+                self.model.K,
+                self.model.hierarchical_levels,
+                self.model.context["device"],
+                self.model.context["dtype"],
+            )
         if self.wandb_run is not None:
             self._log({"nll": self.model.nll()})
 
-        nmf_progress_bar = trange(self.parameters.nmf_iterations, leave=True, disable=not self.verbose)
+        nmf_progress_bar = trange(
+            self.parameters.nmf_iterations,
+            desc="NMF",
+            leave=True,
+            disable=self.verbose < 1,
+            dynamic_ncols=True,
+            mininterval=1,
+        )
         for _ in nmf_progress_bar:
-            if self.verbose > 0:
-                nmf_progress_bar.set_description(f"-------------- NMF Iteration {self.nmf_iterations} --------------")
-
             synchronize = self._should_synchronize(self.nmf_iterations)
             self.model.estimate_parameters(update_spatial_affinities=False, synchronize=synchronize)
             self.model.estimate_weights(use_neighbors=False, synchronize=synchronize)
@@ -95,15 +110,13 @@ class Trainer:
 
         spatial_preprogress_bar = trange(
             self.parameters.spatial_preiterations,
+            desc="Spatial pretraining",
             leave=True,
-            disable=not self.verbose,
+            disable=self.verbose < 1,
+            dynamic_ncols=True,
+            mininterval=1,
         )
         for _ in spatial_preprogress_bar:
-            if self.verbose > 0:
-                spatial_preprogress_bar.set_description(
-                    f"-------------- Spatial Preiteration {self.spatial_preiterations} --------------",
-                )
-
             synchronize = self._should_synchronize(self.spatial_preiterations)
             self.model.estimate_parameters(
                 differentiate_spatial_affinities=False,
@@ -117,11 +130,15 @@ class Trainer:
             ):
                 self._log({"nll_spatial_preiteration": self.model.nll(use_spatial=True)})
 
-        progress_bar = trange(self.parameters.iterations, leave=True, disable=not self.verbose)
+        progress_bar = trange(
+            self.parameters.iterations,
+            desc="Spatial training",
+            leave=True,
+            disable=self.verbose < 1,
+            dynamic_ncols=True,
+            mininterval=1,
+        )
         for _ in progress_bar:
-            if self.verbose > 0:
-                progress_bar.set_description(f"------------------ Iteration {self.iterations} ------------------")
-
             synchronize = self._should_synchronize(self.iterations)
             self.model.estimate_parameters(synchronize=synchronize)
             self.model.estimate_weights(synchronize=synchronize)
@@ -129,6 +146,9 @@ class Trainer:
             self.global_step += 1
             if self.wandb_run is not None and (synchronize or self.iterations == self.parameters.iterations):
                 self._log({"nll_spatial": self.model.nll(use_spatial=True)})
+
+        if self.verbose >= 1:
+            logger.info("Finished Popari training after {} outer iterations", self.global_step)
 
     def save_results(self, savepath: str | Path | None = None, **kwargs) -> Path:
         if savepath is None:

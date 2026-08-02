@@ -2,9 +2,10 @@ import awkward as ak
 import numpy as np
 import torch
 from anndata import AnnData
+from loguru import logger
 from scipy.sparse import csr_array
 from torch import nn
-from tqdm.auto import tqdm, trange
+from tqdm.auto import trange
 
 from popari._named_state import BufferDict, ParameterDict
 from popari._sample_axis import SampleAxis
@@ -14,7 +15,6 @@ from popari.util import (
     NesterovGD,
     convert_adjacency_matrix_to_awkward_array,
     convert_numpy_to_pytorch_sparse_coo,
-    get_datetime,
     project2simplex,
     project2simplex_,
     project_M,
@@ -94,13 +94,13 @@ class ParameterOptimizer(nn.Module):
                 self.context,
             )
 
-        if self.verbose:
-            print(f"{get_datetime()} Initializing MetageneState")
+        if self.verbose >= 1:
+            logger.info("Initializing metagene state")
 
         self.metagenes = nn.Parameter(torch.zeros((adata.n_vars, self.K), **self.context))
 
-        if self.verbose:
-            print(f"{get_datetime()} Initializing SpatialAffinityState")
+        if self.verbose >= 1:
+            logger.info("Initializing spatial-affinity state")
 
         self.spatial_affinity = SpatialAffinity(
             self.K,
@@ -199,16 +199,25 @@ class ParameterOptimizer(nn.Module):
             weighted_total_cells += beta * num_edges
             del Z, adjacency_matrix
         # linear_term_coefficient = (linear_term_coefficient + linear_term_coefficient.T) / 2 # should be unnecessary as long as adjacency_list is symmetric
-        if self.verbose > 2:
-            print(
-                f"spatial affinity linear term coefficient range: {linear_term_coefficient.min().item():.2e} ~ {linear_term_coefficient.max().item():.2e}",
+        if self.verbose >= 3:
+            logger.debug(
+                "Spatial-affinity linear coefficient range: {:.2e} to {:.2e}",
+                linear_term_coefficient.min().item(),
+                linear_term_coefficient.max().item(),
             )
 
         history = []
         loss_prev, loss = np.inf, np.nan
 
-        verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format="{desc}{postfix}")
-        progress_bar = trange(1, n_epochs + 1, disable=not self.verbose, desc="Updating Σx-1")
+        progress_bar = trange(
+            1,
+            n_epochs + 1,
+            desc="Spatial-affinity optimization",
+            leave=False,
+            disable=self.verbose < 2,
+            dynamic_ncols=True,
+            mininterval=1,
+        )
 
         Sigma_x_inv_best, loss_best, epoch_best = None, np.inf, -1
         dSigma_x_inv = np.inf
@@ -286,36 +295,26 @@ class ParameterOptimizer(nn.Module):
                     loss = loss.item()
                     dloss = loss_prev - loss
                     loss_prev = loss
-                    regularization_prev = regularization.item()
-                    log_partition_function_prev = log_partition_function.item()
-                    linear_term_prev = linear_term.item()
-
                     history.append((Sigma_x_inv.detach().cpu().numpy(), loss))
 
                     dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
                     Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
 
-                    description = (
-                        f"Updating Σx-1: loss = {dloss:.1e} -> {loss:.1e} "
-                        f"δΣx-1 = {dSigma_x_inv:.1e} "
-                        f"Σx-1 range = {Sigma_x_inv.min().item():.1e} ~ {Sigma_x_inv.max().item():.1e}"
-                    )
-
-                    verbose_description = (
-                        f"Spatial affinity average: {Sigma_x_inv.mean().item():.1e} "
-                        f"Total spatial affinity loss: {loss:.1e} "
-                        f"spatial affinity linear term {linear_term:.6e} "
-                        f"spatial affinity regularization {regularization.item():.1e} "
-                        f"spatial affinity log_partition_function {log_partition_function:.1e} "
-                    )
-
-                    verbose_bar.set_description_str(verbose_description)
-                    progress_bar.set_description(description)
+                    progress_bar.set_postfix(loss=f"{loss:.1e}", delta=f"{dSigma_x_inv:.1e}")
+                    if self.verbose >= 3:
+                        logger.debug(
+                            "Spatial-affinity terms: linear={:.3e}, regularization={:.3e}, "
+                            "partition={:.3e}, range={:.3e} to {:.3e}",
+                            linear_term.item(),
+                            regularization.item(),
+                            log_partition_function.item(),
+                            Sigma_x_inv.min().item(),
+                            Sigma_x_inv.max().item(),
+                        )
 
                     if dSigma_x_inv < tol * check_frequency or epoch > epoch_best + 2 * check_frequency:
                         break
 
-        verbose_bar.close()
         progress_bar.close()
 
         # with torch.no_grad():
@@ -618,8 +617,8 @@ class ParameterOptimizer(nn.Module):
         # constant_magnitude = np.array([torch.linalg.norm(Y).item()**2 for Y in Ys]).sum()
 
         # constant = (np.array([torch.linalg.norm(self.embedding_optimizer.embedding_state[dataset.popari.name]).item()**2 for dataset in datasets]) * scaled_betas).sum()
-        if self.verbose > 1:
-            print(f"M constant: {constant: .1e}")
+        if self.verbose >= 3:
+            logger.debug("Metagene objective constant: {:.3e}", constant)
             # print(f"M constant magnitude: {constant_magnitude:.1e}")
 
         for X, Y, scaled_beta in zip(Xs, Ys, scaled_betas):
@@ -628,26 +627,26 @@ class ParameterOptimizer(nn.Module):
             # MX_c^TY_c
             linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
 
-        if self.verbose > 1:
-            print(f"M linear term: {torch.linalg.norm(linear_factor)}")
+        if self.verbose >= 3:
+            logger.debug("Metagene linear-term norm: {:.3e}", torch.linalg.norm(linear_factor).item())
         loss_prev, loss = np.inf, np.nan
 
-        verbose_bar = tqdm(disable=not (self.verbose > 2), bar_format="{desc}{postfix}")
-        progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, desc="Updating M", miniters=1000)
+        progress_bar = trange(
+            n_epochs,
+            desc="Metagene optimization",
+            leave=False,
+            disable=self.verbose < 2,
+            dynamic_ncols=True,
+            mininterval=1,
+        )
 
         def compute_loss_and_gradient(M):
             quadratic_factor_grad = M @ quadratic_factor
             loss = (quadratic_factor_grad * M).sum()
-            verbose_description = ""
-            if self.verbose > 2:
-                verbose_description += f"M quadratic term: {loss:.1e}"
             loss -= 2 * (linear_factor * M).sum()
             grad = quadratic_factor_grad - linear_factor
 
             loss += constant
-
-            if self.verbose > 2:
-                verbose_bar.set_description(verbose_description)
 
             loss /= 2
 
@@ -664,8 +663,8 @@ class ParameterOptimizer(nn.Module):
 
             """
             loss, grad = compute_loss_and_gradient(M)
-            if self.verbose > 1:
-                print(f"M NAG Initial Loss: {loss}")
+            if self.verbose >= 3:
+                logger.debug("Initial metagene loss: {:.3e}", loss)
 
             step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
             loss = np.inf
@@ -693,22 +692,15 @@ class ParameterOptimizer(nn.Module):
                 stop_criterion = dM < tol and epoch > 5
                 assert not np.isnan(loss)
                 if epoch % 5 == 0 or stop_criterion:
-                    description = (
-                        f"Updating M: loss = {loss:.1e}, "
-                        f"%δloss = {dloss / loss:.1e}, "
-                        f"δM = {dM:.1e}"
-                        # f'lr={step_size_scale:.1e}'
-                    )
-                    progress_bar.set_description(description)
+                    progress_bar.set_postfix(loss=f"{loss:.1e}", delta=f"{dM:.1e}")
                 if stop_criterion:
                     break
 
-            verbose_bar.close()
             progress_bar.close()
 
             loss, grad = compute_loss_and_gradient(M)
-            if self.verbose > 1:
-                print(f"M NAG Final Loss: {loss}")
+            if self.verbose >= 3:
+                logger.debug("Final metagene loss: {:.3e}", loss)
 
             return M
 

@@ -62,6 +62,9 @@ class FakeModel:
     spatial_affinity_mode = "differential lookup"
     random_state = 0
     superresolution_lr = 0.1
+    adata = SimpleNamespace(n_obs=12)
+    replicate_names = ("sample_0", "sample_1")
+    context = {"device": "cpu", "dtype": "float64"}
 
     def __init__(self):
         self.parameter_optimizer = FakeParameterOptimizer()
@@ -217,6 +220,48 @@ def test_trainer_reuses_active_wandb_run(tmp_path, monkeypatch):
     assert not created_runs
     assert active_run.config == {"model": {"K": model.K}}
     assert not active_run.finish_calls
+
+
+@pytest.mark.parametrize(
+    ("verbose", "progress_disabled"),
+    [(0, True), (1, False)],
+)
+def test_trainer_macro_progress_starts_at_verbose_one(
+    verbose,
+    progress_disabled,
+    tmp_path,
+    monkeypatch,
+):
+    progress_calls = []
+
+    class EmptyProgress:
+        def __iter__(self):
+            return iter(())
+
+    def record_progress(*args, **kwargs):
+        progress_calls.append(kwargs)
+        return EmptyProgress()
+
+    monkeypatch.setattr("popari.train.trange", record_progress)
+    trainer = Trainer(
+        TrainParameters(
+            nmf_iterations=0,
+            spatial_preiterations=0,
+            iterations=0,
+            savepath=tmp_path / "unused.h5ad",
+        ),
+        FakeModel(),
+        verbose=verbose,
+    )
+
+    trainer.train()
+
+    assert [call["desc"] for call in progress_calls] == [
+        "NMF",
+        "Spatial pretraining",
+        "Spatial training",
+    ]
+    assert [call["disable"] for call in progress_calls] == [progress_disabled] * 3
 
 
 def test_trainer_does_not_generate_wandb_config(tmp_path, monkeypatch):

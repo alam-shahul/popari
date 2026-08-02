@@ -1,9 +1,9 @@
-import logging
 import time
 
 import numpy as np
 import torch
 from anndata import AnnData
+from loguru import logger
 from scipy.sparse import csr_array
 from torch import nn
 from tqdm.auto import tqdm, trange
@@ -15,7 +15,6 @@ from popari.util import (
     NesterovGD,
     convert_adjacency_matrix_to_awkward_array,
     convert_numpy_to_pytorch_sparse_coo,
-    get_datetime,
     project2simplex,
     project2simplex_,
     project_M,
@@ -68,8 +67,8 @@ class EmbeddingOptimizer(nn.Module):
         self.embedding_mini_iterations = embedding_mini_iterations
         self.embedding_acceleration_trick = embedding_acceleration_trick
 
-        if self.verbose:
-            print(f"{get_datetime()} Initializing EmbeddingState")
+        if self.verbose >= 1:
+            logger.info("Initializing embedding state")
         self.embedding_state = EmbeddingState(K, sample_axis, context=self.context)
 
     def link(self, parameter_optimizer):
@@ -77,8 +76,6 @@ class EmbeddingOptimizer(nn.Module):
 
     def update_embeddings(self, use_neighbors=True):
         """Update Popari embeddings according to optimization scheme."""
-        logging.info(f"{get_datetime()}Updating latent states")
-
         loss_list = []
         for dataset_index, sample in enumerate(self.sample_names):
             sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
@@ -215,7 +212,14 @@ class EmbeddingOptimizer(nn.Module):
 
             return X, loss
 
-        progress_bar = trange(n_epochs, leave=True, disable=not self.verbose, miniters=1000)
+        progress_bar = trange(
+            n_epochs,
+            desc="Embedding optimization",
+            leave=False,
+            disable=self.verbose < 2,
+            dynamic_ncols=True,
+            mininterval=1,
+        )
         for epoch in progress_bar:
             X_prev = X.clone()
             if update_alg == "mu":
@@ -308,9 +312,8 @@ class EmbeddingOptimizer(nn.Module):
         base_step_size = self.embedding_step_size_multiplier / torch.linalg.eigvalsh(MTM).max().item()
         S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
 
-        if self.verbose > 3:
-            print(f"S max: {S.max()}")
-            print(f"S min: {S.min()}")
+        if self.verbose >= 3:
+            logger.debug("Embedding magnitude range: {:.3e} to {:.3e}", S.min().item(), S.max().item())
 
         Z = X / S
         N = len(Z)
@@ -392,7 +395,7 @@ class EmbeddingOptimizer(nn.Module):
                 S_batch = S[idx].contiguous()
 
                 optimizer = NesterovGD(Z_batch, base_step_size / S_batch.square())
-                ppbar = trange(100, leave=False, disable=not (self.verbose > 3))
+                ppbar = trange(100, leave=False, disable=self.verbose < 3, dynamic_ncols=True, mininterval=1)
                 for i_iter in ppbar:
                     if self.embedding_acceleration_trick:
                         update_s()  # TODO: update S_batch directly
@@ -465,7 +468,14 @@ class EmbeddingOptimizer(nn.Module):
         # TM: the above idea is not practical if we update only a subset of nodes each time
 
         loss = np.inf
-        pbar = trange(self.embedding_mini_iterations, disable=not self.verbose, desc="Updating weight w/ neighbors")
+        pbar = trange(
+            self.embedding_mini_iterations,
+            desc="Spatial embedding optimization",
+            leave=False,
+            disable=self.verbose < 2,
+            dynamic_ncols=True,
+            mininterval=1,
+        )
 
         for epoch in pbar:
             update_s()

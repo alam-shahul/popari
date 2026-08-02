@@ -458,8 +458,6 @@ def generate_simulation(
             metagene_magnitudes=shared_magnitudes,
         )
         datasets.append(dataset)
-        if verbose:
-            print(f"Simulated {replicate_name}.")
 
     # Finalize observation metadata before constructing the unified object.
     for dataset, recipe_name in zip(datasets, replicates.values()):
