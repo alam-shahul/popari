@@ -7,6 +7,7 @@ from scipy.sparse import csr_array
 
 from popari import pp, tl
 from popari.model import Popari
+from tests._training import train_model
 
 matplotlib.use("Agg")
 
@@ -190,7 +191,6 @@ def hierarchical_model_factory(context, adata_factory):
             initial_context=overrides.pop("initial_context", context),
             hierarchical_levels=overrides.pop("hierarchical_levels", 2),
             binning_downsample_rate=overrides.pop("binning_downsample_rate", 0.5),
-            superresolution_lr=overrides.pop("superresolution_lr", 1e-2),
             random_state=overrides.pop("random_state", 0),
             verbose=overrides.pop("verbose", 0),
             **overrides,
@@ -216,9 +216,7 @@ def trained_shared_model(shared_model_factory, adata_factory, context):
         torch_context=context,
         initial_context=context,
     )
-    for _ in range(2):
-        model.estimate_parameters(spatial_affinity_epochs=50)
-        model.estimate_weights()
+    train_model(model, iterations=2, spatial_affinity_epochs=50)
     return model
 
 
@@ -230,6 +228,7 @@ def initialized_shared_model(shared_model_factory, adata_factory):
 @pytest.fixture(scope="session")
 def preprocessed_shared_model(initialized_shared_model):
     model = initialized_shared_model
+    model.materialize_results()
     tl.postprocess_embeddings(model.adata)
     pp.pca(model.adata, n_comps=3)
     return model

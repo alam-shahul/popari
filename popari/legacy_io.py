@@ -14,7 +14,6 @@ from scipy.sparse import csr_array
 
 from popari._sample_axis import SampleAxis
 from popari.schema import (
-    ADJACENCY_LIST_KEY,
     ADJACENCY_MATRIX_KEY,
     BIN_ASSIGNMENTS_KEY,
     DATASET_NAME_KEY,
@@ -27,6 +26,7 @@ from popari.schema import (
     SPATIAL_AFFINITY_KEY,
 )
 
+_LEGACY_ADJACENCY_LIST_KEY = "adjacency_list"
 _SAMPLE_PARAMETER_KEYS = (
     SPATIAL_AFFINITY_KEY,
     "Sigma_x_inv_bar",
@@ -234,7 +234,7 @@ def convert_legacy_anndata(
         )
 
     result.uns.pop(ADJACENCY_MATRIX_KEY, None)
-    result.obsm.pop(ADJACENCY_LIST_KEY, None)
+    result.obsm.pop(_LEGACY_ADJACENCY_LIST_KEY, None)
     _restore_none_sentinels(result)
     _collapse_shared_matrix(result, METAGENE_KEY)
     _collapse_shared_matrix(result, "ground_truth_M")

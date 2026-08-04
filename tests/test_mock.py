@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from popari.model import Popari, load_pretrained
+from popari.train import Trainer
 
 pytestmark = [pytest.mark.baseline, pytest.mark.cheap]
 
@@ -19,15 +20,14 @@ def test_popari_constructor_exposes_only_unified_inputs():
 
 
 def test_popari_init(shared_mock_model, mock_datasets):
+    shared_mock_model.materialize_results()
     assert shared_mock_model.adata.n_obs == sum(dataset.n_obs for dataset in mock_datasets)
     assert shared_mock_model.adata.obsm["X"].shape == (
         shared_mock_model.adata.n_obs,
         shared_mock_model.K,
     )
-    assert shared_mock_model.base_view.level == 0
-    assert shared_mock_model.hierarchy[0] is shared_mock_model.base_view
-    assert shared_mock_model.parameter_optimizer is shared_mock_model.base_view.parameter_optimizer
-    assert shared_mock_model.embedding_optimizer is shared_mock_model.base_view.embedding_optimizer
+    assert shared_mock_model.hierarchy[-1].level == 0
+    assert shared_mock_model.hierarchy[0] is shared_mock_model.hierarchy[-1]
 
 
 def test_popari_uses_configured_sample_key(shared_model_factory, adata_factory):
@@ -44,54 +44,55 @@ def test_popari_uses_configured_sample_key(shared_model_factory, adata_factory):
 @pytest.mark.gpu
 def test_popari_registers_parameters_and_state_dict_roundtrip(shared_model_factory, gpu_context):
     model = shared_model_factory(torch_context=gpu_context, initial_context=gpu_context)
-    model.estimate_parameters()
-    model.estimate_weights()
+    level = model.hierarchy[-1]
+    level._recompute_observation_noise()
+    trainer = Trainer(model, iterations=0)
+    trainer._update_parameters(update_spatial_affinities=False)
+    trainer._update_embeddings()
 
     assert isinstance(model, nn.Module)
     parameter_names = dict(model.named_parameters())
     buffer_names = dict(model.named_buffers())
 
-    assert any(name.endswith("parameter_optimizer.metagenes") for name in parameter_names)
-    assert any(name.endswith("embedding_state.embedding") for name in parameter_names)
-    assert any("spatial_affinity.spatial_affinity_dict" in name for name in parameter_names)
-    assert any(name.endswith("parameter_optimizer.sigma_yxs") for name in buffer_names)
+    assert any(name.endswith("metagenes") for name in parameter_names)
+    assert any(name.endswith("embeddings") for name in parameter_names)
+    assert any("spatial_affinity.values" in name for name in parameter_names)
+    assert any(name.endswith("sigma_yxs") for name in buffer_names)
     assert any(name.endswith("betas") for name in buffer_names)
 
     reloaded_model = shared_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     reloaded_model.load_state_dict(model.state_dict())
 
-    assert reloaded_model.parameter_optimizer.sigma_yxs.detach().cpu().numpy() == pytest.approx(
-        model.parameter_optimizer.sigma_yxs.detach().cpu().numpy(),
+    assert reloaded_model.hierarchy[-1].sigma_yxs.detach().cpu().numpy() == pytest.approx(
+        model.hierarchy[-1].sigma_yxs.detach().cpu().numpy(),
         abs=1e-9,
     )
-    assert reloaded_model.parameter_optimizer.metagenes.detach().cpu().numpy() == pytest.approx(
-        model.parameter_optimizer.metagenes.detach().cpu().numpy(),
+    assert reloaded_model.hierarchy[-1].metagenes.detach().cpu().numpy() == pytest.approx(
+        model.hierarchy[-1].metagenes.detach().cpu().numpy(),
         abs=1e-9,
     )
-    assert reloaded_model.embedding_optimizer.embedding_state["0"].detach().cpu().numpy() == pytest.approx(
-        model.embedding_optimizer.embedding_state["0"].detach().cpu().numpy(),
+    assert reloaded_model.hierarchy[-1].embedding("0").detach().cpu().numpy() == pytest.approx(
+        model.hierarchy[-1].embedding("0").detach().cpu().numpy(),
         abs=1e-9,
     )
 
 
-def test_module_to_updates_adjacency_parameters(shared_model_factory):
+def test_module_to_updates_global_adjacency_buffer(shared_model_factory):
     model = shared_model_factory()
-    dataset_name = model.replicate_names[0]
-    adjacency_before = model.parameter_optimizer.adjacency_matrices[dataset_name]
-    assert isinstance(adjacency_before, nn.Parameter)
+    adjacency_before = model.hierarchy[-1].adjacency_matrix
+    assert adjacency_before.is_sparse
     assert not adjacency_before.requires_grad
 
     model.to(dtype=torch.float32)
 
-    adjacency_after = model.parameter_optimizer.adjacency_matrices[dataset_name]
-    assert isinstance(adjacency_after, nn.Parameter)
+    adjacency_after = model.hierarchy[-1].adjacency_matrix
     assert not adjacency_after.requires_grad
     assert adjacency_after.dtype == torch.float32
 
 
-def test_load_pretrained_preserves_adjacency_parameters(shared_model_factory, context):
+def test_load_pretrained_preserves_global_adjacency_buffer(shared_model_factory, context):
     trained_model = shared_model_factory(torch_context=context, initial_context=context)
-    trained_model.synchronize_datasets()
+    trained_model.materialize_results()
     adata = trained_model.adata.copy()
     reloaded_model = load_pretrained(
         adata,
@@ -99,9 +100,8 @@ def test_load_pretrained_preserves_adjacency_parameters(shared_model_factory, co
         reloaded_hierarchy={0: adata},
     )
 
-    dataset_name = reloaded_model.replicate_names[0]
-    adjacency_matrix = reloaded_model.parameter_optimizer.adjacency_matrices[dataset_name]
-    assert isinstance(adjacency_matrix, nn.Parameter)
+    adjacency_matrix = reloaded_model.hierarchy[-1].adjacency_matrix
+    assert adjacency_matrix.is_sparse
     assert not adjacency_matrix.requires_grad
 
 
@@ -112,5 +112,5 @@ def test_state_dict_reload_rejects_reordered_datasets(shared_model_factory, adat
     reversed_adata = adata_factory(replicate_names=["beta", "alpha"])
     mismatched_model = shared_model_factory(adata=reversed_adata)
 
-    with pytest.raises(RuntimeError, match="datasets"):
+    with pytest.raises(RuntimeError, match="samples"):
         mismatched_model.load_state_dict(state_dict)

@@ -2,50 +2,44 @@ import numpy as np
 import pytest
 
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
-from popari.io import load_anndata
+from popari.io import load_anndata, save_anndata_hierarchy
 from popari.model import load_trained_model
+from tests._training import train_model
 
 
 @pytest.mark.baseline
-def test_grid_binning_produces_valid_assignments(shared_model_factory, adata_factory):
-    model = shared_model_factory(adata=adata_factory(num_cells=64))
+def test_grid_binning_produces_valid_assignments(adata_factory):
+    dataset = adata_factory(num_cells=64, num_replicates=1)
     downsampler = GridDownsampler()
+    key = "bin_assignments"
+    binned_dataset, _ = downsampler.downsample(
+        dataset,
+        bin_assignments_key=key,
+        chunks=2,
+        downsample_rate=0.5,
+    )
 
-    for dataset in model.datasets:
-        binned_name = f"{dataset.popari.name}_level_0"
-        key = f"bin_assignments_{binned_name}"
-        binned_dataset, _ = downsampler.downsample(
-            dataset,
-            bin_assignments_key=key,
-            chunks=2,
-            downsample_rate=0.5,
-        )
-
-        assignments = binned_dataset.obsm[key].toarray()
-        assert len(binned_dataset) < len(dataset)
-        assert assignments.shape[1] == len(dataset)
-        assert np.all(assignments.sum(axis=0) == 1)
+    assignments = binned_dataset.obsm[key].toarray()
+    assert len(binned_dataset) < len(dataset)
+    assert assignments.shape[1] == len(dataset)
+    assert np.all(assignments.sum(axis=0) == 1)
 
 
 @pytest.mark.baseline
-def test_partition_binning_produces_valid_assignments(shared_model_factory, adata_factory):
-    model = shared_model_factory(adata=adata_factory(num_cells=64))
+def test_partition_binning_produces_valid_assignments(adata_factory):
+    dataset = adata_factory(num_cells=64, num_replicates=1)
     downsampler = PartitionDownsampler()
+    key = "bin_assignments"
+    binned_dataset, _ = downsampler.downsample(
+        dataset,
+        bin_assignments_key=key,
+        downsample_rate=0.5,
+    )
 
-    for dataset in model.datasets:
-        binned_name = f"{dataset.popari.name}_level_0"
-        key = f"bin_assignments_{binned_name}"
-        binned_dataset, _ = downsampler.downsample(
-            dataset,
-            bin_assignments_key=key,
-            downsample_rate=0.5,
-            adjacency_list_key="adjacency_list",
-        )
-
-        assignments = binned_dataset.obsm[key].toarray()
-        assert len(binned_dataset) < len(dataset)
-        assert assignments.shape[1] == len(dataset)
-        assert np.all(assignments.sum(axis=0) == 1)
+    assignments = binned_dataset.obsm[key].toarray()
+    assert len(binned_dataset) < len(dataset)
+    assert assignments.shape[1] == len(dataset)
+    assert np.all(assignments.sum(axis=0) == 1)
 
 
 @pytest.mark.gpu
@@ -56,10 +50,8 @@ def test_hierarchical_superresolution_is_finite(hierarchical_model_factory, gpu_
         torch_context=gpu_context,
         initial_context=gpu_context,
     )
-    model.estimate_parameters()
-    model.estimate_weights()
-
-    model.superresolve(n_epochs=2, tol=1e-6, use_manual_gradients=False)
+    trainer = train_model(model)
+    trainer.superresolve(n_epochs=2, tol=1e-6, use_manual_gradients=False)
 
     for level in range(model.hierarchical_levels):
         assert np.isfinite(model.nll(level=level)).all()
@@ -73,8 +65,9 @@ def test_hierarchical_save_load_and_reload_expression(hierarchical_model_factory
     trainable_path = tmp_path / "superresolved_results"
     untrainable_path = tmp_path / "untrainable_results"
 
-    model.save_results(trainable_path, ignore_raw_data=False)
-    model.save_results(untrainable_path, ignore_raw_data=True)
+    hierarchy = model.materialize_results()
+    save_anndata_hierarchy(trainable_path, hierarchy)
+    save_anndata_hierarchy(untrainable_path, hierarchy, ignore_raw_data=True)
 
     reloaded_trainable = load_trained_model(trainable_path)
     reloaded_untrainable = load_trained_model(untrainable_path)
@@ -90,7 +83,7 @@ def test_hierarchical_save_load_and_reload_expression(hierarchical_model_factory
 def test_load_anndata_roundtrip_for_saved_hierarchy(hierarchical_model_factory, tmp_path):
     model = hierarchical_model_factory(hierarchical_levels=2)
     filepath = tmp_path / "hierarchy_results"
-    model.save_results(filepath, ignore_raw_data=False)
+    save_anndata_hierarchy(filepath, model.materialize_results())
 
     reloaded = load_anndata(filepath / "level_0.h5ad")
 

@@ -9,8 +9,11 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 
+from popari.io import save_anndata_hierarchy
 from popari.model import Popari
-from popari.train import Trainer, TrainParameters
+from popari.schema import SCHEMA_VERSION
+from popari.train import Trainer
+from popari.wandb_util import log_popari_results
 
 RESULT_CONFIG_KEYS = (
     "data",
@@ -84,7 +87,6 @@ def train_from_config(config: DictConfig) -> Path:
         result_directory.mkdir(parents=True)
     except FileExistsError as error:
         raise FileExistsError(f"Result directory already exists: {result_directory}") from error
-    savepath = result_directory / "model.h5ad"
 
     # Resolve W&B arguments.
     wandb_kwargs = None
@@ -97,25 +99,29 @@ def train_from_config(config: DictConfig) -> Path:
         wandb_kwargs["config"]["result_directory"] = str(result_directory)
 
     model = Popari(**model_kwargs)
-    parameters = TrainParameters(
+    with Trainer(
+        model,
         nmf_iterations=config.training.nmf_iterations,
         spatial_preiterations=config.training.spatial_preiterations,
         iterations=config.training.iterations,
-        savepath=savepath,
-        synchronization_frequency=config.training.synchronization_frequency,
-    )
-
-    with Trainer(
-        parameters,
-        model,
         verbose=config.verbose,
         use_wandb=config.tracking.enabled,
         wandb_kwargs=wandb_kwargs,
     ) as trainer:
         trainer.train()
-        if config.training.superresolution_epochs > 0:
-            trainer.superresolve(n_epochs=config.training.superresolution_epochs)
-        return trainer.save_results(ignore_raw_data=False)
+        hierarchy = model.materialize_results()
+        save_anndata_hierarchy(result_directory, hierarchy)
+        if trainer.wandb_run is not None:
+            log_popari_results(
+                trainer.wandb_run,
+                result_directory,
+                metadata={
+                    "schema_version": SCHEMA_VERSION,
+                    "hierarchical_levels": len(hierarchy),
+                    "config_uuid": config_uuid,
+                },
+            )
+        return result_directory
 
 
 @hydra.main(config_path="../configs", config_name="train", version_base="1.3")

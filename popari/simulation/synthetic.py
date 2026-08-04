@@ -40,7 +40,7 @@ from popari.simulation.recipes import (
     named_replicates,
     simulation_sweep_output_path,
 )
-from popari.util import convert_adjacency_matrix_to_awkward_array
+from popari.util import graph_neighbors
 
 SPATIAL_AFFINITY_DEMO_CELL_TYPES = {
     "Type A": [1, 0, 0],
@@ -349,8 +349,7 @@ def _calculate_grid_neighbors(adata: ad.AnnData, sample_axis: SampleAxis, n_neig
     """Construct one block-diagonal Squidpy grid graph.
 
     The sparse connectivity matrix is exposed as
-    ``.obsp["adjacency_matrix"]`` and an Awkward neighbor-list representation
-    is stored in ``.obsm["adjacency_list"]``.
+    ``.obsp["adjacency_matrix"]``.
 
     """
 
@@ -370,17 +369,6 @@ def _calculate_grid_neighbors(adata: ad.AnnData, sample_axis: SampleAxis, n_neig
     adjacency = sum(graph_blocks[1:], start=graph_blocks[0])
     adata.obsp["spatial_connectivities"] = adjacency
     adata.obsp["adjacency_matrix"] = adjacency.copy()
-    adata.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(adjacency)
-
-
-def _adjacency_lists(adjacency_matrix) -> list[list[int]]:
-    """Convert a sparse adjacency matrix into one neighbor list per cell."""
-
-    adjacency_matrix = adjacency_matrix.tocoo()
-    adjacency_lists = [[] for _ in range(adjacency_matrix.shape[0])]
-    for row, column in zip(*adjacency_matrix.nonzero()):
-        adjacency_lists[row].append(column)
-    return adjacency_lists
 
 
 def _apply_spatial_dropout(
@@ -400,7 +388,7 @@ def _apply_spatial_dropout(
     rng = np.random.default_rng(dropout.random_state)
     for sample in sample_axis.names:
         indices = sample_axis.indices(sample)
-        adjacency_lists = _adjacency_lists(adata.obsp["adjacency_matrix"][indices][:, indices])
+        adjacency = csr_array(adata.obsp["adjacency_matrix"])[indices][:, indices]
         num_dropout_cells = int(np.rint(dropout.sparsity * len(indices)))
         for gene_index in range(adata.n_vars):
             excluded = set()
@@ -408,7 +396,7 @@ def _apply_spatial_dropout(
             for cell_index in rng.permutation(len(indices)):
                 if cell_index not in excluded:
                     independent_set.append(int(cell_index))
-                    excluded.update(adjacency_lists[cell_index])
+                    excluded.update(graph_neighbors(adjacency, cell_index))
             adata.X[indices[independent_set[:num_dropout_cells]], gene_index] = 0
 
 
@@ -492,9 +480,6 @@ def generate_simulation(
         _calculate_grid_neighbors(adata, sample_axis)
     else:
         adata.obsp["adjacency_matrix"] = csr_array((adata.n_obs, adata.n_obs))
-        adata.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(
-            adata.obsp["adjacency_matrix"],
-        )
 
     if selected_dropout is not None:
         _apply_spatial_dropout(adata, sample_axis, selected_dropout)
@@ -656,7 +641,6 @@ def create_spatial_affinity_demo_datasets(
         dataset.uns["domain_names"] = [scenario_name]
         dataset.obsp["adjacency_matrix"] = adjacency.copy()
         dataset.obsp["spatial_connectivities"] = adjacency.copy()
-        dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(adjacency)
         datasets.append(dataset)
 
     return tuple(datasets)

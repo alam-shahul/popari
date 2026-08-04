@@ -1,0 +1,48 @@
+data:
+  dataset_path: ???
+
+model:
+  K: ???
+  lambda_Sigma_x_inv: 1.0e-4
+  pretrained: false
+  initialization_method: leiden
+  hierarchical_levels: 1
+  spatial_affinity_groups: null
+  betas: null
+  prior_x_modes: null
+  M_constraint: simplex
+  sigma_yx_inv_mode: separate
+  spatial_affinity_mode: shared lookup
+  lambda_Sigma_bar: 1.0e-3
+  spatial_affinity_lr: 1.0e-2
+  spatial_affinity_tol: 2.0e-3
+  spatial_affinity_constraint: null
+  spatial_affinity_centering: false
+  spatial_affinity_scaling: 10
+  spatial_affinity_regularization_power: 2
+  embedding_mini_iterations: 1000
+  embedding_acceleration_trick: true
+  embedding_step_size_multiplier: 1.0
+  downsampling_method: grid
+  binning_downsample_rate: 0.2
+  chunks: 2
+  use_inplace_ops: true
+  random_state: 0
+
+training:
+  nmf_iterations: 5
+  spatial_preiterations: 0
+  iterations: 200
+
+dtype: float64
+initial_device: cuda
+torch_device: cuda
+verbose: 0
+output_dir: outputs/popari
+
+tracking:
+  enabled: false
+  entity: popari
+  project: revisions
+  group: null
+  name: null

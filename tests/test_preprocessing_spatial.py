@@ -37,4 +37,4 @@ def test_compute_spatial_neighbors_builds_one_block_diagonal_graph():
     source, target = dataset.obsp["adjacency_matrix"].nonzero()
     assert np.all(axis.codes[source] == axis.codes[target])
     assert dataset.obsp["adjacency_matrix"].nnz > 0
-    assert len(dataset.obsm["adjacency_list"]) == dataset.n_obs
+    assert "adjacency_list" not in dataset.obsm

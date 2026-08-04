@@ -244,28 +244,17 @@ def _resolve_sample(sample_axis: SampleAxis, sample: str | None) -> str:
 
 
 def _graph_edges(dataset, neighbor_key: str):
-    if neighbor_key in dataset.obsp:
-        adjacency_matrix = dataset.obsp[neighbor_key]
-        if hasattr(adjacency_matrix, "tocoo"):
-            adjacency_matrix = adjacency_matrix.tocoo()
-            source = np.asarray(adjacency_matrix.row)
-            target = np.asarray(adjacency_matrix.col)
-            weight = np.asarray(adjacency_matrix.data, dtype=float)
-        else:
-            source, target = np.nonzero(np.asarray(adjacency_matrix))
-            weight = np.asarray(adjacency_matrix[source, target], dtype=float)
-    elif "adjacency_list" in dataset.obsm:
-        source = []
-        target = []
-        for cell_index, neighbors in enumerate(dataset.obsm["adjacency_list"]):
-            for neighbor_index in neighbors:
-                source.append(cell_index)
-                target.append(neighbor_index)
-        source = np.asarray(source, dtype=int)
-        target = np.asarray(target, dtype=int)
-        weight = np.ones(len(source), dtype=float)
+    if neighbor_key not in dataset.obsp:
+        raise KeyError(f"Expected `{neighbor_key}` in `.obsp`.")
+    adjacency_matrix = dataset.obsp[neighbor_key]
+    if hasattr(adjacency_matrix, "tocoo"):
+        adjacency_matrix = adjacency_matrix.tocoo()
+        source = np.asarray(adjacency_matrix.row)
+        target = np.asarray(adjacency_matrix.col)
+        weight = np.asarray(adjacency_matrix.data, dtype=float)
     else:
-        raise KeyError(f"Expected `{neighbor_key}` in `.obsp` or `adjacency_list` in `.obsm`.")
+        source, target = np.nonzero(np.asarray(adjacency_matrix))
+        weight = np.asarray(adjacency_matrix[source, target], dtype=float)
 
     non_self_edges = source != target
     return source[non_self_edges], target[non_self_edges], weight[non_self_edges]
@@ -382,7 +371,7 @@ def compute_posthoc_colocalization(
     This is the public AnnData-level API for reviewer-style baselines. It works
     for Popari embeddings and external topic models such as STAMP as long as the
     features are stored in ``.obsm[feature]`` and the spatial graph is available
-    in ``.obsp[neighbor_key]`` or ``.obsm["adjacency_list"]``.
+    in ``.obsp[neighbor_key]``.
 
     """
 

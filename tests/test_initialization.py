@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import torch
 from scipy.sparse import csr_array, issparse
 
 from popari.model import Popari
@@ -9,10 +10,29 @@ from popari.simulation.synthetic import create_spatial_affinity_demo_datasets
 
 
 @pytest.mark.baseline
+def test_fast_leiden_initialization_uses_igraph(shared_model_factory, monkeypatch):
+    calls = []
+
+    def initialize_leiden(adata, sample_axis, K, context, kwargs_leiden, **kwargs):
+        calls.append(kwargs_leiden)
+        return (
+            torch.ones((adata.n_vars, K), **context),
+            torch.ones((adata.n_obs, K), **context),
+        )
+
+    monkeypatch.setattr("popari._hierarchical_level.initialize_leiden", initialize_leiden)
+    shared_model_factory(initialization_method="leiden_fast")
+
+    assert calls == [{"random_state": 0, "flavor": "igraph", "n_iterations": 2}]
+
+
+@pytest.mark.baseline
 def test_random_state_controls_initialization(shared_model_factory):
     model_0 = shared_model_factory(random_state=0, initialization_method="dummy")
     model_1 = shared_model_factory(random_state=0, initialization_method="dummy")
     model_2 = shared_model_factory(random_state=1, initialization_method="dummy")
+    for model in (model_0, model_1, model_2):
+        model.materialize_results()
 
     assert np.allclose(model_0.adata.obsm["X"], model_1.adata.obsm["X"])
     assert not np.allclose(model_0.adata.obsm["X"], model_2.adata.obsm["X"])
@@ -28,6 +48,7 @@ def test_random_state_controls_initialization(shared_model_factory):
 @pytest.mark.baseline
 def test_ground_truth_initialization_uses_cell_type_labels(shared_model_factory):
     model = shared_model_factory(initialization_method="ground_truth")
+    model.materialize_results()
 
     label_indices = model.adata.obs["cell_type"].str.removeprefix("type_").astype(int).to_numpy()
     assert np.array_equal(model.adata.obsm["X"].argmax(axis=1), label_indices)
@@ -59,6 +80,7 @@ def test_ground_truth_initialization_handles_absent_classes_with_random_vectors(
         random_state=0,
         verbose=0,
     )
+    model.materialize_results()
 
     sample = model.replicate_names[0]
     assert np.all(model.adata.obsm["X"].argmax(axis=1) == 0)
@@ -71,9 +93,9 @@ def test_model_has_one_shared_metagene_parameter(shared_model_factory):
     model = shared_model_factory()
     first_name, second_name = model.replicate_names
 
-    assert model.parameter_optimizer.metagenes.shape == (model.adata.n_vars, model.K)
-    assert model.parameter_optimizer.spatial_affinity[first_name].data_ptr() == (
-        model.parameter_optimizer.spatial_affinity[second_name].data_ptr()
+    assert model.hierarchy[-1].metagenes.shape == (model.adata.n_vars, model.K)
+    assert model.hierarchy[-1].spatial_affinity.for_sample(first_name).data_ptr() == (
+        model.hierarchy[-1].spatial_affinity.for_sample(second_name).data_ptr()
     )
 
 
@@ -82,16 +104,17 @@ def test_differential_affinity_initialization_creates_group_averages(differentia
     model = differential_model_factory()
 
     assert model.spatial_affinity_mode == "differential lookup"
-    assert model.parameter_optimizer.spatial_affinity_bar.spatial_affinity_bar
+    assert set(model.hierarchy[-1].spatial_affinity.group_means()) == set(model.spatial_affinity_groups)
 
 
 @pytest.mark.expensive
 def test_hierarchical_initialization_builds_resolution_stack(hierarchical_model_factory):
     model = hierarchical_model_factory(hierarchical_levels=3, binning_downsample_rate=0.4)
+    model.materialize_results()
 
     assert model.hierarchical_levels == 3
-    assert len(model.hierarchy.view_container) == 3
-    assert model.base_view.level == 2
+    assert len(model.hierarchy) == 3
+    assert model.hierarchy[-1].level == 2
     assert model.adata is model.hierarchy[0].adata
 
     for level in range(model.hierarchical_levels):

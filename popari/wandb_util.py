@@ -10,10 +10,75 @@ import anndata as ad
 import torch
 
 from popari.io import load_anndata
+from popari.legacy_io import convert_legacy_anndata_hierarchy
 from popari.model import load_pretrained
 from popari.schema import validate_anndata_hierarchy
 
 LEVEL_FILE_PATTERN = re.compile(r"^level_(\d+)\.h5ad$")
+
+
+def log_popari_results(
+    run,
+    path: str | Path,
+    *,
+    metadata: dict | None = None,
+) -> None:
+    """Log a canonical AnnData hierarchy as a W&B result artifact."""
+
+    import wandb
+
+    result_path = Path(path)
+    level_files = sorted(result_path.glob("level_*.h5ad"))
+    if not level_files:
+        raise ValueError(f"No level_*.h5ad files found in {result_path}.")
+
+    artifact = wandb.Artifact(
+        f"popari-results-{run.id}",
+        type="popari-results",
+        metadata=metadata or {},
+    )
+    for level_file in level_files:
+        artifact.add_file(str(level_file), name=level_file.name)
+    run.log_artifact(artifact, aliases=["latest"])
+
+
+def download_popari_results(
+    run_id: str,
+    *,
+    entity: str = "popari",
+    project: str = "revisions",
+    alias: str = "latest",
+    root: str | Path | None = None,
+) -> Path:
+    """Download the canonical materialized results for one W&B run."""
+
+    import wandb
+
+    artifact = wandb.Api().artifact(
+        f"{entity}/{project}/popari-results-{run_id}:{alias}",
+        type="popari-results",
+    )
+    return Path(artifact.download(root=str(root) if root is not None else None))
+
+
+def load_popari_results_from_wandb(
+    run_id: str,
+    *,
+    entity: str = "popari",
+    project: str = "revisions",
+    alias: str = "latest",
+    root: str | Path | None = None,
+) -> dict[int, ad.AnnData]:
+    """Load canonical materialized results as ``level -> AnnData``."""
+
+    result_path = download_popari_results(
+        run_id,
+        entity=entity,
+        project=project,
+        alias=alias,
+        root=root,
+    )
+    return read_popari_anndata_hierarchy(result_path)
 
 
 def download_popari_artifact(
@@ -144,6 +209,37 @@ def read_popari_anndata_hierarchy(paths: str | Path | list[str | Path]) -> dict[
     return hierarchy
 
 
+def read_legacy_popari_anndata_hierarchy(paths: str | Path | list[str | Path]) -> dict[int, ad.AnnData]:
+    """Read and convert historical Popari H5AD artifacts in memory."""
+
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
+    h5ad_files = []
+    for path in paths:
+        h5ad_files.extend(_h5ad_files_from_artifact_path(path))
+    if not h5ad_files:
+        raise ValueError("Expected at least one .h5ad file in downloaded Popari artifacts.")
+
+    level_files = {}
+    flat_files = []
+    for h5ad_file in h5ad_files:
+        match = LEVEL_FILE_PATTERN.match(h5ad_file.name)
+        if match is None:
+            flat_files.append(h5ad_file)
+        else:
+            level_files[int(match.group(1))] = h5ad_file
+    if level_files and flat_files:
+        raise ValueError("Found both hierarchical level_*.h5ad files and flat .h5ad result files.")
+    if flat_files and len(flat_files) != 1:
+        raise ValueError(f"Expected one flat .h5ad result file; found {len(flat_files)}.")
+
+    files_by_level = level_files or {0: flat_files[0]}
+    raw = {level: ad.read_h5ad(path) for level, path in sorted(files_by_level.items())}
+    hierarchy = convert_legacy_anndata_hierarchy(raw)
+    validate_anndata_hierarchy(hierarchy)
+    return hierarchy
+
+
 def load_popari_anndata_from_wandb(
     run_id: str,
     *,
@@ -152,6 +248,7 @@ def load_popari_anndata_from_wandb(
     artifact_stem: str | None = "output",
     alias: str = "latest",
     root: str | Path | None = None,
+    legacy: bool = False,
 ) -> dict[int, ad.AnnData]:
     """Load migrated Popari results as ``level -> AnnData``."""
 
@@ -163,6 +260,8 @@ def load_popari_anndata_from_wandb(
         alias=alias,
         root=root,
     )
+    if legacy:
+        return read_legacy_popari_anndata_hierarchy(artifact_paths)
     return read_popari_anndata_hierarchy(artifact_paths)
 
 
@@ -172,21 +271,19 @@ def load_popari_model_from_wandb(
     context: dict | None = None,
     entity: str = "popari",
     project: str = "revisions",
-    artifact_stem: str | None = "output",
     alias: str = "latest",
     root: str | Path | None = None,
     **popari_kwargs,
 ):
-    """Load a trained Popari model from a migrated W&B artifact."""
+    """Reconstruct a trained Popari model from canonical W&B results."""
 
     if context is None:
         context = {"device": "cpu", "dtype": torch.float64}
 
-    reloaded_hierarchy = load_popari_anndata_from_wandb(
+    reloaded_hierarchy = load_popari_results_from_wandb(
         run_id,
         entity=entity,
         project=project,
-        artifact_stem=artifact_stem,
         alias=alias,
         root=root,
     )

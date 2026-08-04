@@ -163,17 +163,21 @@ class PartitionDownsampler(Downsampler):
     def generate_bin_assignments(
         self,
         dataset: AnnData,
-        adjacency_list_key: str,
         coordinates_key: str,
         bin_assignments_key: str,
         downsample_rate: float = 0.2,
     ):
 
         num_bins = round(len(dataset) * downsample_rate)
-        adjacency_list = dataset.obsm[adjacency_list_key]
+        adjacency = csr_array(dataset.obsp["adjacency_matrix"])
 
         options = Options(seed=0)  # TODO: this doesn't seem to work...
-        _, indices = part_graph(num_bins, adjacency_list, options=options)
+        _, indices = part_graph(
+            num_bins,
+            xadj=adjacency.indptr,
+            adjncy=adjacency.indices,
+            options=options,
+        )
 
         # index_reducer = {old_index: new_index for new_index, old_index in enumerate(set(indices))}
         # reduced_indices = [index_reducer[index] for index in indices]
@@ -182,9 +186,7 @@ class PartitionDownsampler(Downsampler):
 
         dataset.obsm[bin_assignments_key] = bin_assignments.T
 
-        return {
-            "adjacency_list_key": adjacency_list_key,
-        }
+        return {}
 
 
 def chunked_coordinates(coordinates: NDArray, chunks: int = None, step_size: float = None):

@@ -6,12 +6,10 @@ import anndata as ad
 import numpy as np
 import torch
 from anndata import AnnData
-from loguru import logger
 from torch import nn
-from tqdm.auto import trange
 
-from popari._hierarchical_view import HierarchicalView, Hierarchy
-from popari.io import load_anndata, load_anndata_hierarchy, save_anndata, save_anndata_hierarchy
+from popari._hierarchical_level import HierarchicalLevel, Hierarchy
+from popari.io import load_anndata, load_anndata_hierarchy
 from popari.schema import SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
 from popari.util import convert_numpy_to_pytorch_sparse_coo
 
@@ -35,7 +33,8 @@ class Popari(nn.Module):
         lambda_Sigma_x_inv: hyperparameter to balance importance of spatial information. Default: ``1e-4``
         pretrained: if set, attempts to load model state from input files. Default: ``False``
         initialization_method: algorithm to use for initializing metagenes and embeddings.
-            Supports ``dummy``, ``kmeans``, ``svd``, ``leiden``, and ``ground_truth``. Default: ``leiden``
+            Supports ``dummy``, ``kmeans``, ``svd``, ``leiden``, ``leiden_fast``, and ``ground_truth``.
+            ``leiden_fast`` uses the igraph backend with two iterations. Default: ``leiden``
         hierarchical_levels: number of hierarchical levels to use. Default: ``1`` (non-hierarchical mode)
         spatial_affinity_groups: defines a grouping of replicates for the spatial affinity optimization.
             If ``spatial_affinity_mode == "shared lookup"``, then one set of spatial_affinities will be created for each group;
@@ -61,7 +60,6 @@ class Popari(nn.Module):
         embedding_step_size_multiplier: controls relative step size during embedding optimization. Default: ``1.0``
         binning_downsample_rate: ratio of number of spots at low resolution to high resolution when
             using hierarchical mode
-        superresolution_lr: learning rate for optimization of ``X`` from low-res embeddings
         use_inplace_ops: if set, inplace PyTorch operations will be used to speed up computation
         random_state: seed for reproducibility of randomized computations. Default: ``0``
         verbose: level of verbosity to use during optimization. Default: ``0`` (no print statements)
@@ -100,7 +98,6 @@ class Popari(nn.Module):
         downsampling_method: str = "grid",
         binning_downsample_rate: float = 0.2,
         chunks: int = 2,
-        superresolution_lr: float = 1e-1,
         use_inplace_ops: bool = True,
         random_state: int = 0,
         verbose: int = 0,
@@ -151,11 +148,11 @@ class Popari(nn.Module):
 
         self.hierarchical_levels = hierarchical_levels
         self.reloaded_hierarchy = reloaded_hierarchy
-        self.superresolution_lr = superresolution_lr
         self.downsampling_method = downsampling_method
         self.binning_downsample_rate = binning_downsample_rate
         self.chunks = chunks
         self.sample_key = sample_key
+        self.dataset_path = None
 
         if dataset_path is not None:
             self.load_dataset(dataset_path)
@@ -165,31 +162,7 @@ class Popari(nn.Module):
         self.replicate_names = list(self._adata.popari.sample_names)
         self.num_replicates = len(self.replicate_names)
 
-        self.parameter_optimizer_hyperparameters = {
-            "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
-            "lambda_Sigma_bar": self.lambda_Sigma_bar,
-            "spatial_affinity_lr": self.spatial_affinity_lr,
-            "spatial_affinity_tol": self.spatial_affinity_tol,
-            "spatial_affinity_constraint": self.spatial_affinity_constraint,
-            "spatial_affinity_centering": self.spatial_affinity_centering,
-            "spatial_affinity_scaling": self.spatial_affinity_scaling,
-            "spatial_affinity_regularization_power": self.spatial_affinity_regularization_power,
-            "M_constraint": self.M_constraint,
-            "sigma_yx_inv_mode": self.sigma_yx_inv_mode,
-            "spatial_affinity_mode": self.spatial_affinity_mode,
-        }
-
-        self.embedding_optimizer_hyperparameters = {
-            "embedding_step_size_multiplier": embedding_step_size_multiplier,
-            "embedding_mini_iterations": embedding_mini_iterations,
-            "embedding_acceleration_trick": embedding_acceleration_trick,
-        }
-
         self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
-
-    @property
-    def base_view(self):
-        return self.views[self.hierarchical_levels - 1]
 
     @property
     def adata(self):
@@ -200,43 +173,19 @@ class Popari(nn.Module):
         return self._adata
 
     @property
-    def datasets(self):
-        """Temporary compatibility view of the coarsest hierarchy level."""
-
-        if hasattr(self, "views"):
-            return self.base_view.datasets
-        return [self._adata]
-
-    @property
-    def Ys(self):
-        return self.base_view.Ys
-
-    @property
-    def betas(self):
-        return self.base_view.betas
-
-    @property
-    def parameter_optimizer(self):
-        return self.base_view.parameter_optimizer
-
-    @property
-    def embedding_optimizer(self):
-        return self.base_view.embedding_optimizer
-
-    @property
     def spatial_affinity_groups(self):
-        if hasattr(self, "views"):
-            return self.base_view.spatial_affinity_groups
+        if hasattr(self, "hierarchy"):
+            return self.hierarchy[-1].spatial_affinity_groups
         return self._configured_spatial_affinity_groups
 
     @property
     def spatial_affinity_tags(self):
-        return self.base_view.spatial_affinity_tags
+        return self.hierarchy[-1].spatial_affinity_tags
 
     def load_anndata(self, adata: ad.AnnData):
         """Load one unified Popari AnnData."""
 
-        self._adata = adata.copy()
+        self._adata = adata
         if self.sample_key is not None:
             self._adata.uns[SAMPLE_KEY_KEY] = self.sample_key
         self._adata.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
@@ -254,6 +203,7 @@ class Popari(nn.Module):
         dataset_path = Path(dataset_path)
 
         self._adata = load_anndata(dataset_path)
+        self.dataset_path = dataset_path
         self.sample_key = self._adata.popari.sample_key
 
     def _initialize(
@@ -285,17 +235,26 @@ class Popari(nn.Module):
             "pretrained": self.pretrained,
             "verbose": self.verbose,
             "spatial_affinity_groups": self.spatial_affinity_groups,
-            "superresolution_lr": self.superresolution_lr,
             "sample_key": self.sample_key,
-            "parameter_optimizer_hyperparameters": self.parameter_optimizer_hyperparameters,
-            "embedding_optimizer_hyperparameters": self.embedding_optimizer_hyperparameters,
+            "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
+            "lambda_Sigma_bar": self.lambda_Sigma_bar,
+            "spatial_affinity_lr": self.spatial_affinity_lr,
+            "spatial_affinity_tol": self.spatial_affinity_tol,
+            "spatial_affinity_constraint": self.spatial_affinity_constraint,
+            "spatial_affinity_centering": self.spatial_affinity_centering,
+            "spatial_affinity_scaling": self.spatial_affinity_scaling,
+            "spatial_affinity_regularization_power": self.spatial_affinity_regularization_power,
+            "M_constraint": self.M_constraint,
+            "sigma_yx_inv_mode": self.sigma_yx_inv_mode,
+            "spatial_affinity_mode": self.spatial_affinity_mode,
+            "embedding_step_size_multiplier": self.embedding_step_size_multiplier,
+            "embedding_mini_iterations": self.embedding_mini_iterations,
+            "embedding_acceleration_trick": self.embedding_acceleration_trick,
         }
 
         bin_assignment_kwargs = {}
         if self.downsampling_method == "grid":
             bin_assignment_kwargs["chunks"] = self.chunks
-        elif self.downsampling_method == "partition":
-            bin_assignment_kwargs["adjacency_list_key"] = "adjacency_list"
 
         if self.pretrained:
             if self.reloaded_hierarchy is None:
@@ -305,7 +264,7 @@ class Popari(nn.Module):
                 **hierarchical_view_kwargs,
             )
         else:
-            base_view = HierarchicalView(self.adata, level=0, **hierarchical_view_kwargs)
+            base_view = HierarchicalLevel(self.adata, level=0, **hierarchical_view_kwargs)
             self.hierarchy = Hierarchy(
                 downsampling_method=self.downsampling_method,
                 base_view=base_view,
@@ -318,205 +277,59 @@ class Popari(nn.Module):
                 **bin_assignment_kwargs,
             )
 
-        self.views = nn.ModuleList([self.hierarchy[level] for level in range(self.hierarchical_levels)])
-
-        self.synchronize_datasets()
-
-    def estimate_weights(self, use_neighbors: bool = True, synchronize: bool = True):
-        """Update embeddings (latent states) for each replicate.
-
-        Args:
-            use_neighbors: If specified, weight updates will take into account neighboring
-                interactions. Default: ``True``
-
-        """
-        if self.verbose >= 2:
-            logger.info("Updating embeddings")
-        self.embedding_optimizer.update_embeddings(use_neighbors=use_neighbors)
-
-        if synchronize:
-            self.synchronize_datasets()
-
-    def estimate_parameters(
-        self,
-        update_spatial_affinities: bool = True,
-        differentiate_spatial_affinities: bool = True,
-        simplex_projection_mode: bool = "exact",
-        edge_subsample_rate: Optional[float] = None,
-        synchronize: bool = True,
-        spatial_affinity_epochs: int = 1000,
-    ):
-        """Update parameters for each replicate.
-
-        Args:
-            update_spatial_affinities: If specified, spatial affinities will be updated during
-                this iteration. Default: ``True``
-            edge_subsample_rate: Fraction of adjacency matrix edges that will be included in
-                optimization of ``Sigma_x_inv``.
-            spatial_affinity_epochs: Maximum number of inner optimization epochs for
-                ``Sigma_x_inv``. Default: ``1000``.
-
-        """
-        if update_spatial_affinities:
-            if self.verbose >= 2:
-                logger.info("Updating spatial affinities")
-            self.parameter_optimizer.update_spatial_affinity(
-                differentiate_spatial_affinities=differentiate_spatial_affinities,
-                subsample_rate=edge_subsample_rate,
-                n_epochs=spatial_affinity_epochs,
-            )
-
-        if self.verbose >= 2:
-            logger.info("Updating metagenes")
-
-        self.parameter_optimizer.update_metagenes(simplex_projection_mode=simplex_projection_mode)
-
-        if self.verbose >= 2:
-            logger.info("Updating observation noise")
-
-        self.parameter_optimizer.update_sigma_yx()
-
-        if synchronize:
-            self.synchronize_datasets()
-
-    def superresolve(
-        self,
-        differentiate_spatial_affinities: bool = True,
-        update_spatial_affinities: bool = True,
-        edge_subsample_rate: Optional[float] = None,
-        use_manual_gradients: bool = True,
-        n_epochs: int = 10000,
-        miniepochs: int = None,
-        tol: float = 1e-5,
-    ):
-        """Superresolve embeddings in hierarchical case.
-
-        Works in a cascading manner, by superresolving the embeddings from
-        lowest to highest resolutions in order.
-
-        """
-
-        if miniepochs is None:
-            miniepochs = min(100, n_epochs)
-
-        effective_epochs = n_epochs // miniepochs + 1
-
-        for level in range(self.hierarchical_levels - 2, -1, -1):
-            if self.verbose >= 1:
-                logger.info("Superresolving hierarchy level {}", level)
-            view = self.hierarchy[level]
-            view._propagate_parameters()
-
-            progress_bar = trange(
-                effective_epochs,
-                desc=f"Superresolution level {level}",
-                leave=True,
-                disable=self.verbose < 1,
-                dynamic_ncols=True,
-                mininterval=1,
-            )
-            previous_losses = np.full(view.num_replicates, np.inf)
-            for epoch in progress_bar:
-                view.parameter_optimizer.update_sigma_yx()
-                losses = view._superresolve_embeddings(
-                    n_epochs=miniepochs,
-                    tol=tol,
-                    use_manual_gradients=use_manual_gradients,
-                    verbose=self.verbose,
-                )
-                formatted_losses = [f"{loss:.1e}" for loss in losses]
-                formatted_deltas = [f"{delta:.1e}" for delta in ((previous_losses - losses) / losses)]
-                description = (
-                    f"Updating weights hierarchically: loss = {formatted_losses} " f"%δloss = {formatted_deltas} "
-                )
-                previous_losses = losses
-                progress_bar.set_description(description)
-
-            pretrained_embeddings = [
-                view.embedding_optimizer.embedding_state[sample].clone() for sample in view.replicate_names
-            ]
-            view.parameter_optimizer.spatial_affinity.initialize(
-                pretrained_embeddings,
-                view.parameter_optimizer.spatial_affinity_bar,
-            )
-
-            if update_spatial_affinities:
-                view.parameter_optimizer.update_spatial_affinity(
-                    differentiate_spatial_affinities=differentiate_spatial_affinities,
-                    subsample_rate=edge_subsample_rate,
-                )
-
-        self.synchronize_datasets()
-
     def nll(self, level: int = 0, use_spatial: bool = False):
-        """Compute the nll for the current configuration of model parameters."""
+        """Compute the joint negative log pseudolikelihood at one hierarchy
+        level."""
 
         with torch.no_grad():
             return self.forward(level=level, use_spatial=use_spatial).reshape(1).cpu().numpy()
 
     def forward(self, level: int = 0, use_spatial: bool = False):
-        """Compute the current objective for a hierarchy level."""
+        """Compute the joint negative log pseudolikelihood at one hierarchy
+        level."""
 
         view = self.hierarchy[level]
         return view(use_spatial=use_spatial)
 
-    def set_superresolution_lr(self, new_lr: float, target_level: Optional[int] = None):
-        """Change learning rate for superresolution optimization.
+    def materialize_results(self, *, force: bool = False) -> dict[int, AnnData]:
+        """Write learned tensor state into and return each hierarchy-level
+        AnnData."""
 
-        Can be used to change learning rate for all hierarchical levels (by
-        default) or just the learning rate for a certain resolution.
-
-        """
-
-        change_all = target_level == None
         for level in range(self.hierarchical_levels):
-            if change_all or (level == target_level):
-                self.hierarchy[level].superresolution_lr = new_lr
+            view = self.hierarchy[level]
+            view.materialize_results(force=force)
+            view.adata.uns["popari_hyperparameters"] = self._result_hyperparameters(view)
+        return {level: self.hierarchy[level].adata for level in range(self.hierarchical_levels)}
 
-    def synchronize_datasets(self):
-        """Synchronize unified AnnData objects across hierarchy levels."""
+    def _result_hyperparameters(self, view: HierarchicalLevel) -> dict:
+        """Return constructor metadata needed to reload a materialized level."""
 
-        self.base_view.synchronize_datasets()
-        if self.hierarchical_levels > 1:
-            for level in range(self.hierarchical_levels):
-                self.hierarchy[level].synchronize_datasets()
-
-    def save_results(self, dataset_path: str, ignore_raw_data: bool = True) -> Path:
-        """Save datasets and learned Popari parameters to disk.
-
-        Args:
-            dataset_path: where to save results. If results are non-hierarchical, file extension
-                will automatically be changed to ``.h5ad``. Otherwise, if results are hierarchical,
-                ``dataset_path`` will be interpreted as a path to a subfolder where separate
-                ``.h5ad`` files will be stored for each hierarchical level.
-            ignore_raw_data: if set, only learned parameters and embeddings will be saved; raw gene expression will be ignored.
-
-        """
-
-        dataset_path = Path(dataset_path)
-        path_without_extension = dataset_path.parent / dataset_path.stem
-
-        self.synchronize_datasets()
-
-        if self.hierarchical_levels == 1:
-            result_path = path_without_extension.with_suffix(".h5ad")
-            if self.verbose >= 1:
-                logger.info("Writing results to {}", result_path)
-            save_anndata(
-                result_path,
-                self.adata,
-                ignore_raw_data=ignore_raw_data,
-                sample_key=self.sample_key,
-            )
-        else:
-            result_path = path_without_extension
-            save_anndata_hierarchy(
-                result_path,
-                {level: self.hierarchy[level].adata for level in range(self.hierarchical_levels)},
-                ignore_raw_data=ignore_raw_data,
-                sample_key=self.sample_key,
-            )
-        return result_path
+        return {
+            "prior_x": {
+                sample: view.prior_xs[index][0].cpu().detach().numpy()
+                for index, sample in enumerate(view.replicate_names)
+            },
+            "K": self.K,
+            "use_inplace_ops": self.use_inplace_ops,
+            "random_state": self.random_state,
+            "verbose": self.verbose,
+            "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
+            "lambda_Sigma_bar": self.lambda_Sigma_bar,
+            "spatial_affinity_lr": self.spatial_affinity_lr,
+            "spatial_affinity_tol": self.spatial_affinity_tol,
+            "spatial_affinity_constraint": self.spatial_affinity_constraint,
+            "spatial_affinity_centering": self.spatial_affinity_centering,
+            "spatial_affinity_scaling": self.spatial_affinity_scaling,
+            "spatial_affinity_regularization_power": self.spatial_affinity_regularization_power,
+            "M_constraint": self.M_constraint,
+            "sigma_yx_inv_mode": self.sigma_yx_inv_mode,
+            "spatial_affinity_mode": self.spatial_affinity_mode,
+            "spatial_affinity_groups": view.spatial_affinity_groups,
+            "spatial_affinity_tags": view.spatial_affinity_tags,
+            "embedding_step_size_multiplier": self.embedding_step_size_multiplier,
+            "embedding_mini_iterations": self.embedding_mini_iterations,
+            "embedding_acceleration_trick": self.embedding_acceleration_trick,
+        }
 
     def _reload_expression(self, raw_adata: AnnData):
         """Can be used to recover expression values for training model if saved
@@ -541,7 +354,7 @@ class Popari(nn.Module):
             Y *= (self.K * 1) / (Y.sum() / num_cells)
             high_resolution_view.Ys[index] = Y
 
-        high_resolution_view.parameter_optimizer.update_sigma_yx()  # This is necessary, since `sigma_yx` isn't loaded correctly from disk
+        high_resolution_view._recompute_observation_noise()
 
         for level in range(self.hierarchical_levels - 1):
             view = self.hierarchy[level]
@@ -563,7 +376,7 @@ class Popari(nn.Module):
                 binned_Y = bin_assignments_tensor @ previous_Y
                 low_res_view.Ys[index] = binned_Y
 
-            low_res_view.parameter_optimizer.update_sigma_yx()
+            low_res_view._recompute_observation_noise()
 
 
 def load_trained_model(
@@ -617,6 +430,7 @@ def load_pretrained(
         "metagene_mode",
         "lambda_M",
         "spatial_affinity_tags",
+        "superresolution_lr",
     ]:
         new_kwargs.pop(noninitial_hyperparameter, None)
 
@@ -636,6 +450,7 @@ def load_pretrained(
 def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambda_Sigma_bar: float = 1e-3):
     """Initialize Popari object from a SpiceMix pretrained model."""
 
+    pretrained_model.materialize_results()
     adata = pretrained_model.adata.copy()
     reloaded_hierarchy = {
         level: pretrained_model.hierarchy[level].adata.copy() for level in range(pretrained_model.hierarchical_levels)

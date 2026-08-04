@@ -20,7 +20,6 @@ def compose_train_config(*overrides):
 
 class FakeTrainer:
     def __init__(self):
-        self.superresolution_kwargs = None
         self.trained = False
 
     def __enter__(self):
@@ -32,28 +31,28 @@ class FakeTrainer:
     def train(self):
         self.trained = True
 
-    def superresolve(self, **kwargs):
-        self.superresolution_kwargs = kwargs
-
-    def save_results(self, **kwargs):
-        self.parameters.savepath.touch()
-        return self.parameters.savepath
-
 
 def mock_training(monkeypatch):
     model = Mock()
+    model.materialize_results.return_value = {0: Mock()}
     model_constructor = Mock(return_value=model)
     trainer = FakeTrainer()
+    trainer.wandb_run = None
+    save_results = Mock()
+    log_results = Mock()
 
-    def construct_trainer(parameters, constructed_model, **kwargs):
-        trainer.parameters = parameters
+    def construct_trainer(constructed_model, **kwargs):
         trainer.model = constructed_model
+        trainer.kwargs = kwargs
+        trainer.wandb_run = Mock(id="run-id") if kwargs.get("use_wandb") else None
         return trainer
 
     trainer_constructor = Mock(side_effect=construct_trainer)
     monkeypatch.setattr(train_script, "Popari", model_constructor)
     monkeypatch.setattr(train_script, "Trainer", trainer_constructor)
-    return model_constructor, trainer_constructor, trainer
+    monkeypatch.setattr(train_script, "save_anndata_hierarchy", save_results)
+    monkeypatch.setattr(train_script, "log_popari_results", log_results)
+    return model_constructor, trainer_constructor, trainer, save_results, log_results
 
 
 def test_hydra_config_composes_training_overrides():
@@ -75,12 +74,11 @@ def test_hydra_config_composes_training_overrides():
 
 
 def test_train_from_config_builds_local_training_run(tmp_path, monkeypatch):
-    model_constructor, trainer_constructor, trainer = mock_training(monkeypatch)
+    model_constructor, trainer_constructor, trainer, save_results, log_results = mock_training(monkeypatch)
     config = compose_train_config(
         "data.dataset_path=/path/to/input.h5ad",
         "model.K=10",
         "training.iterations=2",
-        "training.superresolution_epochs=3",
         f"output_dir={tmp_path}",
     )
     original_config = OmegaConf.to_container(config, resolve=True)
@@ -88,7 +86,7 @@ def test_train_from_config_builds_local_training_run(tmp_path, monkeypatch):
     result_path = train_script.train_from_config(config)
 
     model_kwargs = model_constructor.call_args.kwargs
-    trainer_parameters, constructed_model = trainer_constructor.call_args.args
+    (constructed_model,) = trainer_constructor.call_args.args
     trainer_kwargs = trainer_constructor.call_args.kwargs
     assert model_kwargs["K"] == 10
     assert model_kwargs["dataset_path"] == Path("/path/to/input.h5ad")
@@ -97,19 +95,22 @@ def test_train_from_config_builds_local_training_run(tmp_path, monkeypatch):
     assert model_kwargs["torch_context"] == {"device": "cuda", "dtype": torch.float64}
     assert "spatial_affinity_groups" not in model_kwargs
     assert constructed_model is model_constructor.return_value
-    assert trainer_parameters is trainer.parameters
-    assert trainer.parameters.iterations == 2
-    assert trainer.parameters.savepath.parent.parent == tmp_path
-    assert trainer.parameters.savepath.name == "model.h5ad"
-    assert trainer.superresolution_kwargs == {"n_epochs": 3}
+    assert trainer_kwargs["iterations"] == 2
     assert trainer.trained
     assert trainer_kwargs["use_wandb"] is False
     assert trainer_kwargs["wandb_kwargs"] is None
-    assert result_path == trainer.parameters.savepath
+    model_constructor.return_value.materialize_results.assert_called_once_with()
+    save_results.assert_called_once_with(
+        result_path,
+        {0: model_constructor.return_value.materialize_results.return_value[0]},
+    )
+    log_results.assert_not_called()
+    assert result_path.parent == tmp_path
+    assert not list(result_path.rglob("*.pt"))
 
 
 def test_train_from_config_configures_wandb_tracking(tmp_path, monkeypatch):
-    _, trainer_constructor, trainer = mock_training(monkeypatch)
+    _, trainer_constructor, trainer, save_results, log_results = mock_training(monkeypatch)
     config = compose_train_config(
         "data.dataset_path=/path/to/input.h5ad",
         "model.K=10",
@@ -122,17 +123,17 @@ def test_train_from_config_configures_wandb_tracking(tmp_path, monkeypatch):
     trainer_kwargs = trainer_constructor.call_args.kwargs
     wandb_kwargs = trainer_kwargs["wandb_kwargs"]
     assert trainer_kwargs["use_wandb"] is True
-    assert trainer.parameters.savepath.parent.parent == tmp_path
-    assert trainer.parameters.savepath.name == "model.h5ad"
     assert wandb_kwargs["entity"] == "popari"
     assert wandb_kwargs["project"] == "revisions"
     assert "enabled" not in wandb_kwargs
     assert wandb_kwargs["config"]["model"]["K"] == 10
     assert wandb_kwargs["config"]["tracking"]["enabled"] is True
-    assert wandb_kwargs["config"]["config_uuid"] == trainer.parameters.savepath.parent.name
-    assert wandb_kwargs["config"]["result_directory"] == str(trainer.parameters.savepath.parent)
+    assert wandb_kwargs["config"]["config_uuid"] == result_path.name
+    assert wandb_kwargs["config"]["result_directory"] == str(result_path)
     assert "result_path" not in wandb_kwargs["config"]
-    assert result_path == trainer.parameters.savepath
+    save_results.assert_called_once()
+    log_results.assert_called_once()
+    assert result_path.parent == tmp_path
 
 
 def test_result_config_hash_excludes_tracking_verbosity_and_output_directory():
@@ -181,7 +182,7 @@ def test_train_from_config_rejects_existing_result_directory(tmp_path, monkeypat
 
 
 def test_train_from_config_rejects_relative_dataset_path(tmp_path, monkeypatch):
-    model_constructor, _, _ = mock_training(monkeypatch)
+    model_constructor, _, _, _, _ = mock_training(monkeypatch)
     config = compose_train_config(
         "data.dataset_path=input.h5ad",
         "model.K=10",

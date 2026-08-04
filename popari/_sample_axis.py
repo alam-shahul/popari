@@ -51,6 +51,9 @@ class SampleAxis:
             raise ValueError("Variable names must be unique.")
         positions = MappingProxyType({name: index for index, name in enumerate(categories)})
         indices = tuple(np.flatnonzero(codes == index) for index in range(len(categories)))
+        codes.flags.writeable = False
+        for sample_indices in indices:
+            sample_indices.flags.writeable = False
         return cls(
             sample_key=sample_key,
             names=categories,
@@ -73,7 +76,7 @@ class SampleAxis:
     def indices(self, sample: str) -> np.ndarray:
         """Return observation indices belonging to a named sample."""
 
-        return self._indices[self.position(sample)].copy()
+        return self._indices[self.position(sample)]
 
     def mask(self, sample: str) -> np.ndarray:
         """Return an observation mask selecting a named sample."""

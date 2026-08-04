@@ -49,19 +49,16 @@ def test_learned_result_properties_use_canonical_anndata_keys():
     embedding = np.arange(4).reshape(2, 2)
     metagenes = np.arange(6).reshape(3, 2)
     adjacency_matrix = np.eye(2)
-    adjacency_list = np.array([[1], [0]])
     hyperparameters = {"K": 2}
 
     dataset.popari.embedding = embedding
     dataset.popari.metagenes = metagenes
     dataset.popari.adjacency_matrix = adjacency_matrix
-    dataset.popari.adjacency_list = adjacency_list
     dataset.popari.hyperparameters = hyperparameters
 
     np.testing.assert_array_equal(dataset.popari.embedding, embedding)
     np.testing.assert_array_equal(dataset.popari.metagenes, metagenes)
     np.testing.assert_array_equal(dataset.popari.adjacency_matrix, adjacency_matrix)
-    np.testing.assert_array_equal(dataset.popari.adjacency_list, adjacency_list)
     assert dataset.popari.hyperparameters == hyperparameters
 
 
