@@ -409,6 +409,24 @@ def test_direct_estimate_sigma_x_inv_reduces_group_loss(shared_model_factory):
     assert torch.allclose(updated_sigma_x_inv, updated_sigma_x_inv.T, atol=1e-6)
 
 
+def test_spatial_affinity_update_tracks_the_best_pre_step_state(shared_model_factory):
+    model = shared_model_factory()
+    level = model.hierarchy[-1]
+    group_name, _, replicate_mask, sample = _shared_affinity_group_and_mask(model)
+    affinity = level.spatial_affinity.for_sample(sample)
+    initial_affinity = affinity.detach().clone()
+
+    updated_affinity, _ = estimate_spatial_affinity(
+        level,
+        affinity,
+        replicate_mask,
+        _spatial_affinity_optimizers(level)[group_name],
+        n_epochs=1,
+    )
+
+    torch.testing.assert_close(updated_affinity, initial_affinity)
+
+
 def test_spatial_affinity_update_rejects_nonfinite_initial_affinity(shared_model_factory):
     model = shared_model_factory()
     level = model.hierarchy[-1]

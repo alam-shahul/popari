@@ -147,8 +147,6 @@ def estimate_spatial_affinity(
             linear_term_coefficient.max().item(),
         )
 
-    loss_prev, loss = np.inf, np.nan
-
     progress_bar = trange(
         1,
         n_epochs + 1,
@@ -159,7 +157,9 @@ def estimate_spatial_affinity(
         mininterval=1,
     )
 
-    Sigma_x_inv_best, loss_best, epoch_best = None, np.inf, -1
+    Sigma_x_inv_best = Sigma_x_inv.detach().clone()
+    loss_best = Sigma_x_inv.new_full((), torch.inf)
+    epoch_best = torch.full((), -1, dtype=torch.long, device=Sigma_x_inv.device)
     dSigma_x_inv = np.inf
     Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
     for epoch in progress_bar:
@@ -191,10 +191,11 @@ def estimate_spatial_affinity(
             group_regularization_strength=level.lambda_Sigma_bar,
         )
 
-        if loss < loss_best:
-            Sigma_x_inv_best = Sigma_x_inv.clone().detach()
-            loss_best = loss.item()
-            epoch_best = epoch
+        with torch.no_grad():
+            improved = loss.detach() < loss_best
+            loss_best = torch.where(improved, loss.detach(), loss_best)
+            Sigma_x_inv_best = torch.where(improved, Sigma_x_inv.detach(), Sigma_x_inv_best)
+            epoch_best = torch.where(improved, epoch_best.new_tensor(epoch), epoch_best)
 
         loss.backward()
         Sigma_x_inv.grad = (Sigma_x_inv.grad + Sigma_x_inv.grad.T) / 2
@@ -216,30 +217,31 @@ def estimate_spatial_affinity(
                     raise FloatingPointError(
                         f"Spatial affinity became non-finite at optimization epoch {epoch}.",
                     )
-                loss = loss.item()
-                loss_prev = loss
+                loss_value = loss.detach().item()
+                if not np.isfinite(loss_value):
+                    raise FloatingPointError(f"Spatial-affinity objective became non-finite at epoch {epoch}.")
+                epoch_best_value = epoch_best.item()
 
                 dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
                 Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
 
-                progress_bar.set_postfix(loss=f"{loss:.1e}", delta=f"{dSigma_x_inv:.1e}")
+                progress_bar.set_postfix(loss=f"{loss_value:.1e}", delta=f"{dSigma_x_inv:.1e}")
                 if level.verbose >= 3:
                     logger.debug(
                         "Spatial-affinity objective: loss={:.3e}, range={:.3e} to {:.3e}",
-                        loss,
+                        loss_value,
                         Sigma_x_inv.min().item(),
                         Sigma_x_inv.max().item(),
                     )
 
-                if dSigma_x_inv < tol * check_frequency or epoch > epoch_best + 2 * check_frequency:
+                if dSigma_x_inv < tol * check_frequency or epoch > epoch_best_value + 2 * check_frequency:
                     break
 
     progress_bar.close()
 
-    Sigma_x_inv = Sigma_x_inv_best
-    Sigma_x_inv.requires_grad_(False)
+    Sigma_x_inv_best.requires_grad_(False)
 
-    return Sigma_x_inv, loss_best * weighted_total_cells
+    return Sigma_x_inv_best, loss_best * weighted_total_cells
 
 
 def _metagene_loss(metagenes, quadratic_factor, linear_factor, constant):
