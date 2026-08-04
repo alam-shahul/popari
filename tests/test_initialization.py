@@ -1,11 +1,29 @@
 import numpy as np
 import pytest
+import torch
 from scipy.sparse import csr_array, issparse
 
 from popari.model import Popari
 from popari.schema import BIN_ASSIGNMENTS_KEY
 from popari.simulation.recipes import SimulationConfig
 from popari.simulation.synthetic import create_spatial_affinity_demo_datasets
+
+
+@pytest.mark.baseline
+def test_fast_leiden_initialization_uses_igraph(shared_model_factory, monkeypatch):
+    calls = []
+
+    def initialize_leiden(adata, sample_axis, K, context, kwargs_leiden, **kwargs):
+        calls.append(kwargs_leiden)
+        return (
+            torch.ones((adata.n_vars, K), **context),
+            torch.ones((adata.n_obs, K), **context),
+        )
+
+    monkeypatch.setattr("popari._hierarchical_level.initialize_leiden", initialize_leiden)
+    shared_model_factory(initialization_method="leiden_fast")
+
+    assert calls == [{"random_state": 0, "flavor": "igraph", "n_iterations": 2}]
 
 
 @pytest.mark.baseline
@@ -75,9 +93,9 @@ def test_model_has_one_shared_metagene_parameter(shared_model_factory):
     model = shared_model_factory()
     first_name, second_name = model.replicate_names
 
-    assert model.parameter_optimizer.metagenes.shape == (model.adata.n_vars, model.K)
-    assert model.parameter_optimizer.spatial_affinity[first_name].data_ptr() == (
-        model.parameter_optimizer.spatial_affinity[second_name].data_ptr()
+    assert model.hierarchy[-1].metagenes.shape == (model.adata.n_vars, model.K)
+    assert model.hierarchy[-1].spatial_affinity.for_sample(first_name).data_ptr() == (
+        model.hierarchy[-1].spatial_affinity.for_sample(second_name).data_ptr()
     )
 
 
@@ -86,7 +104,7 @@ def test_differential_affinity_initialization_creates_group_averages(differentia
     model = differential_model_factory()
 
     assert model.spatial_affinity_mode == "differential lookup"
-    assert model.parameter_optimizer.spatial_affinity_bar.spatial_affinity_bar
+    assert set(model.hierarchy[-1].spatial_affinity.group_means()) == set(model.spatial_affinity_groups)
 
 
 @pytest.mark.expensive
@@ -95,8 +113,8 @@ def test_hierarchical_initialization_builds_resolution_stack(hierarchical_model_
     model.materialize_results()
 
     assert model.hierarchical_levels == 3
-    assert len(model.hierarchy.view_container) == 3
-    assert model.base_view.level == 2
+    assert len(model.hierarchy) == 3
+    assert model.hierarchy[-1].level == 2
     assert model.adata is model.hierarchy[0].adata
 
     for level in range(model.hierarchical_levels):

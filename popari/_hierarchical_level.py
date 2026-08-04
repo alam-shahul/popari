@@ -6,12 +6,12 @@ from anndata import AnnData
 from loguru import logger
 from scipy.sparse import csr_array
 from torch import nn
-from tqdm.auto import trange
 
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
-from popari._embedding_optimizer import EmbeddingOptimizer
-from popari._parameter_optimizer import ParameterOptimizer
+from popari._named_state import BufferDict
+from popari._parameter_updates import _spatial_affinity_loss, compute_empirical_spatial_affinities
 from popari._sample_axis import SampleAxis
+from popari._spatial_affinity import SpatialAffinityState
 from popari.initialization import (
     initialize_dummy,
     initialize_ground_truth,
@@ -28,8 +28,7 @@ from popari.util import convert_numpy_to_pytorch_sparse_coo
 class HierarchicalLevel(nn.Module):
     """View of SRT multisample dataset at a set resolution.
 
-    Includes the scaled (i.e. binned data) as well as the learnable Popari
-    parameters and their corresponding optimizers.
+    Includes the scaled (i.e. binned) data and learnable Popari state.
 
     """
 
@@ -48,10 +47,21 @@ class HierarchicalLevel(nn.Module):
         pretrained: bool,
         verbose: str,
         spatial_affinity_groups: dict,
-        parameter_optimizer_hyperparameters: dict,
-        embedding_optimizer_hyperparameters: dict,
+        lambda_Sigma_x_inv: float,
+        lambda_Sigma_bar: float,
+        spatial_affinity_lr: float,
+        spatial_affinity_tol: float,
+        spatial_affinity_constraint: str | None,
+        spatial_affinity_centering: bool,
+        spatial_affinity_scaling: int,
+        spatial_affinity_regularization_power: int,
+        M_constraint: str,
+        sigma_yx_inv_mode: str,
+        spatial_affinity_mode: str,
+        embedding_step_size_multiplier: float,
+        embedding_mini_iterations: int,
+        embedding_acceleration_trick: bool,
         binned_Ys: list = None,
-        superresolution_lr: float = 1e-3,
         level: int = 0,
         hierarchical_levels: int | None = 1,
     ):
@@ -69,6 +79,7 @@ class HierarchicalLevel(nn.Module):
             convert_numpy_to_pytorch_sparse_coo(self.adjacency, self.context),
         )
         self.replicate_names = list(self.sample_axis.names)
+        self.sample_names = self.sample_axis.names
         self.K = K
         self.level = level
         self.hierarchical_levels = hierarchical_levels
@@ -77,9 +88,22 @@ class HierarchicalLevel(nn.Module):
         self.verbose = verbose
         self.random_state = random_state
         self.pretrained = pretrained
+        self.lambda_Sigma_x_inv = lambda_Sigma_x_inv
+        self.lambda_Sigma_bar = lambda_Sigma_bar
+        self.spatial_affinity_lr = spatial_affinity_lr
+        self.spatial_affinity_tol = spatial_affinity_tol
+        self.spatial_affinity_constraint = spatial_affinity_constraint
+        self.spatial_affinity_centering = spatial_affinity_centering
+        self.spatial_affinity_scaling = spatial_affinity_scaling
+        self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
+        self.M_constraint = M_constraint
+        self.sigma_yx_inv_mode = sigma_yx_inv_mode
+        self.spatial_affinity_mode = spatial_affinity_mode
+        self.embedding_step_size_multiplier = embedding_step_size_multiplier
+        self.embedding_mini_iterations = embedding_mini_iterations
+        self.embedding_acceleration_trick = embedding_acceleration_trick
 
         self.num_replicates = len(self.sample_axis)
-        self._legacy_datasets = None
         self._dirty = True
 
         def fill_groups(groups, are_exclusive=False):
@@ -106,19 +130,15 @@ class HierarchicalLevel(nn.Module):
                         raise ValueError("If in shared mode, each replicate can only appear in one group.")
                     tags[replicate].append(group)
 
-            return groups, tags
+            return groups
 
         if spatial_affinity_groups == "disjoint":
             spatial_affinity_groups = {replicate_name: [replicate_name] for replicate_name in self.replicate_names}
 
-        self.spatial_affinity_groups, self.spatial_affinity_tags = fill_groups(
+        normalized_spatial_affinity_groups = fill_groups(
             spatial_affinity_groups,
-            are_exclusive=(parameter_optimizer_hyperparameters["spatial_affinity_mode"] == "shared lookup"),
+            are_exclusive=(self.spatial_affinity_mode == "shared lookup"),
         )
-
-        parameter_optimizer_hyperparameters = parameter_optimizer_hyperparameters.copy()
-        parameter_optimizer_hyperparameters["spatial_affinity_groups"] = self.spatial_affinity_groups
-        parameter_optimizer_hyperparameters["spatial_affinity_tags"] = self.spatial_affinity_tags
 
         if binned_Ys is None:
             self.Ys = []
@@ -144,61 +164,52 @@ class HierarchicalLevel(nn.Module):
 
         self.prior_x_modes = prior_x_modes
 
-        self.parameter_optimizer = ParameterOptimizer(
-            self.K,
-            self.Ys,
-            self.adata,
-            self.sample_axis,
-            self.adjacency,
-            self.adjacency_matrix,
-            self.betas,
-            prior_x_modes,
-            initial_context=self.initial_context,
-            context=self.context,
-            use_inplace_ops=self.use_inplace_ops,
-            verbose=self.verbose,
-            **parameter_optimizer_hyperparameters,
-        )
-        self.superresolution_lr = superresolution_lr
-
         if self.verbose >= 1:
-            logger.info("Initializing embedding optimizer")
-        self.embedding_optimizer = EmbeddingOptimizer(
-            self.K,
-            self.Ys,
-            self.adata,
-            self.sample_axis,
-            self.adjacency,
-            self.adjacency_matrix,
-            initial_context=self.initial_context,
-            context=self.context,
-            use_inplace_ops=self.use_inplace_ops,
-            verbose=self.verbose,
-            **embedding_optimizer_hyperparameters,
+            logger.info("Initializing level-owned state")
+        self.sample_indices = BufferDict(prefix="sample_indices")
+        for sample in self.sample_names:
+            self.sample_indices[sample] = torch.tensor(
+                self.sample_axis.indices(sample),
+                dtype=torch.long,
+                device=self.context["device"],
+            )
+        self.embeddings = nn.Parameter(
+            torch.zeros((self.adata.n_obs, self.K), **self.context),
+            requires_grad=False,
         )
-        self.parameter_optimizer.link(self.embedding_optimizer)
-        self.embedding_optimizer.link(self.parameter_optimizer)
+        self.metagenes = nn.Parameter(torch.zeros((self.adata.n_vars, self.K), **self.context))
+        self.register_buffer("sigma_yxs", torch.zeros(self.num_replicates, **self.context))
+
+        if all(mode == "exponential shared fixed" for mode in self.prior_x_modes):
+            self.prior_xs = [(torch.ones(self.K, **self.initial_context),) for _ in self.replicate_names]
+        elif all(mode is None for mode in self.prior_x_modes):
+            self.prior_xs = [(torch.zeros(self.K, **self.initial_context),) for _ in self.replicate_names]
+        else:
+            raise NotImplementedError
+
+        self.spatial_affinity = SpatialAffinityState(
+            self.K,
+            self.replicate_names,
+            normalized_spatial_affinity_groups,
+            mode=self.spatial_affinity_mode,
+            context=self.context,
+        )
 
         if self.pretrained:
-            spatial_affinity_copy = torch.zeros((self.num_replicates, self.K, self.K), **self.context)
-            self.embedding_optimizer.embedding_state.embedding.copy_(
+            self.embeddings.copy_(
                 torch.from_numpy(self.adata.obsm["X"]).to(**self.context),
             )
             with torch.no_grad():
-                self.parameter_optimizer.metagenes.copy_(
+                self.metagenes.copy_(
                     torch.from_numpy(self.adata.uns["M"]).to(**self.context),
                 )
-            for dataset_index, sample in enumerate(self.replicate_names):
-                self.parameter_optimizer.spatial_affinity[sample] = torch.from_numpy(
-                    self.adata.uns["Sigma_x_inv"][sample],
-                ).to(**self.initial_context)
-                spatial_affinity_copy[dataset_index] = self.parameter_optimizer.spatial_affinity[sample]
+            for sample in self.replicate_names:
+                self.spatial_affinity.set_sample_(
+                    sample,
+                    torch.from_numpy(self.adata.uns["Sigma_x_inv"][sample]).to(**self.context),
+                )
 
-            self.parameter_optimizer.update_sigma_yx()
-            self.parameter_optimizer.spatial_affinity.initialize_optimizers(
-                spatial_affinity_copy,
-                self.parameter_optimizer.spatial_affinity_bar,
-            )
+            self._recompute_observation_noise()
         else:
             if self.level < self.hierarchical_levels - 1:
                 method = "dummy"
@@ -207,14 +218,14 @@ class HierarchicalLevel(nn.Module):
                 logger.info("Initializing metagenes and embeddings using {}", method)
 
             if method == "dummy":
-                self.M, self.X = initialize_dummy(
+                initial_metagenes, initial_embeddings = initialize_dummy(
                     self.adata,
                     self.sample_axis,
                     self.K,
                     self.initial_context,
                 )
             elif method == "kmeans":
-                self.M, self.X = initialize_kmeans(
+                initial_metagenes, initial_embeddings = initialize_kmeans(
                     self.adata,
                     self.sample_axis,
                     self.K,
@@ -222,19 +233,21 @@ class HierarchicalLevel(nn.Module):
                     kwargs_kmeans=dict(random_state=self.random_state),
                 )
             elif method == "svd":
-                self.M, self.X = initialize_svd(
+                initial_metagenes, initial_embeddings = initialize_svd(
                     self.adata,
                     self.sample_axis,
                     self.K,
                     self.initial_context,
-                    M_nonneg=(self.parameter_optimizer.M_constraint == "simplex"),
+                    M_nonneg=(self.M_constraint == "simplex"),
                     X_nonneg=True,
                 )
-            elif method == "leiden":
+            elif method in {"leiden", "leiden_fast"}:
                 kwargs_leiden = {
                     "random_state": self.random_state,
                 }
-                self.M, self.X = initialize_leiden(
+                if method == "leiden_fast":
+                    kwargs_leiden.update(flavor="igraph", n_iterations=2)
+                initial_metagenes, initial_embeddings = initialize_leiden(
                     self.adata,
                     self.sample_axis,
                     self.K,
@@ -243,7 +256,7 @@ class HierarchicalLevel(nn.Module):
                     verbose=self.verbose,
                 )
             elif method == "ground_truth":
-                self.M, self.X = initialize_ground_truth(
+                initial_metagenes, initial_embeddings = initialize_ground_truth(
                     self.adata,
                     self.sample_axis,
                     self.K,
@@ -254,226 +267,115 @@ class HierarchicalLevel(nn.Module):
                 raise NotImplementedError
 
             with torch.no_grad():
-                self.parameter_optimizer.metagenes.copy_(self.M.to(**self.context))
-            self.embedding_optimizer.embedding_state.embedding.copy_(self.X.to(**self.context))
+                self.metagenes.copy_(initial_metagenes.to(**self.context))
+                self.embeddings.copy_(initial_embeddings.to(**self.context))
 
-            self.parameter_optimizer.scale_metagenes()
+            self._normalize_factorization()
 
-            self.Sigma_x_inv_bar = None
-
-            self.parameter_optimizer.update_sigma_yx()
-
-            initial_embeddings = [self.embedding_optimizer.embedding_state[sample] for sample in self.replicate_names]
+            self._recompute_observation_noise()
 
             # Initializing spatial affinities
             if self.verbose >= 1:
                 logger.info("Initializing spatial affinities with empirical correlations")
-            self.parameter_optimizer.spatial_affinity.initialize(
-                initial_embeddings,
-                self.parameter_optimizer.spatial_affinity_bar,
-            )
+            self._initialize_spatial_affinities()
 
-            self.adata.uns["popari_hyperparameters"] = {
-                "prior_x": {
-                    sample: self.parameter_optimizer.prior_xs[index][0].cpu().detach().numpy()
-                    for index, sample in enumerate(self.replicate_names)
-                },
-                "K": self.K,
-                "use_inplace_ops": self.use_inplace_ops,
-                "random_state": self.random_state,
-                "verbose": self.verbose,
-                **parameter_optimizer_hyperparameters,
-                **embedding_optimizer_hyperparameters,
-            }
-
-        self.superresolution_optimizers = {}
         self.adata.uns["losses"] = {key: list(values) for key, values in self.adata.uns.get("losses", {}).items()}
 
-        if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
-            self.parameter_optimizer.spatial_affinity.reaverage(self.parameter_optimizer.spatial_affinity_bar)
+    @property
+    def spatial_affinity_groups(self):
+        """Return the runtime spatial-affinity groups."""
 
-    def sample_adata(self, sample: str) -> AnnData:
-        """Return a standalone copy of one sample for sample-local
-        algorithms."""
-
-        dataset = self.adata[self.sample_axis.indices(sample)].copy()
-        dataset.obs[self.sample_key] = dataset.obs[self.sample_key].cat.remove_unused_categories()
-        dataset.popari.name = sample
-        dataset.obsp["adjacency_matrix"] = csr_array(dataset.obsp["adjacency_matrix"])
-        return dataset
+        return self.spatial_affinity.groups
 
     @property
-    def datasets(self) -> list[AnnData]:
-        """Temporary compatibility view of the unified level AnnData."""
+    def spatial_affinity_tags(self):
+        """Return spatial-affinity group memberships by sample."""
 
-        if self._legacy_datasets is None:
-            self._legacy_datasets = [self.sample_adata(sample) for sample in self.replicate_names]
-        return self._legacy_datasets
+        return self.spatial_affinity.tags
 
-    def link(self, low_res_view: "HierarchicalLevel"):
-        """Link a view to the resolution right below it in the hierarchy."""
-        self.low_res_view = low_res_view
+    def embedding(self, sample: str) -> torch.Tensor:
+        """Return embeddings for one sample from the global embedding tensor."""
 
-    def _propagate_parameters(self):
-        """Use parameters from low-resolution to initialize higher-
-        resolution."""
+        return torch.index_select(self.embeddings, 0, self.sample_indices[sample])
+
+    def set_embedding(self, sample: str, value: torch.Tensor) -> None:
+        """Write one sample's embeddings into the global embedding tensor."""
+
         with torch.no_grad():
-            self.parameter_optimizer.metagenes.copy_(self.low_res_view.parameter_optimizer.metagenes)
+            self.embeddings.index_copy_(0, self.sample_indices[sample], value.to(self.embeddings.device))
 
-        self.mark_dirty()
+    def _normalize_factorization(self) -> None:
+        """Normalize metagenes while preserving their reconstruction."""
 
-    def _superresolve_embeddings(
-        self,
-        n_epochs=10000,
-        tol=1e-4,
-        update_alg="gd",
-        use_manual_gradients=True,
-        verbose=None,
-    ):
-        """Superresolve embeddings using embeddings for lower resolution
-        spots."""
+        if self.M_constraint == "simplex":
+            scale_factor = torch.linalg.norm(self.metagenes, axis=0, ord=1, keepdim=True)
+        elif self.M_constraint == "unit_sphere":
+            scale_factor = torch.linalg.norm(self.metagenes, axis=0, ord=2, keepdim=True)
+        else:
+            raise NotImplementedError(f"Unsupported metagene constraint: {self.M_constraint!r}")
 
-        final_losses = np.zeros(self.num_replicates)
-        global_assignments = csr_array(self.low_res_view.adata.obsm[BIN_ASSIGNMENTS_KEY])
-        for dataset_index, sample in enumerate(self.replicate_names):
-            sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
-            Y = self.Ys[dataset_index].to(self.context["device"])
+        with torch.no_grad():
+            self.metagenes.div_(scale_factor)
+            self.embeddings.mul_(scale_factor)
 
-            if Y.sum() == 0:
-                raise ValueError(
-                    "It seems like you are trying to superresolve a hierarchical level with all zero expression "
-                    "values. This probably means the model was saved incorrectly; try using `model.save_results` "
-                    "with `as_trainable=True` next time.",
-                )
+    def _recompute_observation_noise(self) -> None:
+        """Recompute sample observation noise from the current factorization."""
 
-            X = self.embedding_optimizer.embedding_state[sample].to(self.context["device"])
-            X_B = self.low_res_view.embedding_optimizer.embedding_state[sample].cpu().detach().numpy()
-            B = global_assignments[self.low_res_view.sample_axis.indices(sample)][:, self.sample_axis.indices(sample)]
-
-            M = self.parameter_optimizer.metagenes.to(self.context["device"])
-            prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
-            prior_x = self.parameter_optimizer.prior_xs[dataset_index]
-
-            # Precomputing quantities
-            MTM = (M.T @ M / (sigma_yx**2)).detach()
-            BTB = convert_numpy_to_pytorch_sparse_coo((B.T @ B).tocoo(), context=self.context)
-            YM = (Y @ M / (sigma_yx**2)).detach()
-            BTX_B = torch.from_numpy(B.T @ X_B).to(self.context["device"]).to(self.context["dtype"])
-
-            linear_term_gradient = YM + BTX_B
-            if prior_x_mode == "exponential shared fixed":
-                linear_term_gradient = linear_term_gradient - prior_x[0][None]
-            linear_term_gradient = linear_term_gradient.detach()
-
-            Ynorm = (torch.square(Y).sum() / (sigma_yx**2)).detach()
-            X_Bnorm = np.linalg.norm(X_B, ord="fro").item() ** 2
-            loss_prev, loss = np.inf, np.nan
-
-            X = X.clone().detach().requires_grad_(True)
-
-            if verbose is None:
-                verbose = self.verbose
-
-            superresolution_optimizer = torch.optim.Adam(
-                [X],
-                lr=self.superresolution_lr,
-                betas=(0.5, 0.9),
+        squared_terms = [
+            torch.addmm(
+                expression.to_dense(),
+                self.embedding(sample),
+                self.metagenes.T,
+                alpha=-1,
             )
+            for expression, sample in zip(self.Ys, self.sample_names)
+        ]
+        squared_loss = torch.as_tensor(
+            [torch.linalg.norm(term, ord="fro").item() ** 2 for term in squared_terms],
+            **self.context,
+        )
+        sizes = torch.as_tensor([expression.numel() for expression in self.Ys], **self.context)
+        if self.sigma_yx_inv_mode == "separate":
+            self.sigma_yxs[:] = torch.sqrt(squared_loss / sizes)
+        elif self.sigma_yx_inv_mode == "average":
+            sigma_yx = torch.sqrt(torch.dot(self.betas, squared_loss) / torch.dot(self.betas, sizes))
+            self.sigma_yxs[:] = sigma_yx
+        else:
+            raise NotImplementedError(f"Unsupported observation-noise mode: {self.sigma_yx_inv_mode!r}")
 
-            def gradient_update(X, iteration=None):
-                """Perform one constrained gradient update."""
+    def _initialize_spatial_affinities(self) -> None:
+        """Initialize spatial affinities from empirical embedding
+        correlations."""
 
-                superresolution_optimizer.zero_grad()
-                quadratic_term_gradient = X @ MTM + BTB @ X
-
-                loss = (
-                    (quadratic_term_gradient * X).sum() / 2 - (linear_term_gradient * X).sum() + Ynorm / 2 + X_Bnorm / 2
-                )
-                if use_manual_gradients:
-                    gradient = quadratic_term_gradient - linear_term_gradient
-                    X.grad = gradient
-                else:
-                    loss.backward()
-
-                superresolution_optimizer.step()
-                with torch.no_grad():
-                    X.clamp_(min=1e-10)
-
-                return loss.detach().item()
-
-            progress_bar = trange(
-                n_epochs,
-                desc="Superresolution embeddings",
-                leave=False,
-                disable=verbose < 2,
-                dynamic_ncols=True,
-                mininterval=1,
-            )
-            for epoch in progress_bar:
-                X_prev = X.clone().detach()
-                if update_alg == "mu":
-                    pass
-                elif update_alg == "gd":
-                    loss = gradient_update(X, iteration=epoch)
-
-                dX = torch.abs((X_prev - X) / torch.linalg.norm(X, dim=1, ord=1, keepdim=True)).max().item()
-
-                do_stop = dX < tol
-                description = (
-                    f"Updating weights hierarchically: loss = {loss:.1e} "
-                    f"%δloss = {(loss_prev - loss) / loss:.1e} "
-                    f"%δX = {dX:.1e}"
-                )
-
-                progress_bar.set_description(description)
-
-                loss_prev = loss
-                if do_stop:
-                    break
-
-            progress_bar.close()
-            self.embedding_optimizer.embedding_state[sample] = X.clone().detach()
-
-            final_losses[dataset_index] = loss
-
-            del superresolution_optimizer
-            del sigma_yx
-            del Y
-            del X
-            del X_B
-            del B
-            del M
-            del MTM
-            del BTB
-            del YM
-            del BTX_B
-
-        return final_losses
+        initial_affinities = compute_empirical_spatial_affinities(
+            [self.embedding(sample).clone() for sample in self.sample_names],
+            self.adjacency,
+            self.sample_axis,
+            self.spatial_affinity_scaling,
+            self.initial_context,
+        )
+        self.spatial_affinity.initialize_(initial_affinities, self.betas)
 
     def _reload_state(self):
         """Reload Popari state using results from saved datasets.
 
-        Opposite of `synchronize_datasets`. Should be used rarely, e.g. when loading a trained
-        model from memory.
+        Used when loading a trained model from an in-memory artifact.
 
         """
-        self.embedding_optimizer.embedding_state.embedding.copy_(
+        self.embeddings.copy_(
             torch.from_numpy(self.adata.obsm["X"]).to(**self.context),
         )
         with torch.no_grad():
-            self.parameter_optimizer.metagenes.copy_(
+            self.metagenes.copy_(
                 torch.from_numpy(self.adata.uns["M"]).to(**self.context),
             )
         for sample in self.replicate_names:
-            with torch.no_grad():
-                self.parameter_optimizer.spatial_affinity[sample] = torch.from_numpy(
-                    self.adata.uns["Sigma_x_inv"][sample],
-                ).to(**self.initial_context)
+            self.spatial_affinity.set_sample_(
+                sample,
+                torch.from_numpy(self.adata.uns["Sigma_x_inv"][sample]).to(**self.context),
+            )
 
-        if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
-            self.parameter_optimizer.spatial_affinity.reaverage(self.parameter_optimizer.spatial_affinity_bar)
-
-        self.parameter_optimizer.update_sigma_yx()
+        self._recompute_observation_noise()
 
     def materialize_results(self, *, force: bool = False) -> AnnData:
         """Write authoritative tensor state into this level's AnnData."""
@@ -481,35 +383,20 @@ class HierarchicalLevel(nn.Module):
         if not self._dirty and not force:
             return self.adata
 
-        self.adata.uns["M"] = self.parameter_optimizer.metagenes.cpu().detach().numpy()
-        self.adata.obsm["X"] = self.embedding_optimizer.embedding_state.embedding.cpu().detach().numpy()
+        self.adata.uns["M"] = self.metagenes.cpu().detach().numpy()
+        self.adata.obsm["X"] = self.embeddings.cpu().detach().numpy()
         self.adata.uns["sigma_yx"] = {
-            sample: self.parameter_optimizer.sigma_yxs[index].item()
-            for index, sample in enumerate(self.replicate_names)
+            sample: self.sigma_yxs[index].item() for index, sample in enumerate(self.replicate_names)
         }
         self.adata.uns["Sigma_x_inv"] = {
-            sample: self.parameter_optimizer.spatial_affinity[sample].cpu().detach().numpy()
-            for sample in self.replicate_names
+            sample: self.spatial_affinity.for_sample(sample).cpu().detach().numpy() for sample in self.replicate_names
         }
 
-        if self.parameter_optimizer.spatial_affinity_mode == "differential lookup":
-            spatial_affinity_bar = {
-                group_name: self.parameter_optimizer.spatial_affinity_bar[group_name].cpu().detach().numpy()
-                for group_name in self.parameter_optimizer.spatial_affinity_groups
+        if self.spatial_affinity_mode == "differential lookup":
+            self.adata.uns["spatial_affinity_bar"] = {
+                group_name: group_mean.cpu().numpy()
+                for group_name, group_mean in self.spatial_affinity.group_means().items()
             }
-            self.adata.uns["spatial_affinity_bar"] = spatial_affinity_bar
-
-        if self._legacy_datasets is not None:
-            for dataset, sample in zip(self._legacy_datasets, self.replicate_names):
-                indices = self.sample_axis.indices(sample)
-                dataset.obsm["X"] = self.adata.obsm["X"][indices].copy()
-                dataset.uns["M"] = self.adata.uns["M"]
-                dataset.uns["Sigma_x_inv"] = {
-                    sample: self.adata.uns["Sigma_x_inv"][sample],
-                }
-                dataset.uns["sigma_yx"] = self.adata.uns["sigma_yx"][sample]
-                if "spatial_affinity_bar" in self.adata.uns:
-                    dataset.uns["spatial_affinity_bar"] = self.adata.uns["spatial_affinity_bar"]
 
         self._dirty = False
         return self.adata
@@ -520,111 +407,104 @@ class HierarchicalLevel(nn.Module):
 
         self._dirty = True
 
-    def synchronize_datasets(self):
-        """Deprecated alias for :meth:`materialize_results`."""
-
-        return self.materialize_results(force=True)
-
     def forward(self, use_spatial: bool = False):
-        """Compute overall negative log-likelihood for the current model
-        parameters."""
+        """Compute the joint negative log pseudolikelihood for this level.
 
-        total_loss = torch.zeros((), **self.context)
-        if use_spatial:
-            weighted_total_cells = self.adjacency.nnz
-            global_X = self.embedding_optimizer.embedding_state.embedding
-            global_Z = global_X / torch.linalg.norm(global_X, dim=1, ord=1, keepdim=True)
-            global_nu = self.adjacency_matrix @ global_Z
+        Samples contribute once each. ``betas`` affect optimization weighting,
+        but do not temper the reported joint probability.
 
-        for dataset_index, sample in enumerate(self.replicate_names):
-            sigma_yx = self.parameter_optimizer.sigma_yxs[dataset_index]
-            Y = self.Ys[dataset_index].to(self.context["device"])
-            X = self.embedding_optimizer.embedding_state[sample].to(self.context["device"])
-            M = self.parameter_optimizer.metagenes.to(self.context["device"])
-            prior_x_mode = self.parameter_optimizer.prior_x_modes[dataset_index]
-            prior_x = self.parameter_optimizer.prior_xs[dataset_index]
+        """
 
-            MTM = M.T @ M / (sigma_yx**2)
-            YM = Y.to(M.device) @ M / (sigma_yx**2)
-            Ynorm = torch.square(Y).sum() / (sigma_yx**2)
-            S = torch.linalg.norm(X, dim=1, ord=1, keepdim=True)
+        total_loss = self.metagenes.new_zeros(())
+        metagenes = self.metagenes.to(self.context["device"])
 
-            Z = X / S
-            N, G = Y.shape
+        # Expression likelihood and optional embedding-magnitude prior.
+        for sample_index, sample in enumerate(self.sample_names):
+            sigma_yx = self.sigma_yxs[sample_index]
+            expression = self.Ys[sample_index].to(self.context["device"])
+            embedding = self.embedding(sample).to(self.context["device"])
+            num_observations, num_genes = expression.shape
 
-            loss = ((X @ MTM) * X).sum() / 2 - (X * YM).sum() + Ynorm / 2
+            quadratic_factor = metagenes.T @ metagenes / sigma_yx.square()
+            linear_factor = expression @ metagenes / sigma_yx.square()
+            expression_norm = expression.square().sum() / sigma_yx.square()
+            total_loss += ((embedding @ quadratic_factor) * embedding).sum() / 2
+            total_loss -= (embedding * linear_factor).sum()
+            total_loss += expression_norm / 2
+            total_loss += num_observations * num_genes / 2 * torch.log(2 * np.pi * sigma_yx.square())
 
-            logZ_i_Y = torch.ones((N,), **self.context) * (G / 2 * torch.log(2 * np.pi * sigma_yx**2))
-            if not use_spatial:
-                logZ_i_X = torch.full((N,), 0, **self.context)
-                if (prior_x[0] != 0).all():
-                    logZ_i_X += torch.full((N,), self.K * torch.log(prior_x[0]).item(), **self.context)
-                log_partition_function = (logZ_i_Y + logZ_i_X).sum()
-            else:
-                Sigma_x_inv = self.parameter_optimizer.spatial_affinity[sample].to(
-                    self.context["device"],
-                )
-                sample_indices = torch.as_tensor(self.sample_axis.indices(sample), device=global_nu.device)
-                nu = global_nu.index_select(0, sample_indices)
-                eta = nu @ Sigma_x_inv
-                logZ_i_s = torch.full((N,), 0, **self.context)
-                if (prior_x[0] != 0).all():
-                    logZ_i_s = torch.full(
-                        (N,),
-                        -self.K * torch.log(prior_x[0]).item() + torch.log(factorial(self.K - 1, exact=True)).item(),
-                        **self.context,
+            prior_x_mode = self.prior_x_modes[sample_index]
+            if prior_x_mode == "exponential shared fixed":
+                rate = self.prior_xs[sample_index][0][0]
+                magnitude = torch.linalg.norm(embedding, dim=1, ord=1)
+                total_loss += rate * magnitude.sum() - num_observations * self.K * torch.log(rate)
+                if use_spatial:
+                    total_loss += num_observations * torch.lgamma(rate.new_tensor(float(self.K)))
+            elif prior_x_mode is not None:
+                raise NotImplementedError(f"Unsupported embedding prior: {prior_x_mode!r}")
+
+        if not use_spatial:
+            return total_loss
+
+        # Spatial conditional likelihood and affinity priors. Each unique
+        # affinity is regularized once using the edges governed by it.
+        normalized = self.embeddings / torch.linalg.norm(self.embeddings, dim=1, ord=1, keepdim=True)
+        neighbor_sums = self.adjacency_matrix @ normalized
+        edge_counts = np.diff(self.adjacency.indptr)
+        group_means = (
+            self.spatial_affinity.group_means() if self.spatial_affinity_mode == "differential lookup" else None
+        )
+
+        if self.spatial_affinity_mode == "shared lookup":
+            parameter_samples = self.spatial_affinity_groups.items()
+        elif self.spatial_affinity_mode == "differential lookup":
+            parameter_samples = ((sample, [sample]) for sample in self.sample_names)
+        else:
+            raise NotImplementedError(f"Unsupported spatial-affinity mode: {self.spatial_affinity_mode!r}")
+
+        for parameter_name, samples in parameter_samples:
+            affinity = self.spatial_affinity.values[parameter_name]
+            linear_factor = torch.zeros_like(affinity)
+            sample_neighbor_sums = []
+            edge_count = 0
+            for sample in samples:
+                indices = self.sample_indices[sample]
+                sample_normalized = normalized.index_select(0, indices)
+                sample_neighbors = neighbor_sums.index_select(0, indices)
+                linear_factor.addmm_(sample_normalized.T, sample_neighbors)
+                sample_neighbor_sums.append(sample_neighbors)
+                edge_count += int(edge_counts[self.sample_axis.indices(sample)].sum())
+
+            affinity_group_means = None
+            if group_means is not None:
+                affinity_group_means = [group_means[group] for group in self.spatial_affinity_tags[parameter_name]]
+
+            if edge_count:
+                sample_weights = affinity.new_ones(len(samples))
+                total_loss += (
+                    _spatial_affinity_loss(
+                        affinity,
+                        linear_factor,
+                        sample_neighbor_sums,
+                        sample_weights,
+                        affinity.new_tensor(float(edge_count)),
+                        regularization_strength=self.lambda_Sigma_x_inv,
+                        regularization_power=self.spatial_affinity_regularization_power,
+                        group_means=affinity_group_means,
+                        group_regularization_strength=self.lambda_Sigma_bar,
                     )
-
-                logZ_i_z = integrate_of_exponential_over_simplex(eta)
-                log_partition_function = (logZ_i_Y + logZ_i_z + logZ_i_s).sum()
-
-                if prior_x_mode == "exponential shared fixed":
-                    loss += prior_x[0][0] * S.sum()
-                elif not prior_x_mode:
-                    pass
-                else:
-                    raise NotImplementedError
-
-                if Sigma_x_inv is not None:
-                    loss += (eta).mul(Z).sum() / 2
-
-                spatial_affinity_bars = None
-                if self.parameter_optimizer.spatial_affinity.mode == "differential lookup":
-                    spatial_affinity_bars = [
-                        self.parameter_optimizer.spatial_affinity_bar[group_name]
-                        for group_name in self.parameter_optimizer.spatial_affinity_tags[sample]
-                    ]
-
-                regularization = torch.zeros((), **self.context)
-                if spatial_affinity_bars is not None:
-                    group_weighting = 1 / len(spatial_affinity_bars)
-                    for group_Sigma_x_inv_bar in spatial_affinity_bars:
-                        regularization += (
-                            group_weighting
-                            * self.parameter_optimizer.lambda_Sigma_bar
-                            * (group_Sigma_x_inv_bar - Sigma_x_inv).pow(2).sum()
-                            / 2
-                        )
-
-                regularization += self.parameter_optimizer.lambda_Sigma_x_inv * Sigma_x_inv.pow(2).sum() / 2
-                regularization *= weighted_total_cells
-                loss += regularization
-
-            loss += log_partition_function
-
-            total_loss += loss
+                    * edge_count
+                )
+            else:
+                total_loss += sum(
+                    integrate_of_exponential_over_simplex(sample_neighbors @ affinity).sum()
+                    for sample_neighbors in sample_neighbor_sums
+                )
 
         return total_loss
 
-    def nll(self, use_spatial=False):
-        """Compute overall negative log-likelihood for current model
-        parameters."""
 
-        with torch.no_grad():
-            return self.forward(use_spatial=use_spatial).reshape(1).cpu().numpy()
-
-
-class Hierarchy:
+class Hierarchy(nn.ModuleList):
     """Container for hierarchical views of Popari."""
 
     def __init__(
@@ -633,19 +513,13 @@ class Hierarchy:
         downsampling_method: str = "grid",
         **hierarchical_view_kwargs,
     ):
-        self.view_container = {0: base_view}
+        super().__init__([base_view])
         if downsampling_method == "grid":
             self.downsampler = GridDownsampler()
         elif downsampling_method == "partition":
             self.downsampler = PartitionDownsampler()
 
         self.hierarchical_view_kwargs = hierarchical_view_kwargs
-
-    def __setitem__(self, index: int, view: "HierarchicalLevel"):
-        self.view_container[index] = view
-
-    def __getitem__(self, index: int):
-        return self.view_container[index]
 
     def construct(self, levels: int, downsample_rate: float, **kwargs):
         base_view = self[0]
@@ -661,7 +535,14 @@ class Hierarchy:
 
             effective_kwargs = kwargs.copy()
             for sample, previous_Y in zip(previous_view.replicate_names, previous_Ys):
-                previous_dataset = previous_view.sample_adata(sample)
+                previous_dataset = previous_view.adata[previous_view.sample_axis.indices(sample)].copy()
+                previous_dataset.obs[previous_view.sample_key] = previous_dataset.obs[
+                    previous_view.sample_key
+                ].cat.remove_unused_categories()
+                previous_dataset.popari.name = sample
+                previous_dataset.obsp["adjacency_matrix"] = csr_array(
+                    previous_dataset.obsp["adjacency_matrix"],
+                )
                 bin_assignments_key = f"{BIN_ASSIGNMENTS_KEY}_{sample}"
                 binned_dataset, effective_kwargs = self.downsampler.downsample(
                     previous_dataset,
@@ -732,8 +613,7 @@ class Hierarchy:
                 binned_Ys=binned_Ys,
                 **self.hierarchical_view_kwargs,
             )
-            previous_view.link(level_view)
-            self[level] = level_view
+            self.append(level_view)
 
             previous_view = level_view
 
@@ -780,9 +660,6 @@ class Hierarchy:
                 **hierarchical_view_kwargs,
             )
 
-            if previous_view is not None:
-                previous_view.link(level_view)
-
             return level_view
 
         base_view = reconstruct_level(0, reloaded_hierarchy[0], None)
@@ -793,7 +670,7 @@ class Hierarchy:
         for level in range(1, hierarchical_view_kwargs["hierarchical_levels"]):
             adata = reloaded_hierarchy[level]
             level_view = reconstruct_level(level, adata, previous_view)
-            hierarchy[level] = level_view
+            hierarchy.append(level_view)
             previous_view = level_view
 
         return hierarchy

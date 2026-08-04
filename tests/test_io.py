@@ -4,11 +4,12 @@ import pandas as pd
 import pytest
 from scipy.sparse import csr_array
 
-from popari.io import load_anndata, load_anndata_hierarchy, save_anndata
+from popari.io import load_anndata, load_anndata_hierarchy, save_anndata, save_anndata_hierarchy
 from popari.legacy_io import convert_legacy_anndata, normalize_anndata_hierarchy
 from popari.model import load_trained_model
 from popari.schema import validate_anndata_hierarchy
 from scripts.migrate_popari_artifact import migrate_artifact
+from tests._training import train_model
 
 
 def test_convert_legacy_anndata_requires_adjacency_matrix():
@@ -281,6 +282,16 @@ def test_save_and_load_supports_custom_sample_key(tmp_path):
     assert reloaded.popari.sample_names == ("sample_b", "sample_a")
 
 
+def test_materialized_default_affinity_group_is_serializable(shared_model_factory, tmp_path):
+    model = shared_model_factory()
+    filepath = tmp_path / "materialized.h5ad"
+
+    save_anndata(filepath, model.materialize_results()[0])
+    reloaded = load_anndata(filepath)
+
+    assert list(reloaded.uns["popari_hyperparameters"]["spatial_affinity_groups"]) == ["_default"]
+
+
 def test_hierarchy_validation_requires_coarse_bin_assignments(hierarchical_model_factory):
     model = hierarchical_model_factory(hierarchical_levels=2)
     hierarchy = {level: model.hierarchy[level].adata.copy() for level in range(2)}
@@ -295,7 +306,7 @@ def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
     model = shared_model_factory()
     filepath = tmp_path / "trained_model.h5ad"
 
-    model.save_results(filepath, ignore_raw_data=False)
+    save_anndata(filepath, model.materialize_results()[0])
     reloaded = load_trained_model(filepath)
 
     assert reloaded.replicate_names == model.replicate_names
@@ -311,7 +322,7 @@ def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
 def test_load_differential_affinities_from_shared_file(shared_model_factory, tmp_path):
     model = shared_model_factory()
     filepath = tmp_path / "shared_model.h5ad"
-    model.save_results(filepath, ignore_raw_data=False)
+    save_anndata(filepath, model.materialize_results()[0])
 
     differential = load_trained_model(
         filepath,
@@ -329,12 +340,11 @@ def test_hierarchical_save_and_load_roundtrip(hierarchical_model_factory, gpu_co
         torch_context=gpu_context,
         initial_context=gpu_context,
     )
-    model.estimate_parameters()
-    model.estimate_weights()
-    model.superresolve(n_epochs=2, tol=1e-6)
+    trainer = train_model(model)
+    trainer.superresolve(n_epochs=2, tol=1e-6)
 
     filepath = tmp_path / "hierarchical_results"
-    model.save_results(filepath, ignore_raw_data=False)
+    save_anndata_hierarchy(filepath, model.materialize_results())
     reloaded = load_trained_model(filepath)
 
     assert reloaded.hierarchical_levels == model.hierarchical_levels
@@ -351,7 +361,7 @@ def test_reload_expression_restores_trainability(hierarchical_model_factory, tmp
     raw_adata = model.hierarchy[0].adata.copy()
 
     filepath = tmp_path / "hierarchical_untrainable"
-    model.save_results(filepath, ignore_raw_data=True)
+    save_anndata_hierarchy(filepath, model.materialize_results(), ignore_raw_data=True)
     reloaded = load_trained_model(filepath)
 
     reloaded._reload_expression(raw_adata)

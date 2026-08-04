@@ -10,6 +10,7 @@ from scipy.stats import false_discovery_control, fisher_exact, zscore
 
 from popari import pl, tl
 from popari._sample_axis import SampleAxis
+from tests._training import train_model
 
 
 def test_run_enrichr_returns_sorted_table(monkeypatch):
@@ -510,9 +511,8 @@ def test_cluster_domains_thresholds_each_sample(monkeypatch):
 
 
 def _fit_model(model, n_steps: int = 2):
-    for _ in range(n_steps):
-        model.estimate_parameters()
-        model.estimate_weights()
+    train_model(model, iterations=n_steps)
+    model.materialize_results()
     return model
 
 

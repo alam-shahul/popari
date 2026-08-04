@@ -1,7 +1,7 @@
 import sys
 
 from popari.model import Popari, from_pretrained
-from popari.train import Trainer, TrainParameters
+from popari.train import Trainer
 
 from . import analysis as tl
 from . import plotting as pl
@@ -17,7 +17,6 @@ __all__ = [
     "PopariNamespace",
     "MetageneSimulationNamespace",
     "Trainer",
-    "TrainParameters",
     "from_pretrained",
     "pl",
     "pp",

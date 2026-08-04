@@ -6,7 +6,11 @@ import torch
 from scipy.sparse import csr_array
 
 from popari.io import save_anndata
-from popari.wandb_util import load_popari_model_from_wandb, read_popari_anndata_hierarchy
+from popari.wandb_util import (
+    load_popari_model_from_wandb,
+    load_popari_results_from_wandb,
+    read_popari_anndata_hierarchy,
+)
 
 
 def _write_h5ad(path, *, coarse=False):
@@ -64,10 +68,7 @@ def test_load_popari_model_from_wandb_uses_anndata_hierarchy(monkeypatch):
     hierarchy = {0: dataset}
     captured = {}
 
-    monkeypatch.setattr(
-        "popari.wandb_util.load_popari_anndata_from_wandb",
-        lambda *args, **kwargs: hierarchy,
-    )
+    monkeypatch.setattr("popari.wandb_util.load_popari_results_from_wandb", lambda *args, **kwargs: hierarchy)
 
     def fake_load_pretrained(adata, **kwargs):
         captured["adata"] = adata
@@ -85,3 +86,18 @@ def test_load_popari_model_from_wandb_uses_anndata_hierarchy(monkeypatch):
     assert captured["kwargs"]["reloaded_hierarchy"][0] is dataset
     assert captured["kwargs"]["hierarchical_levels"] == 1
     assert captured["kwargs"]["context"] == {"device": "cpu", "dtype": torch.float64}
+
+
+def test_load_popari_results_from_wandb_reads_downloaded_hierarchy(tmp_path, monkeypatch):
+    result_path = tmp_path / "results"
+    result_path.mkdir()
+    _write_h5ad(result_path / "level_0.h5ad")
+    monkeypatch.setattr(
+        "popari.wandb_util.download_popari_results",
+        lambda *args, **kwargs: result_path,
+    )
+
+    hierarchy = load_popari_results_from_wandb("run-id")
+
+    assert tuple(hierarchy) == (0,)
+    assert hierarchy[0].popari.sample_names == ("replicate",)

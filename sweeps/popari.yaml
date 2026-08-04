@@ -1,0 +1,25 @@
+program: scripts/train.py
+entity: popari
+project: revisions
+method: grid
+
+metric:
+  name: nll_spatial
+  goal: minimize
+
+parameters:
+  "data.dataset_path":
+    value: /path/to/input.h5ad
+  "model.K":
+    values: [10, 15, 20]
+  "model.lambda_Sigma_x_inv":
+    values: [1.0e-3, 1.0e-4]
+  "model.random_state":
+    values: [0, 1, 2, 3, 4]
+
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args_no_hyphens}
+  - tracking.enabled=true

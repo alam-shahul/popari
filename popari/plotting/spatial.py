@@ -14,6 +14,7 @@ import squidpy as sq
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
+from matplotlib.lines import Line2D
 
 from popari.analysis.gene_sets import order_columns_by_best_row
 from popari.analysis.metrics import score_marker_expression
@@ -210,6 +211,7 @@ def umap(
     *,
     samples: str | Sequence[str] | None = None,
     axes=None,
+    figsize=None,
     **kwargs,
 ):
     r"""Plot a unified UMAP embedding faceted by sample.
@@ -219,6 +221,7 @@ def umap(
         color: Observation annotation to plot.
         samples: Sample names to plot. By default, plot every sample.
         axes: A predefined set of matplotlib axes to plot on.
+        figsize: Size of the complete figure when creating axes.
         **kwargs: Additional arguments for :func:`scanpy.pl.umap`.
 
     Returns:
@@ -239,6 +242,7 @@ def umap(
             sharex=sharex,
             sharey=sharey,
             dpi=dpi,
+            figsize=figsize,
         )
     else:
         axes = np.asarray(axes, dtype=object)
@@ -253,7 +257,22 @@ def umap(
     edges = kwargs.pop("edges", False)
     palette = kwargs.pop("palette", sc.pl.palettes.godsnot_102)
     legend_fontsize = kwargs.pop("legend_fontsize", "xx-small")
+    legend_loc = kwargs.pop("legend_loc", "right margin")
     neighbors_key = kwargs.pop("neighbors_key", "neighbors")
+
+    color_values = adata.obs[color]
+    categorical = not pd.api.types.is_numeric_dtype(color_values.dtype)
+    if categorical:
+        categories = (
+            color_values.cat.categories
+            if isinstance(color_values.dtype, pd.CategoricalDtype)
+            else pd.Index(color_values.dropna().unique())
+        )
+        if isinstance(palette, dict):
+            palette = {category: palette[category] for category in categories}
+        else:
+            colors = sns.color_palette(palette, n_colors=len(categories))
+            palette = dict(zip(categories, colors))
 
     for sample, ax in zip(selected_samples, axes.flat):
         sample_adata = adata[sample_axis.indices(sample)].copy()
@@ -265,11 +284,24 @@ def umap(
             edges=edges,
             edges_width=edges_width,
             legend_fontsize=legend_fontsize,
+            legend_loc="none" if categorical else legend_loc,
             ax=ax,
             show=False,
             palette=palette,
             title=sample,
             **kwargs,
+        )
+
+    if categorical and legend_loc != "none":
+        handles = [
+            Line2D([], [], marker="o", linestyle="none", color=palette[category], label=str(category))
+            for category in categories
+        ]
+        fig.legend(
+            handles=handles,
+            loc="outside right center",
+            title=color,
+            fontsize=legend_fontsize,
         )
     return fig, axes
 

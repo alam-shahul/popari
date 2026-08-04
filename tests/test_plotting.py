@@ -12,6 +12,7 @@ from matplotlib.figure import Figure
 from scipy.sparse import csr_matrix
 
 from popari import pl, tl
+from tests._training import train_model
 
 
 def _close_figures(*figures):
@@ -635,6 +636,32 @@ def test_in_situ_facets_selected_samples_with_total_figure_size():
         _close_figures(figure)
 
 
+def test_umap_uses_total_figure_size_and_shared_categorical_legend(monkeypatch):
+    dataset = _multisample_spatial_dataset()
+    dataset.obs["domain"] = pd.Categorical(
+        ["A", "B", "A", "B", "A", "B", "A", "B"],
+        categories=["A", "B"],
+    )
+    calls = []
+
+    def fake_umap(adata, **kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr("popari.plotting.spatial.sc.pl.umap", fake_umap)
+
+    figure, axes = pl.umap(dataset, color="domain", figsize=(8, 4))
+
+    try:
+        np.testing.assert_allclose(figure.get_size_inches(), (8, 4))
+        assert len(calls) == len(dataset.popari.sample_names)
+        assert all(call["legend_loc"] == "none" for call in calls)
+        assert all(call["palette"] == calls[0]["palette"] for call in calls)
+        assert [text.get_text() for text in figure.legends[0].get_texts()] == ["A", "B"]
+        assert axes.size >= len(dataset.popari.sample_names)
+    finally:
+        _close_figures(figure)
+
+
 def test_in_situ_uses_shared_categorical_palette_and_spatial_edges():
     dataset = _multisample_spatial_dataset()
     dataset.obs["domain"] = dataset.obs["domain"].astype(str)
@@ -763,9 +790,8 @@ def test_embedding_category_and_umap_plots(clustered_shared_model):
 @pytest.mark.expensive
 def test_affinity_magnitude_plot(differential_model_factory, gpu_context):
     model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
-    for _ in range(2):
-        model.estimate_parameters()
-        model.estimate_weights()
+    train_model(model, iterations=2)
+    model.materialize_results()
 
     figure, top_pairs = pl.affinity_magnitude_vs_difference(model.adata, n_best=2)
 
@@ -797,9 +823,8 @@ def test_affinity_trend_plot(analyzed_shared_model):
 @pytest.mark.expensive
 def test_multigroup_heatmap_with_differential_affinities(differential_model_factory, gpu_context):
     model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
-    for _ in range(2):
-        model.estimate_parameters()
-        model.estimate_weights()
+    train_model(model, iterations=2)
+    model.materialize_results()
 
     figure = pl.multigroup_heatmap(
         model.adata,
