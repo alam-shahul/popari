@@ -409,6 +409,41 @@ def test_direct_estimate_sigma_x_inv_reduces_group_loss(shared_model_factory):
     assert torch.allclose(updated_sigma_x_inv, updated_sigma_x_inv.T, atol=1e-6)
 
 
+def test_spatial_affinity_update_rejects_nonfinite_initial_affinity(shared_model_factory):
+    model = shared_model_factory()
+    level = model.hierarchy[-1]
+    group_name, _, replicate_mask, sample = _shared_affinity_group_and_mask(model)
+    affinity = level.spatial_affinity.for_sample(sample)
+    with torch.no_grad():
+        affinity[0, 0] = torch.nan
+
+    with pytest.raises(FloatingPointError, match="before optimization"):
+        estimate_spatial_affinity(
+            level,
+            affinity,
+            replicate_mask,
+            _spatial_affinity_optimizers(level)[group_name],
+            n_epochs=1,
+        )
+
+
+def test_spatial_affinity_update_rejects_nonfinite_fixed_neighbor_sums(shared_model_factory):
+    model = shared_model_factory()
+    level = model.hierarchy[-1]
+    group_name, _, replicate_mask, sample = _shared_affinity_group_and_mask(model)
+    with torch.no_grad():
+        level.embeddings[0, 0] = torch.nan
+
+    with pytest.raises(FloatingPointError, match="Neighbor sums"):
+        estimate_spatial_affinity(
+            level,
+            level.spatial_affinity.for_sample(sample),
+            replicate_mask,
+            _spatial_affinity_optimizers(level)[group_name],
+            n_epochs=1,
+        )
+
+
 def test_reinitialize_spatial_affinities_allows_fresh_optimizer_state(shared_model_factory):
     model = shared_model_factory()
 

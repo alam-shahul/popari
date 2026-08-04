@@ -133,6 +133,13 @@ def estimate_spatial_affinity(
         nus.append(nu)
         weighted_total_cells += beta * num_edges
         del Z
+
+    for sample, nu in zip(samples, nus):
+        if not torch.isfinite(nu).all():
+            raise FloatingPointError(f"Neighbor sums contain non-finite values for sample {sample!r}.")
+    if not torch.isfinite(Sigma_x_inv).all():
+        raise FloatingPointError("Spatial affinity contains non-finite values before optimization.")
+
     if level.verbose >= 3:
         logger.debug(
             "Spatial-affinity linear coefficient range: {:.2e} to {:.2e}",
@@ -169,8 +176,6 @@ def estimate_spatial_affinity(
                 subsample_multiplier = 1 / subsample_rate
                 nu = nu[subsample_index]
 
-            assert torch.isfinite(nu).all()
-            assert torch.isfinite(Sigma_x_inv).all()
             objective_neighbor_sums.append(nu)
 
         objective_weights = betas if subsample_rate is None else betas / subsample_rate
@@ -206,7 +211,11 @@ def estimate_spatial_affinity(
             elif level.spatial_affinity_constraint == "scale":
                 Sigma_x_inv.mul_(level.spatial_affinity_scaling / Sigma_x_inv.abs().max())
 
-            if epoch % check_frequency == 0:
+            if epoch % check_frequency == 0 or epoch == n_epochs:
+                if not torch.isfinite(Sigma_x_inv).all():
+                    raise FloatingPointError(
+                        f"Spatial affinity became non-finite at optimization epoch {epoch}.",
+                    )
                 loss = loss.item()
                 loss_prev = loss
 
