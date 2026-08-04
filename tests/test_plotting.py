@@ -263,6 +263,7 @@ def test_category_marker_heatmap_uses_grouped_marker_matrix():
 def test_embedding_label_dotplot_returns_scanpy_plot():
     dataset = ad.AnnData(X=np.ones((4, 1)))
     dataset.obs["domain"] = pd.Categorical(["A", "A", "B", "B"])
+    dataset.obs["m1"] = np.arange(dataset.n_obs)
     dataset.obsm["normalized_X"] = np.array(
         [
             [1.0, 0.0],
@@ -701,7 +702,7 @@ def test_plotting_wrappers_return_figures(analyzed_shared_model):
         "type_1": [model.adata.var_names[2], model.adata.var_names[3]],
     }
 
-    metagene_figure = pl.metagene_embedding(model.adata, metagene_index=0)
+    metagene_figure = pl.metagene_embedding(model.adata, metagene_index=0, figsize=(8, 5))
     heatmap_figure = pl.multireplicate_heatmap(model.adata, uns="M")
     affinity_figure = pl.spatial_affinity_heatmap(model.adata)
     embeddings_figure = pl.all_embeddings(model.adata)
@@ -725,6 +726,7 @@ def test_plotting_wrappers_return_figures(analyzed_shared_model):
             assert isinstance(figure, Figure)
             assert figure.axes
 
+        assert tuple(metagene_figure.get_size_inches()) == pytest.approx((8, 5))
         assert set(medians) == set(marker_genes)
         assert difference_medians
         assert set(difference_medians).issubset(marker_genes)

@@ -28,6 +28,7 @@ def metagene_embedding(
     *,
     samples: str | Sequence[str] | None = None,
     axes: Sequence[Axes] | None = None,
+    figsize=None,
     **scatterplot_kwargs,
 ):
     r"""Plot a single metagene in situ across selected samples.
@@ -37,6 +38,7 @@ def metagene_embedding(
         metagene_index: Index of the metagene to plot.
         samples: Sample names to plot. By default, plot every sample.
         axes: A predefined set of matplotlib axes to plot on.
+        figsize: Size of the complete figure when creating axes.
 
     """
 
@@ -51,7 +53,13 @@ def metagene_embedding(
     dpi = scatterplot_kwargs.pop("dpi", 100)
 
     if axes is None:
-        fig, axes = setup_squarish_axes(len(selected_samples), sharex=False, sharey=False, dpi=dpi)
+        fig, axes = setup_squarish_axes(
+            len(selected_samples),
+            sharex=False,
+            sharey=False,
+            dpi=dpi,
+            figsize=figsize,
+        )
 
     else:
         axes = np.asarray(axes, dtype=object)
@@ -439,18 +447,19 @@ def embedding_label_dotplot(
 
     embeddings = dataset.obsm[embedding_key]
     num_features = embeddings.shape[1]
-    mock_dataset = ad.AnnData(X=embeddings, obs=dataset.obs.copy())
-
-    if not names:
-        mock_dataset.var_names = [f"m{index}" for index in range(num_features)]
-    else:
-        mock_dataset.var_names = names
+    embedding_names = [f"m{index}" for index in range(num_features)] if not names else list(names)
+    group_key = "_popari_label"
+    while group_key in embedding_names:
+        group_key = f"_{group_key}"
+    mock_obs = dataset.obs[[label_key]].rename(columns={label_key: group_key}).copy()
+    mock_dataset = ad.AnnData(X=embeddings, obs=mock_obs)
+    mock_dataset.var_names = embedding_names
 
     swap_axes = dotplot_kwargs.pop("swap_axes", True)
     standard_scale = dotplot_kwargs.pop("standard_scale", "var")
 
     if standard_scale is None and "vmin" not in dotplot_kwargs and "vmax" not in dotplot_kwargs:
-        aggregated = sc.get.aggregate(mock_dataset, by=label_key, func=["sum", "count_nonzero"])
+        aggregated = sc.get.aggregate(mock_dataset, by=group_key, func=["sum", "count_nonzero"])
         mean_in_expressed = aggregated.to_df(layer="sum") / aggregated.to_df(layer="count_nonzero")
         max_value = np.max(np.abs(mean_in_expressed))
         dotplot_kwargs.update(vmin=-max_value, vmax=max_value)
@@ -458,7 +467,7 @@ def embedding_label_dotplot(
     dotplot = sc.pl.dotplot(
         mock_dataset,
         mock_dataset.var_names,
-        groupby=label_key,
+        groupby=group_key,
         dendrogram=False,
         ax=ax,
         standard_scale=standard_scale,
