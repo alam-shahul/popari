@@ -9,7 +9,7 @@ import numpy as np
 from scipy.stats import pearsonr
 
 from popari._sample_axis import SampleAxis
-from popari.util import smooth_labels
+from popari.analysis.clustering import smooth_labels
 
 
 def normalized_affinity_trends(

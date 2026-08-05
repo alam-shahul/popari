@@ -91,8 +91,9 @@ def test_train_from_config_builds_local_training_run(tmp_path, monkeypatch):
     assert model_kwargs["K"] == 10
     assert model_kwargs["dataset_path"] == Path("/path/to/input.h5ad")
     assert OmegaConf.to_container(config, resolve=True) == original_config
-    assert model_kwargs["initial_context"] == {"device": "cuda", "dtype": torch.float64}
-    assert model_kwargs["torch_context"] == {"device": "cuda", "dtype": torch.float64}
+    expected_context = {"device": "cuda", "dtype": getattr(torch, config.dtype)}
+    assert model_kwargs["initial_context"] == expected_context
+    assert model_kwargs["torch_context"] == expected_context
     assert "spatial_affinity_groups" not in model_kwargs
     assert constructed_model is model_constructor.return_value
     assert trainer_kwargs["iterations"] == 2
@@ -201,9 +202,12 @@ def test_wandb_sweep_uses_hydra_overrides():
 
     assert sweep["entity"] == "popari"
     assert sweep["project"] == "revisions"
+    assert sweep["method"] == "grid"
     assert sweep["metric"] == {"name": "nll_spatial", "goal": "minimize"}
     assert "model.K" in sweep["parameters"]
     assert "model.lambda_Sigma_x_inv" in sweep["parameters"]
+    assert "model.spatial_affinity_lr" in sweep["parameters"]
+    assert sweep["parameters"]["dtype"] == {"value": "float64"}
     assert "${args_no_hyphens}" in sweep["command"]
     assert "tracking.enabled=true" in sweep["command"]
     for parameter_path in sweep["parameters"]:

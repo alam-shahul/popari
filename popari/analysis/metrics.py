@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import anndata as ad
 import networkx as nx
 import numpy as np
-from scipy.sparse import issparse
+from scipy.sparse import csr_array, issparse
 from scipy.stats import zscore
 from sklearn.metrics import adjusted_rand_score, confusion_matrix, precision_score, silhouette_score
 from sklearn.model_selection import train_test_split
@@ -16,7 +16,33 @@ from sklearn.preprocessing import LabelEncoder
 
 from popari._sample_axis import SampleAxis
 from popari.schema import _validate_spatial_graph
-from popari.util import compute_neighborhood_enrichment
+
+
+def compute_neighborhood_enrichment(features: np.ndarray, adjacency_matrix: csr_array):
+    r"""Compute the normalized enrichment of features in direct neighbors on a
+    graph.
+
+    Args:
+        features: attributes on the nodes of the graph on which to compute enrichment.
+        adjacency_matrix: sparse graph representation.
+
+    """
+
+    adjacency_matrix = (adjacency_matrix + adjacency_matrix.T).astype(bool).astype(adjacency_matrix.dtype)
+    edges_per_node = np.squeeze(np.asarray(adjacency_matrix.sum(axis=0)))
+    connected_mask = edges_per_node > 0
+
+    features = features[connected_mask]
+    adjacency_matrix = adjacency_matrix[connected_mask][:, connected_mask]
+
+    total_counts = features.sum(axis=0)[:, np.newaxis]
+    assert np.all(total_counts > 0)
+
+    normalized_enrichment = ((1 / total_counts) * features.T) @ (
+        1 / edges_per_node[connected_mask][:, np.newaxis] * adjacency_matrix.toarray() @ features
+    )
+
+    return np.asarray(normalized_enrichment)
 
 
 def compute_empirical_correlations(

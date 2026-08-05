@@ -5,15 +5,9 @@ import torch
 from loguru import logger
 from tqdm.auto import tqdm, trange
 
-from popari.util import (
-    IndependentSet,
-    NesterovGD,
-    project2simplex,
-    project2simplex_,
-    project_M,
-    project_M_,
-    sample_graph_iid,
-)
+from popari.optim.batching import IndependentSet
+from popari.optim.nesterov import NesterovGD
+from popari.optim.projection import project2simplex, project2simplex_
 
 
 def _embedding_loss(

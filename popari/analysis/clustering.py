@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import scanpy as sc
 import scanpy.external as sce
 from loguru import logger
+from scipy.sparse import csr_array
 
+from popari._graph import graph_neighbors
 from popari._sample_axis import SampleAxis
-from popari.util import normalize_expression_by_threshold, smooth_labels, smooth_metagene_expression
 
 
 def leiden(
@@ -154,3 +156,97 @@ def cluster_domains(
     )
 
     smooth_labels(dataset, output_key="smoothed_domain")
+
+
+def normalize_expression_by_threshold(dataset, thresholded_key: str = "elbowed_X", threshold: float = 99.0):
+    """Replacement for Z-score threshold."""
+
+    thresholded_expression = dataset.obsm[thresholded_key]
+    expression_threshold = np.percentile(thresholded_expression, threshold, axis=0)
+    mask = thresholded_expression > expression_threshold
+
+    total_entities = mask.sum(axis=0)
+    total_expression = (expression_threshold * mask).sum(axis=0)
+
+    normalized_thresholded_expression = thresholded_expression / total_expression
+
+    dataset.obsm["normalized_thresholded_expression"] = normalized_thresholded_expression
+
+    return normalized_thresholded_expression
+
+
+def smooth_metagene_expression(
+    dataset,
+    processed_key: str = "normalized_thresholded_expression",
+    adjacency_key: str = "adjacency_matrix",
+):
+    """"""
+    processed_expression = dataset.obsm[processed_key]
+    adjacency = csr_array(dataset.obsp[adjacency_key]).astype(bool).astype(float)
+    degree = np.asarray(adjacency.sum(axis=1)).reshape(-1, 1)
+    smoothed_expression = (processed_expression + adjacency @ processed_expression) / (degree + 1)
+
+    dataset.obsm["smoothed_expression"] = smoothed_expression
+
+    return smoothed_expression
+
+
+def spatially_smooth_feature(labels, adjacency, max_smoothing_rounds=1, smoothing_threshold=0.5):
+    """"""
+    labels = np.asarray(labels)
+    num_entities = len(labels)
+
+    smoothed_labels = labels.copy()
+    for _ in range(max_smoothing_rounds):
+        new_labels = smoothed_labels.copy()
+        for entity in np.arange(num_entities):
+            current_cluster = smoothed_labels[entity]
+
+            adjacencies = graph_neighbors(adjacency, entity)
+            neighbor_labels = smoothed_labels[adjacencies]
+            num_neighbors = len(neighbor_labels)
+            if num_neighbors == 0:
+                new_labels[entity] = current_cluster
+                continue
+
+            values, counts = np.unique(neighbor_labels, return_counts=True)
+
+            max_index = np.argmax(counts)
+            max_cluster = values[max_index]
+
+            ratio = (counts[max_index] + (max_cluster == current_cluster)) / (num_neighbors + 1)
+            if ratio >= smoothing_threshold:
+                new_labels[entity] = max_cluster
+            else:
+                new_labels[entity] = current_cluster
+
+        if np.all(smoothed_labels == new_labels):
+            break
+
+        smoothed_labels = new_labels
+
+    return new_labels
+
+
+def smooth_labels(
+    dataset,
+    label_key: str = "leiden",
+    output_key: str = "smoothed_leiden",
+    smoothing_threshold: float = 0.5,
+    max_smoothing_rounds: int = 1,
+    adjacency_key: str = "adjacency_matrix",
+):
+    """"""
+    adjacency = csr_array(dataset.obsp[adjacency_key])
+
+    labels = dataset.obs[label_key]
+    dataset.obs[output_key] = pd.Categorical(
+        spatially_smooth_feature(
+            labels,
+            adjacency,
+            max_smoothing_rounds,
+            smoothing_threshold,
+        ),
+    )
+
+    return dataset.obs[output_key]

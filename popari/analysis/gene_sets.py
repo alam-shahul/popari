@@ -8,9 +8,33 @@ from collections.abc import Iterable, Mapping
 import anndata as ad
 import numpy as np
 import pandas as pd
+from kneed import KneeLocator
 from scipy.stats import false_discovery_control, fisher_exact
 
-from popari.util import get_metagene_signature
+
+def get_metagene_signature(
+    metagene,
+    gene_names,
+    sensitivity: float = 1.0,
+    type: str = "upregulated",
+    show_plot: bool = False,
+):
+    """Use knee-detection algorithm to get top genes for metagene."""
+
+    num_genes = len(metagene)
+
+    sort_indices = np.argsort(metagene)
+    curve = "convex" if type == "upregulated" else "concave"
+
+    kneedle = KneeLocator(range(num_genes), metagene[sort_indices], S=sensitivity, curve=curve, direction="increasing")
+
+    signature_range = slice(kneedle.knee, None) if type == "upregulated" else slice(None, kneedle.knee)
+    signature_genes = gene_names[sort_indices[signature_range]]
+
+    if show_plot:
+        kneedle.plot_knee()
+
+    return list(signature_genes)
 
 
 def _resolve_gene_set_libraries(gene_sets, *, organism: str, gseapy) -> list[dict[str, set[str]]]:
