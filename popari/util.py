@@ -71,7 +71,7 @@ class NesterovGD:
 def project_M(M, M_constraint):
     result = M.clone()
     if M_constraint == "simplex":
-        result = project2simplex(result, dim=0, zero_threshold=1e-5)
+        result = project2simplex_(result, dim=0, minimum_value=1e-5)
     elif M_constraint == "unit sphere":
         result = M.div(torch.linalg.norm(result, ord=2, dim=0, keepdim=True))
     elif M_constraint == "nonneg unit sphere":
@@ -84,7 +84,7 @@ def project_M(M, M_constraint):
 def project_M_(M, M_constraint):
     result = M.clone()
     if M_constraint == "simplex":
-        result = project2simplex_(result, dim=0, zero_threshold=1e-5)
+        result = project2simplex_(result, dim=0, minimum_value=1e-5)
     elif M_constraint == "unit sphere":
         result = M.div(torch.linalg.norm(result, ord=2, dim=0, keepdim=True))
     elif M_constraint == "nonneg unit sphere":
@@ -94,92 +94,54 @@ def project_M_(M, M_constraint):
     return result
 
 
-def project2simplex(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Tensor:
-    """Projects a matrix such that the columns (or rows) lie on the unit
-    simplex.
+def project2simplex(y, dim: int = 0, minimum_value: float = 1e-10) -> torch.Tensor:
+    """Return the Euclidean projection of ``y`` onto a unit simplex.
 
-    See https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex
-    for a reference.
-
-    The goal is to find a scalar mu such that || (y-mu)_+ ||_1 = 1
-
-    Currently uses Newton's method to optimize || y - mu ||^2
-
-    TODO: try implementing it this way instead: https://arxiv.org/pdf/1101.6081.pdf
-
-    Args:
-        y: list of vectors to be projected to unit simplex
-        dim: dimension along which to project
-        zero_threshold: threshold to treat as zero for numerical stability purposes
+    Every projected component is at least ``minimum_value`` and components
+    along ``dim`` sum to one. The input tensor is not modified.
 
     """
 
+    return project2simplex_(y.clone(), dim=dim, minimum_value=minimum_value)
+
+
+def project2simplex_(y, dim: int = 0, minimum_value: float = 1e-10) -> torch.Tensor:
+    """Project ``y`` onto a unit simplex in place using an active-set sort."""
+
+    if not np.isfinite(minimum_value) or minimum_value < 0:
+        raise ValueError("minimum_value must be finite and nonnegative.")
+
     num_components = y.shape[dim]
+    if num_components == 0:
+        raise ValueError("Cannot project an empty dimension onto the simplex.")
 
-    mu = (y.sum(dim=dim, keepdim=True) - 1) / num_components
-    previous_derivative = derivative = None
-    for _ in range(num_components):
-        difference = y - mu
-        derivative = -(difference > zero_threshold).sum(dim=dim, keepdim=True).to(y.dtype)
-        assert -derivative.min() > 0, difference.clip(min=0).sum(dim).min()
-        if previous_derivative is not None and (derivative == previous_derivative).all():
-            break
-        objective_value = torch.clip(difference, min=zero_threshold).sum(dim=dim, keepdim=True) - 1
-        newton_update = objective_value / derivative
-        mu -= newton_update
+    simplex_mass = 1.0 - num_components * minimum_value
+    if simplex_mass < 0:
+        raise ValueError(
+            f"minimum_value={minimum_value} is infeasible for a simplex with " f"{num_components} components.",
+        )
 
-        previous_derivative = derivative
-    assert (derivative == previous_derivative).all()
+    values = y.movedim(dim, -1)
+    if simplex_mass == 0:
+        values.fill_(minimum_value)
+        return y
 
-    assert not torch.isnan(y).any(), y
-
-    y = (y - mu).clip(min=zero_threshold)
-    assert not torch.isnan(y).any(), (mu, derivative)
-
-    assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-3, y.sum(dim=dim).sub_(1).abs_().max()
-
+    # Projection is invariant to a common offset. Centering prevents loss of
+    # precision when every component has a large shared magnitude.
+    shifted = values - values.amax(dim=-1, keepdim=True)
+    ordered = shifted.sort(dim=-1, descending=True).values
+    cumulative = ordered.cumsum(dim=-1).sub_(simplex_mass)
+    ranks = torch.arange(
+        1,
+        num_components + 1,
+        device=y.device,
+        dtype=y.dtype,
+    )
+    active = ordered - cumulative / ranks > 0
+    active_count = active.sum(dim=-1, keepdim=True)
+    threshold = cumulative.gather(dim=-1, index=active_count - 1) / active_count.to(y.dtype)
+    values.copy_(shifted.sub_(threshold).clamp_min_(0).add_(minimum_value))
     return y
-
-
-def project2simplex_(y, dim: int = 0, zero_threshold: float = 1e-10) -> torch.Tensor:
-    """(In-place) Projects a matrix such that the columns (or rows) lie on the
-    unit simplex.
-
-    See https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex
-    for a reference.
-
-    The goal is to find a scalar mu such that || (y-mu)_+ ||_1 = 1
-
-    Currently uses Newton's method to optimize || y - mu ||^2
-
-    TODO: try implementing it this way instead: https://arxiv.org/pdf/1101.6081.pdf
-
-    Args:
-        y: list of vectors to be projected to unit simplex
-        dim: dimension along which to project
-        zero_threshold: threshold to treat as zero for numerical stability purposes
-
-    """
-    y_copy = y.clone()
-    num_components = y.shape[dim]
-
-    y_copy.sub_(y_copy.sum(dim=dim, keepdim=True).sub_(1), alpha=1 / num_components)
-    mu = y_copy.max(dim=dim, keepdim=True)[0].div_(2)
-    derivative_prev, derivative = None, None
-    for _ in range(num_components):
-        difference = y_copy.sub(mu)
-        objective_value = difference.clip_(min=zero_threshold).sum(dim, keepdim=True).sub_(1)
-        derivative = difference.gt_(zero_threshold).sum(dim, keepdim=True)
-
-        if derivative_prev is not None and (derivative == derivative_prev).all():
-            break
-
-        mu.addcdiv_(objective_value, derivative)
-        derivative_prev = derivative
-
-    y_copy.sub_(mu).clip_(min=zero_threshold)
-    assert y_copy.sum(dim=dim).sub_(1).abs_().max() < 1e-4, y_copy.sum(dim=dim).sub_(1).abs_().max()
-    return y_copy
 
 
 def graph_neighbors(adjacency: csr_array, index: int) -> np.ndarray:
