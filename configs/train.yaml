@@ -5,7 +5,7 @@ model:
   K: ???
   lambda_Sigma_x_inv: 1.0e-4
   pretrained: false
-  initialization_method: leiden
+  initialization_method: leiden_fast
   hierarchical_levels: 1
   spatial_affinity_groups: null
   betas: null
