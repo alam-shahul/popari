@@ -215,6 +215,8 @@ def edge_interactions_panel(
         dpi=dpi,
         figsize=figsize,
         constrained_layout=False,
+        sharex=False,
+        sharey=False,
     )
     for sample, values, ax in zip(selected_samples, selected_values, axes.flat):
         result = interactions[sample]

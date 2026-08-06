@@ -395,6 +395,7 @@ def test_edge_interactions_plot_returns_figure():
 def test_edge_interactions_panel_uses_shared_category_pair_scale():
     first = _edge_interaction_dataset("first")
     second = _edge_interaction_dataset("second")
+    second.obsm["spatial"] = second.obsm["spatial"] + 100
     dataset = ad.concat(
         {"first": first, "second": second},
         label="batch",
@@ -427,6 +428,11 @@ def test_edge_interactions_panel_uses_shared_category_pair_scale():
     try:
         assert isinstance(figure, Figure)
         assert [axis.get_title() for axis in figure.axes[:2]] == ["first", "second"]
+        first_axis, second_axis = figure.axes[:2]
+        assert not first_axis.get_shared_x_axes().joined(first_axis, second_axis)
+        assert not first_axis.get_shared_y_axes().joined(first_axis, second_axis)
+        assert first_axis.get_xlim() != second_axis.get_xlim()
+        assert first_axis.get_ylim() != second_axis.get_ylim()
         assert figure.axes[-1].get_ylabel() == "Edge accordance score"
     finally:
         _close_figures(figure)
