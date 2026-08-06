@@ -1,19 +1,12 @@
 import numpy as np
 import torch
 from loguru import logger
+from torch import nn
 from tqdm.auto import trange
 
-from popari.sample_for_integral import integrate_of_exponential_over_simplex
-from popari.util import (
-    IndependentSet,
-    NesterovGD,
-    graph_neighbors,
-    project2simplex,
-    project2simplex_,
-    project_M,
-    project_M_,
-    sample_graph_iid,
-)
+from popari._named_state import ParameterDict
+from popari.optim.batching import sample_graph_iid
+from popari.optim.simplex_integral import integrate_of_exponential_over_simplex
 
 
 def compute_empirical_spatial_affinities(embeddings, adjacency, sample_axis, scaling, context):
@@ -244,213 +237,83 @@ def estimate_spatial_affinity(
     return Sigma_x_inv_best, loss_best * weighted_total_cells
 
 
-def _metagene_loss(metagenes, quadratic_factor, linear_factor, constant):
-    """Return the conditional metagene objective as a scalar tensor."""
+class SpatialAffinityState(nn.Module):
+    """Registered spatial affinities and their runtime grouping behavior."""
 
-    loss = ((metagenes @ quadratic_factor) * metagenes).sum()
-    loss -= 2 * (linear_factor * metagenes).sum()
-    return (loss + constant) / 2
+    def __init__(self, K, sample_names, groups, mode, context):
+        super().__init__()
+        self.sample_names = tuple(sample_names)
+        self.groups = {name: list(samples) for name, samples in groups.items()}
+        self.mode = mode
+        self.tags = {
+            sample: [group for group, samples in self.groups.items() if sample in samples]
+            for sample in self.sample_names
+        }
 
+        self.values = ParameterDict(prefix="spatial_affinity")
+        if mode == "shared lookup":
+            self._sample_to_parameter = {sample: group for group, samples in self.groups.items() for sample in samples}
+            parameter_names = tuple(self.groups)
+        elif mode == "differential lookup":
+            self._sample_to_parameter = {sample: sample for sample in self.sample_names}
+            parameter_names = self.sample_names
+        else:
+            raise NotImplementedError(f"{mode=} is not implemented.")
+        self.parameter_names = tuple(parameter_names)
+        for name in parameter_names:
+            self.values[name] = torch.zeros((K, K), **context)
 
-@torch.no_grad()
-def estimate_metagenes(
-    level,
-    M,
-    replicate_mask,
-    n_epochs=10000,
-    tol=1e-3,
-    backend_algorithm="gd Nesterov",
-    simplex_projection_mode=False,
-):
-    """Optimize metagene parameters.
+    def for_sample(self, sample: str) -> torch.Tensor:
+        """Return the affinity matrix applicable to a sample."""
 
-    M is shared across all replicates.
-    min || Y - X MT ||_2^2 / (2 σ_yx^2)
-    s.t. || Mk ||_p = 1
-    grad = (M XT X - YT X) / (σ_yx^2)
+        return self.values[self._sample_to_parameter[sample]]
 
-    Args:
-        M: current estimate of metagene parameters
-        betas: weight of each FOV in optimization scheme
-        context: context ith which to create PyTorch tensor
-        n_epochs: number of epochs
+    def set_sample_(self, sample: str, value: torch.Tensor) -> None:
+        """Copy an affinity matrix into the parameter applicable to a sample."""
 
-    Returns:
-        Updated estimate of metagene parameters.
+        with torch.no_grad():
+            self.for_sample(sample).copy_(value)
 
-    """
+    def group_means(self) -> dict[str, torch.Tensor]:
+        """Return detached arithmetic means of current sample affinities."""
 
-    G, K = M.shape
-    quadratic_factor = torch.zeros([K, K], **level.context)
-    linear_factor = torch.zeros_like(M)
-    # TODO: replace below (and any reference to dataset)
+        with torch.no_grad():
+            return {
+                group: torch.stack([self.for_sample(sample) for sample in samples]).mean(dim=0)
+                for group, samples in self.groups.items()
+            }
 
-    tol /= G
+    def initialize_(self, sample_values: dict[str, torch.Tensor], betas: torch.Tensor) -> None:
+        """Initialize state from one empirical affinity matrix per sample."""
 
-    samples = [sample for use_replicate, sample in zip(replicate_mask, level.sample_names) if use_replicate]
-    Xs = [level.embedding(sample) for sample in samples]
-    Ys = [Y for (use_replicate, Y) in zip(replicate_mask, level.Ys) if use_replicate]
-    sigma_yxs = level.sigma_yxs[replicate_mask]
-
-    betas = level.betas[replicate_mask]
-    betas /= betas.sum()
-
-    scaled_betas = betas / (sigma_yxs**2)
-
-    constant = torch.zeros((), **level.context)
-    for Y, scaled_beta in zip(Ys, scaled_betas):
-        constant += scaled_beta * torch.square(Y).sum()
-
-    if level.verbose >= 3:
-        logger.debug("Metagene objective constant: {:.3e}", constant)
-        # print(f"M constant magnitude: {constant_magnitude:.1e}")
-
-    for X, Y, scaled_beta in zip(Xs, Ys, scaled_betas):
-        # X_c^TX_c
-        quadratic_factor.addmm_(X.T, X, alpha=scaled_beta)
-        # MX_c^TY_c
-        linear_factor.addmm_(Y.T, X, alpha=scaled_beta)
-
-    if level.verbose >= 3:
-        logger.debug("Metagene linear-term norm: {:.3e}", torch.linalg.norm(linear_factor).item())
-    loss_prev, loss = np.inf, np.nan
-
-    progress_bar = trange(
-        n_epochs,
-        desc="Metagene optimization",
-        leave=False,
-        disable=level.verbose < 2,
-        dynamic_ncols=True,
-        mininterval=1,
-    )
-
-    def compute_loss_and_gradient(M):
-        quadratic_factor_grad = M @ quadratic_factor
-        grad = quadratic_factor_grad - linear_factor
-
-        if level.M_constraint == "simplex":
-            grad.sub_(grad.sum(0, keepdim=True))
-
-        return _metagene_loss(M, quadratic_factor, linear_factor, constant).item(), grad
-
-    def estimate_metagenes_nag(M):
-        """Estimate M using Nesterov accelerated gradient descent.
-
-        Args:
-            M (torch.Tensor) : current estimate of meteagene parameters
-
-        """
-        loss, grad = compute_loss_and_gradient(M)
-        if level.verbose >= 3:
-            logger.debug("Initial metagene loss: {:.3e}", loss)
-
-        step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
-        loss = np.inf
-
-        optimizer = NesterovGD(M.clone(), step_size)
-        for epoch in progress_bar:
-            loss_prev = loss
-            M_prev = M.clone()
-
-            # Update M
-            loss, grad = compute_loss_and_gradient(M)
-            M = optimizer.step(grad)
-            if simplex_projection_mode == "exact":
-                if level.use_inplace_ops:
-                    M = project_M_(M, level.M_constraint)
-                else:
-                    M = project_M(M, level.M_constraint)
-            elif simplex_projection_mode == "approximate":
-                raise NotImplementedError()
-
-            optimizer.set_parameters(M)
-
-            dloss = loss_prev - loss
-            dM = (M_prev - M).abs().max().item()
-            stop_criterion = dM < tol and epoch > 5
-            assert not np.isnan(loss)
-            if epoch % 5 == 0 or stop_criterion:
-                progress_bar.set_postfix(loss=f"{loss:.1e}", delta=f"{dM:.1e}")
-            if stop_criterion:
-                break
-
-        progress_bar.close()
-
-        loss, grad = compute_loss_and_gradient(M)
-        if level.verbose >= 3:
-            logger.debug("Final metagene loss: {:.3e}", loss)
-
-        return M, loss
-
-    if backend_algorithm == "mu":
-        for epoch in progress_bar:
-            loss = _metagene_loss(M, quadratic_factor, linear_factor, constant).item()
-            numerator = linear_factor
-            denominator = M @ quadratic_factor
-            multiplicative_factor = numerator / denominator
-
-            M_prev = M.clone()
-            # multiplicative_factor.clip_(max=10)
-            M *= multiplicative_factor
-            if simplex_projection_mode == "exact":
-                if level.use_inplace_ops:
-                    M = project_M_(M, level.M_constraint)
-                else:
-                    M = project_M(M, level.M_constraint)
-            elif simplex_projection_mode == "approximate":
-                pass
-            dM = M_prev.sub(M).abs_().max().item()
-
-            stop_criterion = dM < tol and epoch > 5
-            if epoch % 1000 == 0 or stop_criterion:
-                progress_bar.set_description(
-                    f"Updating M: loss = {loss:.1e}, " f"%δloss = {(loss_prev - loss) / loss:.1e}, " f"δM = {dM:.1e}",
-                )
-            if stop_criterion:
-                break
-
-    elif backend_algorithm == "gd":
-        step_size = 1 / torch.linalg.eigvalsh(quadratic_factor).max().item()
-        step_size_scale = 1
-        loss, grad = compute_loss_and_gradient(M)
-        dM = dloss = np.inf
-        for epoch in progress_bar:
-            M_new = M.sub(grad, alpha=step_size * step_size_scale)
-            if simplex_projection_mode == "exact":
-                if level.use_inplace_ops:
-                    M = project_M_(M_new, level.M_constraint)
-                else:
-                    M = project_M(M_new, level.M_constraint)
-            elif simplex_projection_mode == "approximate":
-                pass
-            loss_new, grad_new = compute_loss_and_gradient(M_new)
-            if loss_new < loss or step_size_scale == 1:
-                dM = (M_new - M).abs().max().item()
-                dloss = loss - loss_new
-                M[:] = M_new
-                loss = loss_new
-                grad = grad_new
-                step_size_scale *= 1.1
+        with torch.no_grad():
+            if self.mode == "shared lookup":
+                for group, samples in self.groups.items():
+                    shared_affinity = self.values[group]
+                    shared_affinity.zero_()
+                    for sample, beta in zip(self.sample_names, betas):
+                        if sample in samples:
+                            shared_affinity.add_(beta * sample_values[sample])
             else:
-                step_size_scale *= 0.5
-                step_size_scale = max(step_size_scale, 1.0)
+                for sample in self.sample_names:
+                    self.values[sample].copy_(sample_values[sample])
 
-            stop_criterion = dM < tol and epoch > 5
-            if epoch % 1000 == 0 or stop_criterion:
-                progress_bar.set_description(
-                    f"Updating M: loss = {loss:.1e}, "
-                    f"%δloss = {dloss / loss:.1e}, "
-                    f"δM = {dM:.1e}, "
-                    f"lr={step_size_scale:.1e}",
-                )
-            if stop_criterion:
-                break
+    def get_extra_state(self):
+        return {
+            "sample_names": self.sample_names,
+            "groups": self.groups,
+            "mode": self.mode,
+        }
 
-    elif backend_algorithm == "gd Nesterov":
-        M, loss = estimate_metagenes_nag(M)
-    else:
-        raise NotImplementedError
-
-    if backend_algorithm != "gd Nesterov":
-        loss = _metagene_loss(M, quadratic_factor, linear_factor, constant).item()
-    return M, loss
+    def set_extra_state(self, state):
+        if tuple(state["sample_names"]) != self.sample_names:
+            raise RuntimeError(
+                f"{self.__class__.__name__} checkpoint samples do not match the current samples.",
+            )
+        loaded_groups = {name: list(samples) for name, samples in state["groups"].items()}
+        if loaded_groups != self.groups:
+            raise RuntimeError(
+                f"{self.__class__.__name__} checkpoint groups do not match the current groups.",
+            )
+        if state.get("mode") != self.mode:
+            raise RuntimeError(f"{self.__class__.__name__} checkpoint mode is incompatible with the current model.")

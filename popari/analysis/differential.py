@@ -12,7 +12,7 @@ from scipy.sparse import csr_matrix, issparse
 from scipy.stats import zscore
 
 from popari._sample_axis import SampleAxis
-from popari.util import get_metagene_signature
+from popari.analysis.gene_sets import get_metagene_signature
 
 
 def compute_metagene_signature_expression(

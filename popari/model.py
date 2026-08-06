@@ -9,9 +9,9 @@ from anndata import AnnData
 from torch import nn
 
 from popari._hierarchical_level import HierarchicalLevel, Hierarchy
+from popari._sparse import convert_numpy_to_pytorch_sparse_coo
 from popari.io import load_anndata, load_anndata_hierarchy
 from popari.schema import SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
-from popari.util import convert_numpy_to_pytorch_sparse_coo
 
 
 class Popari(nn.Module):

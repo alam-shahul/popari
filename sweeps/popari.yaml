@@ -11,11 +11,23 @@ parameters:
   "data.dataset_path":
     value: /path/to/input.h5ad
   "model.K":
-    values: [10, 15, 20]
+    values: [8, 10, 12, 15, 20]
   "model.lambda_Sigma_x_inv":
-    values: [1.0e-3, 1.0e-4]
+    distribution: log_uniform_values
+    min: 1.0e-5
+    max: 1.0e-2
+  "model.spatial_affinity_lr":
+    distribution: log_uniform_values
+    min: 1.0e-3
+    max: 5.0e-2
+  "model.embedding_step_size_multiplier":
+    values: [0.5, 1.0, 2.0]
   "model.random_state":
-    values: [0, 1, 2, 3, 4]
+    value: 0
+  "model.initialization_method":
+    value: leiden_fast
+  dtype:
+    value: float64
 
 command:
   - ${env}

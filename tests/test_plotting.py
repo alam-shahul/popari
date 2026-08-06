@@ -263,6 +263,7 @@ def test_category_marker_heatmap_uses_grouped_marker_matrix():
 def test_embedding_label_dotplot_returns_scanpy_plot():
     dataset = ad.AnnData(X=np.ones((4, 1)))
     dataset.obs["domain"] = pd.Categorical(["A", "A", "B", "B"])
+    dataset.obs["m1"] = np.arange(dataset.n_obs)
     dataset.obsm["normalized_X"] = np.array(
         [
             [1.0, 0.0],
@@ -394,6 +395,7 @@ def test_edge_interactions_plot_returns_figure():
 def test_edge_interactions_panel_uses_shared_category_pair_scale():
     first = _edge_interaction_dataset("first")
     second = _edge_interaction_dataset("second")
+    second.obsm["spatial"] = second.obsm["spatial"] + 100
     dataset = ad.concat(
         {"first": first, "second": second},
         label="batch",
@@ -426,6 +428,11 @@ def test_edge_interactions_panel_uses_shared_category_pair_scale():
     try:
         assert isinstance(figure, Figure)
         assert [axis.get_title() for axis in figure.axes[:2]] == ["first", "second"]
+        first_axis, second_axis = figure.axes[:2]
+        assert not first_axis.get_shared_x_axes().joined(first_axis, second_axis)
+        assert not first_axis.get_shared_y_axes().joined(first_axis, second_axis)
+        assert first_axis.get_xlim() != second_axis.get_xlim()
+        assert first_axis.get_ylim() != second_axis.get_ylim()
         assert figure.axes[-1].get_ylabel() == "Edge accordance score"
     finally:
         _close_figures(figure)
@@ -701,7 +708,7 @@ def test_plotting_wrappers_return_figures(analyzed_shared_model):
         "type_1": [model.adata.var_names[2], model.adata.var_names[3]],
     }
 
-    metagene_figure = pl.metagene_embedding(model.adata, metagene_index=0)
+    metagene_figure = pl.metagene_embedding(model.adata, metagene_index=0, figsize=(8, 5))
     heatmap_figure = pl.multireplicate_heatmap(model.adata, uns="M")
     affinity_figure = pl.spatial_affinity_heatmap(model.adata)
     embeddings_figure = pl.all_embeddings(model.adata)
@@ -725,6 +732,7 @@ def test_plotting_wrappers_return_figures(analyzed_shared_model):
             assert isinstance(figure, Figure)
             assert figure.axes
 
+        assert tuple(metagene_figure.get_size_inches()) == pytest.approx((8, 5))
         assert set(medians) == set(marker_genes)
         assert difference_medians
         assert set(difference_medians).issubset(marker_genes)

@@ -2,14 +2,10 @@ import numpy as np
 import pytest
 import torch
 
-from popari._embedding_updates import _embedding_loss, estimate_weight_wnbr, estimate_weight_wonbr
-from popari._parameter_updates import (
-    _metagene_loss,
-    _spatial_affinity_loss,
-    estimate_metagenes,
-    estimate_spatial_affinity,
-)
-from popari.sample_for_integral import integrate_of_exponential_over_simplex
+from popari.optim.embedding import _embedding_loss, estimate_weight_wnbr, estimate_weight_wonbr
+from popari.optim.metagene import _metagene_loss, estimate_metagenes
+from popari.optim.simplex_integral import integrate_of_exponential_over_simplex
+from popari.optim.spatial_affinity import _spatial_affinity_loss, estimate_spatial_affinity
 from popari.train import Trainer
 
 pytestmark = [pytest.mark.baseline, pytest.mark.cheap]

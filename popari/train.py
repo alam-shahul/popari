@@ -7,11 +7,12 @@ from loguru import logger
 from scipy.sparse import csr_array
 from tqdm.auto import trange
 
-from popari._embedding_updates import estimate_weight_wnbr, estimate_weight_wonbr
-from popari._parameter_updates import estimate_metagenes, estimate_spatial_affinity
+from popari._sparse import convert_numpy_to_pytorch_sparse_coo
 from popari.model import Popari
+from popari.optim.embedding import estimate_weight_wnbr, estimate_weight_wonbr
+from popari.optim.metagene import estimate_metagenes
+from popari.optim.spatial_affinity import estimate_spatial_affinity
 from popari.schema import BIN_ASSIGNMENTS_KEY
-from popari.util import convert_numpy_to_pytorch_sparse_coo
 
 
 class Trainer:

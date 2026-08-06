@@ -9,9 +9,8 @@ from torch import nn
 
 from popari._binning_utils import GridDownsampler, PartitionDownsampler
 from popari._named_state import BufferDict
-from popari._parameter_updates import _spatial_affinity_loss, compute_empirical_spatial_affinities
 from popari._sample_axis import SampleAxis
-from popari._spatial_affinity import SpatialAffinityState
+from popari._sparse import convert_numpy_to_pytorch_sparse_coo
 from popari.initialization import (
     initialize_dummy,
     initialize_ground_truth,
@@ -19,10 +18,14 @@ from popari.initialization import (
     initialize_leiden,
     initialize_svd,
 )
+from popari.optim.simplex_integral import integrate_of_exponential_over_simplex
+from popari.optim.spatial_affinity import (
+    SpatialAffinityState,
+    _spatial_affinity_loss,
+    compute_empirical_spatial_affinities,
+)
 from popari.preprocessing import compute_spatial_neighbors
-from popari.sample_for_integral import integrate_of_exponential_over_simplex
 from popari.schema import BIN_ASSIGNMENTS_KEY, DATASET_NAME_KEY, SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
-from popari.util import convert_numpy_to_pytorch_sparse_coo
 
 
 class HierarchicalLevel(nn.Module):

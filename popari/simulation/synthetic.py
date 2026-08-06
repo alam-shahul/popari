@@ -28,6 +28,7 @@ from scipy.sparse import csr_array
 from scipy.spatial import KDTree
 from scipy.stats import gamma, truncnorm
 
+from popari._graph import graph_neighbors
 from popari._sample_axis import SampleAxis
 from popari.io import save_anndata
 from popari.schema import DATASET_NAME_KEY, SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
@@ -40,7 +41,6 @@ from popari.simulation.recipes import (
     named_replicates,
     simulation_sweep_output_path,
 )
-from popari.util import graph_neighbors
 
 SPATIAL_AFFINITY_DEMO_CELL_TYPES = {
     "Type A": [1, 0, 0],
