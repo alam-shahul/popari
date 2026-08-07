@@ -5,17 +5,18 @@ import torch
 from popari.optim.embedding import _embedding_loss, estimate_weight_wnbr, estimate_weight_wonbr
 from popari.optim.metagene import _metagene_loss, estimate_metagenes
 from popari.optim.simplex_integral import integrate_of_exponential_over_simplex
-from popari.optim.spatial_affinity import _spatial_affinity_loss, estimate_spatial_affinity
+from popari.optim.spatial_affinity import _spatial_affinity_loss, _spatial_affinity_losses, estimate_spatial_affinities
 from popari.train import Trainer
 
 pytestmark = [pytest.mark.baseline, pytest.mark.cheap]
 
 
-def _spatial_affinity_optimizers(level):
-    return {
-        name: torch.optim.Adam([level.spatial_affinity.values[name]], lr=level.spatial_affinity_lr, betas=(0.5, 0.9))
-        for name in level.spatial_affinity.parameter_names
-    }
+def _spatial_affinity_optimizer(level):
+    return torch.optim.Adam(
+        [level.spatial_affinity.values[name] for name in level.spatial_affinity.parameter_names],
+        lr=level.spatial_affinity_lr,
+        betas=(0.5, 0.9),
+    )
 
 
 def _trainer(model):
@@ -255,6 +256,59 @@ def test_spatial_affinity_loss_matches_direct_formula_and_is_differentiable():
     assert torch.isfinite(gradient).all()
 
 
+def test_batched_spatial_affinity_losses_match_scalar_losses_and_gradients():
+    torch.manual_seed(0)
+    affinities = torch.randn((2, 3, 3), dtype=torch.float64, requires_grad=True)
+    linear_factors = torch.randn((2, 3, 3), dtype=torch.float64)
+    neighbor_sums = torch.randn((2, 3, 3), dtype=torch.float64)
+    observation_mask = torch.tensor([[True, True, False], [True, True, True]])
+    observation_weights = observation_mask.to(torch.float64)
+    edge_counts = torch.tensor([4.0, 6.0], dtype=torch.float64)
+    group_means = torch.randn((2, 3, 3), dtype=torch.float64)
+    group_membership = torch.tensor([[1.0, 1.0], [0.0, 1.0]], dtype=torch.float64)
+
+    batched = _spatial_affinity_losses(
+        affinities,
+        linear_factors,
+        neighbor_sums,
+        observation_weights,
+        observation_mask,
+        edge_counts,
+        regularization_strength=0.2,
+        regularization_power=2,
+        group_means=group_means,
+        group_membership=group_membership,
+        group_regularization_strength=0.3,
+    )
+    batched.sum().backward()
+    batched_gradient = affinities.grad.detach().clone()
+
+    affinities.grad = None
+    scalar = torch.stack(
+        [
+            _spatial_affinity_loss(
+                affinities[parameter],
+                linear_factors[parameter],
+                [neighbor_sums[parameter, observation_mask[parameter]]],
+                torch.ones(1, dtype=torch.float64),
+                edge_counts[parameter],
+                regularization_strength=0.2,
+                regularization_power=2,
+                group_means=[
+                    group_means[group]
+                    for group in torch.nonzero(group_membership[parameter], as_tuple=False).flatten().tolist()
+                ],
+                group_regularization_strength=0.3,
+            )
+            for parameter in range(2)
+        ],
+    )
+    scalar.sum().backward()
+
+    torch.testing.assert_close(batched, scalar)
+    torch.testing.assert_close(batched_gradient, affinities.grad)
+
+
 @pytest.mark.parametrize("use_spatial", [False, True])
 def test_shared_forward_matches_direct_joint_pseudolikelihood(shared_model_factory, use_spatial):
     model = shared_model_factory(
@@ -388,15 +442,14 @@ def test_direct_estimate_sigma_x_inv_reduces_group_loss(shared_model_factory):
 
     sigma_x_inv = model.hierarchy[-1].spatial_affinity.for_sample(first_dataset_name)
     initial_loss = _spatial_objective(model.hierarchy[-1], sigma_x_inv, replicate_mask)
-    updated_sigma_x_inv, _ = estimate_spatial_affinity(
+    estimate_spatial_affinities(
         model.hierarchy[-1],
-        sigma_x_inv,
-        replicate_mask,
-        _spatial_affinity_optimizers(model.hierarchy[-1])[group_name],
+        _spatial_affinity_optimizer(model.hierarchy[-1]),
         n_epochs=100,
         check_frequency=10,
         tol=1e-4,
     )
+    updated_sigma_x_inv = model.hierarchy[-1].spatial_affinity.for_sample(first_dataset_name)
     updated_loss = _spatial_objective(model.hierarchy[-1], updated_sigma_x_inv, replicate_mask)
 
     assert torch.isfinite(initial_loss)
@@ -412,15 +465,13 @@ def test_spatial_affinity_update_tracks_the_best_pre_step_state(shared_model_fac
     affinity = level.spatial_affinity.for_sample(sample)
     initial_affinity = affinity.detach().clone()
 
-    updated_affinity, _ = estimate_spatial_affinity(
+    estimate_spatial_affinities(
         level,
-        affinity,
-        replicate_mask,
-        _spatial_affinity_optimizers(level)[group_name],
+        _spatial_affinity_optimizer(level),
         n_epochs=1,
     )
 
-    torch.testing.assert_close(updated_affinity, initial_affinity)
+    torch.testing.assert_close(affinity, initial_affinity)
 
 
 def test_spatial_affinity_update_rejects_nonfinite_initial_affinity(shared_model_factory):
@@ -432,11 +483,9 @@ def test_spatial_affinity_update_rejects_nonfinite_initial_affinity(shared_model
         affinity[0, 0] = torch.nan
 
     with pytest.raises(FloatingPointError, match="before optimization"):
-        estimate_spatial_affinity(
+        estimate_spatial_affinities(
             level,
-            affinity,
-            replicate_mask,
-            _spatial_affinity_optimizers(level)[group_name],
+            _spatial_affinity_optimizer(level),
             n_epochs=1,
         )
 
@@ -449,11 +498,22 @@ def test_spatial_affinity_update_rejects_nonfinite_fixed_neighbor_sums(shared_mo
         level.embeddings[0, 0] = torch.nan
 
     with pytest.raises(FloatingPointError, match="Neighbor sums"):
-        estimate_spatial_affinity(
+        estimate_spatial_affinities(
             level,
-            level.spatial_affinity.for_sample(sample),
-            replicate_mask,
-            _spatial_affinity_optimizers(level)[group_name],
+            _spatial_affinity_optimizer(level),
+            n_epochs=1,
+        )
+
+
+def test_spatial_affinity_update_rejects_subsampling(shared_model_factory):
+    model = shared_model_factory()
+    level = model.hierarchy[-1]
+
+    with pytest.raises(NotImplementedError, match="subsampling"):
+        estimate_spatial_affinities(
+            level,
+            _spatial_affinity_optimizer(level),
+            subsample_rate=0.5,
             n_epochs=1,
         )
 
@@ -463,8 +523,8 @@ def test_reinitialize_spatial_affinities_allows_fresh_optimizer_state(shared_mod
 
     model.hierarchy[-1]._initialize_spatial_affinities()
 
-    optimizers = _spatial_affinity_optimizers(model.hierarchy[-1])
-    assert set(optimizers) == set(model.spatial_affinity_groups)
+    optimizer = _spatial_affinity_optimizer(model.hierarchy[-1])
+    assert len(optimizer.param_groups[0]["params"]) == len(model.hierarchy[-1].spatial_affinity.parameter_names)
 
 
 def test_spatial_affinity_update_is_symmetric(shared_model_factory):
@@ -472,7 +532,7 @@ def test_spatial_affinity_update_is_symmetric(shared_model_factory):
     model.hierarchy[-1]._recompute_observation_noise()
     _trainer(model)._update_spatial_affinities(
         model.hierarchy[-1],
-        _spatial_affinity_optimizers(model.hierarchy[-1]),
+        _spatial_affinity_optimizer(model.hierarchy[-1]),
         differentiate=True,
     )
 
@@ -487,7 +547,7 @@ def test_update_spatial_affinity_differential_derives_group_means(differential_m
 
     _trainer(model)._update_spatial_affinities(
         model.hierarchy[-1],
-        _spatial_affinity_optimizers(model.hierarchy[-1]),
+        _spatial_affinity_optimizer(model.hierarchy[-1]),
         differentiate=True,
     )
 
@@ -503,35 +563,25 @@ def test_update_spatial_affinity_differential_derives_group_means(differential_m
         )
 
 
-def test_differential_affinity_update_uses_frozen_group_means(differential_model_factory, monkeypatch):
+def test_differential_affinity_update_uses_one_frozen_group_mean_snapshot(differential_model_factory, monkeypatch):
     model = differential_model_factory()
     level = model.hierarchy[-1]
-    initial_means = level.spatial_affinity.group_means()
-    received_means = []
+    original_group_means = level.spatial_affinity.group_means
+    calls = 0
 
-    def fake_estimate_spatial_affinity(
-        level,
-        affinity,
-        sample_mask,
-        optimizer,
-        *,
-        Sigma_x_inv_bar=None,
-        **kwargs,
-    ):
-        received_means.append([mean.clone() for mean in Sigma_x_inv_bar])
-        return affinity + 1, 0.0
+    def counted_group_means():
+        nonlocal calls
+        calls += 1
+        return original_group_means()
 
-    monkeypatch.setattr("popari.train.estimate_spatial_affinity", fake_estimate_spatial_affinity)
+    monkeypatch.setattr(level.spatial_affinity, "group_means", counted_group_means)
     _trainer(model)._update_spatial_affinities(
         level,
-        _spatial_affinity_optimizers(level),
+        _spatial_affinity_optimizer(level),
         differentiate=True,
+        n_epochs=2,
     )
-
-    for sample, sample_means in zip(level.sample_names, received_means):
-        expected_means = [initial_means[group] for group in level.spatial_affinity_tags[sample]]
-        assert len(sample_means) == len(expected_means)
-        assert all(torch.equal(actual, expected) for actual, expected in zip(sample_means, expected_means))
+    assert calls == 1
 
 
 def test_direct_estimate_weight_wonbr_reduces_loss(shared_model_factory):

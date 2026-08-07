@@ -11,7 +11,7 @@ from popari._sparse import convert_numpy_to_pytorch_sparse_coo
 from popari.model import Popari
 from popari.optim.embedding import estimate_weight_wnbr, estimate_weight_wonbr
 from popari.optim.metagene import estimate_metagenes
-from popari.optim.spatial_affinity import estimate_spatial_affinity
+from popari.optim.spatial_affinity import estimate_spatial_affinities
 from popari.schema import BIN_ASSIGNMENTS_KEY
 
 
@@ -41,7 +41,7 @@ class Trainer:
         self.superresolution_completed = False
         self.wandb_run = None
         self._owns_wandb_run = False
-        self.spatial_affinity_optimizers = None
+        self.spatial_affinity_optimizer = None
 
         if use_wandb:
             self._initialize_wandb(wandb_kwargs or {})
@@ -99,16 +99,13 @@ class Trainer:
             formatted,
         )
 
-    def _create_spatial_affinity_optimizers(self, level) -> dict[str, torch.optim.Adam]:
+    def _create_spatial_affinity_optimizer(self, level) -> torch.optim.Adam:
         state = level.spatial_affinity
-        return {
-            name: torch.optim.Adam(
-                [state.values[name]],
-                lr=level.spatial_affinity_lr,
-                betas=(0.5, 0.9),
-            )
-            for name in state.parameter_names
-        }
+        return torch.optim.Adam(
+            [state.values[name] for name in state.parameter_names],
+            lr=level.spatial_affinity_lr,
+            betas=(0.5, 0.9),
+        )
 
     @property
     def training_level(self):
@@ -150,50 +147,19 @@ class Trainer:
     def _update_spatial_affinities(
         self,
         level,
-        optimizers,
+        optimizer,
         *,
         differentiate: bool,
         **optimization_kwargs,
     ) -> np.ndarray:
-        losses = []
-        if level.spatial_affinity_mode == "shared lookup":
-            for group_name, samples in level.spatial_affinity_groups.items():
-                sample_mask = [sample in samples for sample in level.sample_names]
-                representative = samples[0]
-                affinity, loss = estimate_spatial_affinity(
-                    level,
-                    level.spatial_affinity.for_sample(representative).to(level.context["device"]),
-                    sample_mask,
-                    optimizers[group_name],
-                    tol=level.spatial_affinity_tol,
-                    **optimization_kwargs,
-                )
-                with torch.no_grad():
-                    level.spatial_affinity.set_sample_(representative, affinity)
-                losses.append(float(loss))
-        elif level.spatial_affinity_mode == "differential lookup":
-            group_mean_snapshot = level.spatial_affinity.group_means() if differentiate else None
-            for sample_index, sample in enumerate(level.sample_names):
-                group_means = None
-                if group_mean_snapshot is not None:
-                    group_means = [group_mean_snapshot[group] for group in level.spatial_affinity_tags[sample]]
-                sample_mask = [index == sample_index for index in range(len(level.sample_names))]
-                affinity, loss = estimate_spatial_affinity(
-                    level,
-                    level.spatial_affinity.for_sample(sample).to(level.context["device"]),
-                    sample_mask,
-                    optimizers[sample],
-                    Sigma_x_inv_bar=group_means,
-                    tol=level.spatial_affinity_tol,
-                    **optimization_kwargs,
-                )
-                with torch.no_grad():
-                    level.spatial_affinity.set_sample_(sample, affinity)
-                losses.append(float(loss))
-        else:
-            raise NotImplementedError(f"Unsupported spatial-affinity mode: {level.spatial_affinity_mode!r}")
-
-        return np.asarray(losses, dtype=float)
+        losses = estimate_spatial_affinities(
+            level,
+            optimizer,
+            differentiate=differentiate,
+            tol=level.spatial_affinity_tol,
+            **optimization_kwargs,
+        )
+        return losses.detach().cpu().numpy()
 
     def _update_parameters(
         self,
@@ -207,13 +173,13 @@ class Trainer:
         level = self.training_level
         metrics = {}
         if update_spatial_affinities:
-            if self.spatial_affinity_optimizers is None:
-                raise RuntimeError("Spatial-affinity optimizers must be initialized before parameter updates.")
+            if self.spatial_affinity_optimizer is None:
+                raise RuntimeError("The spatial-affinity optimizer must be initialized before parameter updates.")
             if self.verbose >= 2:
                 logger.info("Updating spatial affinities")
             losses = self._update_spatial_affinities(
                 level,
-                self.spatial_affinity_optimizers,
+                self.spatial_affinity_optimizer,
                 differentiate=differentiate_spatial_affinities,
                 subsample_rate=edge_subsample_rate,
                 n_epochs=spatial_affinity_epochs,
@@ -284,7 +250,7 @@ class Trainer:
             if self.nmf_iterations > 0:
                 self.training_level._initialize_spatial_affinities()
                 self.training_level.mark_dirty()
-            self.spatial_affinity_optimizers = self._create_spatial_affinity_optimizers(self.training_level)
+            self.spatial_affinity_optimizer = self._create_spatial_affinity_optimizer(self.training_level)
 
         spatial_preprogress_bar = trange(
             self.spatial_preiterations,
@@ -511,10 +477,10 @@ class Trainer:
                 )
 
             level._initialize_spatial_affinities()
-            spatial_affinity_optimizers = self._create_spatial_affinity_optimizers(level)
+            spatial_affinity_optimizer = self._create_spatial_affinity_optimizer(level)
             self._update_spatial_affinities(
                 level,
-                spatial_affinity_optimizers,
+                spatial_affinity_optimizer,
                 differentiate=True,
                 subsample_rate=None,
             )
