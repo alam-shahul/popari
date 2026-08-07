@@ -279,24 +279,24 @@ def test_verbose_trainer_reports_phase_diagnostics(monkeypatch):
 
 
 @pytest.mark.parametrize("nmf_iterations", [0, 1])
-def test_trainer_initializes_spatial_optimizers_at_phase_boundary(monkeypatch, nmf_iterations):
+def test_trainer_initializes_spatial_optimizer_at_phase_boundary(monkeypatch, nmf_iterations):
     mock_trainer_updates(monkeypatch)
     model = FakeModel()
     trainer = Trainer(model, nmf_iterations=nmf_iterations, iterations=1)
 
-    assert trainer.spatial_affinity_optimizers is None
+    assert trainer.spatial_affinity_optimizer is None
 
     trainer.train()
 
-    assert set(trainer.spatial_affinity_optimizers) == {"default"}
+    assert len(trainer.spatial_affinity_optimizer.param_groups[0]["params"]) == 1
     assert model.reinitializations == int(nmf_iterations > 0)
 
 
-def test_trainer_reuses_spatial_optimizers_across_phases(monkeypatch):
+def test_trainer_reuses_spatial_optimizer_across_phases(monkeypatch):
     optimizer_ids = []
 
     def update_parameters(trainer, **kwargs):
-        optimizer_ids.append(id(trainer.spatial_affinity_optimizers["default"]))
+        optimizer_ids.append(id(trainer.spatial_affinity_optimizer))
         return {"spatial_affinity_loss": 1.0, "metagene_loss": 1.0, "sigma_yx_mean": 1.0}
 
     monkeypatch.setattr(Trainer, "_update_parameters", update_parameters)
@@ -309,7 +309,7 @@ def test_trainer_reuses_spatial_optimizers_across_phases(monkeypatch):
     assert len(set(optimizer_ids)) == 1
 
 
-def test_parameter_update_requires_spatial_optimizers():
+def test_parameter_update_requires_spatial_optimizer():
     trainer = Trainer(FakeModel(), iterations=0)
 
     with pytest.raises(RuntimeError, match="must be initialized"):
@@ -396,7 +396,8 @@ def test_superresolve_applies_both_stages_per_level(monkeypatch):
         def __init__(self, level):
             self.level = level
             self.metagenes = torch.nn.Parameter(torch.ones((1, 1)))
-            self.spatial_affinity = SimpleNamespace(parameter_names=(), values={})
+            affinity = torch.nn.Parameter(torch.zeros((1, 1)))
+            self.spatial_affinity = SimpleNamespace(parameter_names=("sample",), values={"sample": affinity})
 
         def embedding(self, sample):
             return torch.ones((1, 1))
@@ -438,4 +439,4 @@ def test_superresolve_applies_both_stages_per_level(monkeypatch):
         (0, "dirty"),
     ]
     assert trainer.superresolution_completed
-    assert trainer.spatial_affinity_optimizers is None
+    assert trainer.spatial_affinity_optimizer is None

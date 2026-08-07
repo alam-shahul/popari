@@ -5,7 +5,6 @@ from torch import nn
 from tqdm.auto import trange
 
 from popari._named_state import ParameterDict
-from popari.optim.batching import sample_graph_iid
 from popari.optim.simplex_integral import integrate_of_exponential_over_simplex
 
 
@@ -74,70 +73,169 @@ def _spatial_affinity_loss(
     return (linear_term + regularization + log_partition) / weighted_edge_count
 
 
-def estimate_spatial_affinity(
+def _spatial_affinity_losses(
+    affinities,
+    linear_factors,
+    packed_neighbor_sums,
+    observation_weights,
+    observation_mask,
+    weighted_edge_counts,
+    *,
+    regularization_strength,
+    regularization_power,
+    group_means=None,
+    group_membership=None,
+    group_regularization_strength=0,
+):
+    """Return one conditional objective for each batched affinity.
+
+    The leading dimension indexes unique affinity parameters, the second
+    dimension contains padded observations, and the final dimensions index
+    metagenes. Padded observations are excluded by ``observation_mask``.
+
+    """
+
+    linear_terms = (affinities * linear_factors).sum(dim=(1, 2))
+    eta = torch.bmm(packed_neighbor_sums, affinities)
+    valid_eta = eta[observation_mask]
+    parameter_ids = torch.arange(len(affinities), device=affinities.device)[:, None].expand_as(observation_mask)[
+        observation_mask
+    ]
+    partition_terms = affinities.new_zeros(len(affinities))
+    partition_terms.scatter_add_(
+        0,
+        parameter_ids,
+        observation_weights[observation_mask] * integrate_of_exponential_over_simplex(valid_eta),
+    )
+
+    regularization = regularization_strength * affinities.abs().pow(regularization_power).sum(dim=(1, 2))
+    if group_means is not None:
+        squared_distances = (affinities[:, None] - group_means[None]).square().sum(dim=(2, 3))
+        normalized_membership = group_membership / group_membership.sum(dim=1, keepdim=True).clamp_min(1)
+        regularization += group_regularization_strength * (normalized_membership * squared_distances).sum(dim=1)
+    regularization *= weighted_edge_counts / 2
+
+    nonzero_edges = weighted_edge_counts > 0
+    losses = affinities.new_zeros(len(affinities))
+    losses[nonzero_edges] = (
+        linear_terms[nonzero_edges] + partition_terms[nonzero_edges] + regularization[nonzero_edges]
+    ) / weighted_edge_counts[nonzero_edges]
+    return losses
+
+
+def _prepare_affinity_inputs(level):
+    """Prepare graph statistics that remain fixed during affinity optimization.
+
+    Observations governed by the same unique affinity parameter are packed
+    together. Parameter batches are padded to a common length so their spatial
+    objectives can be evaluated with one set of tensor operations.
+
+    """
+
+    state = level.spatial_affinity
+    parameter_names = state.parameter_names
+    parameter_positions = {name: index for index, name in enumerate(parameter_names)}
+    samples_by_parameter = {name: [] for name in parameter_names}
+    for sample in level.sample_names:
+        samples_by_parameter[state.parameter_for_sample(sample)].append(sample)
+
+    # Compute normalized embeddings and neighbor sums once, before the inner
+    # optimization loop where only the affinity matrices change.
+    global_embedding = level.embeddings.detach()
+    global_normalized = global_embedding / torch.linalg.norm(global_embedding, dim=1, ord=1, keepdim=True)
+    global_neighbor_sums = level.adjacency_matrix @ global_normalized
+    if not torch.isfinite(global_neighbor_sums).all():
+        raise FloatingPointError("Neighbor sums contain non-finite values.")
+
+    edge_counts = np.diff(level.adjacency.indptr)
+    parameter_sizes = [
+        sum(len(level.sample_axis.indices(sample)) for sample in samples_by_parameter[name]) for name in parameter_names
+    ]
+    max_size = max(parameter_sizes, default=0)
+    num_parameters = len(parameter_names)
+    packed_indices = torch.zeros((num_parameters, max_size), dtype=torch.long, device=global_embedding.device)
+    observation_weights = global_embedding.new_zeros((num_parameters, max_size))
+    observation_mask = torch.zeros((num_parameters, max_size), dtype=torch.bool, device=global_embedding.device)
+    weighted_edge_counts = global_embedding.new_zeros(num_parameters)
+
+    sample_positions = {sample: index for index, sample in enumerate(level.sample_names)}
+    for parameter_name, samples in samples_by_parameter.items():
+        parameter_index = parameter_positions[parameter_name]
+        # Samples sharing one affinity retain their relative model weights, but
+        # their weights are normalized within that affinity parameter.
+        sample_betas = torch.stack([level.betas[sample_positions[sample]] for sample in samples])
+        sample_betas = sample_betas / sample_betas.sum()
+        offset = 0
+        for sample, beta in zip(samples, sample_betas):
+            indices = level.sample_indices[sample]
+            stop = offset + len(indices)
+            packed_indices[parameter_index, offset:stop] = indices
+            observation_weights[parameter_index, offset:stop] = beta
+            observation_mask[parameter_index, offset:stop] = True
+            weighted_edge_counts[parameter_index] += beta * int(
+                edge_counts[level.sample_axis.indices(sample)].sum(),
+            )
+            offset = stop
+
+    packed_normalized = global_normalized[packed_indices]
+    packed_neighbor_sums = global_neighbor_sums[packed_indices]
+    packed_normalized = packed_normalized.masked_fill(~observation_mask[..., None], 0)
+    packed_neighbor_sums = packed_neighbor_sums.masked_fill(~observation_mask[..., None], 0)
+    # This coefficient is fixed while affinities are optimized and therefore
+    # should not be reconstructed during every inner epoch.
+    linear_factors = torch.einsum(
+        "pn,pnk,pnl->pkl",
+        observation_weights,
+        packed_normalized,
+        packed_neighbor_sums,
+    )
+    return linear_factors, packed_neighbor_sums, observation_weights, observation_mask, weighted_edge_counts
+
+
+def estimate_spatial_affinities(
     level,
-    Sigma_x_inv,
-    replicate_mask,
     optimizer,
-    Sigma_x_inv_bar=None,
+    *,
+    differentiate=True,
     subsample_rate=None,
-    constraint=None,
     n_epochs=1000,
     tol=2e-3,
     check_frequency=50,
 ):
-    """Optimize Sigma_x_inv parameters.
+    """Jointly optimize every unique spatial-affinity parameter."""
 
-    Differential mode:
-    grad =  ... + λ_Sigma_x_inv ( Sigma_x_inv - Sigma_x_inv_bar )
+    if subsample_rate is not None:
+        raise NotImplementedError("Spatial-affinity subsampling is not supported by the vectorized optimizer.")
 
-    Args:
-        Xs: list of latent expression embeddings for each FOV.
-        Sigma_x_inv: previous estimate of Σx-1
-
-    """
-    samples = [sample for use_replicate, sample in zip(replicate_mask, level.sample_names) if use_replicate]
-    betas = torch.as_tensor(
-        [beta for (use_replicate, beta) in zip(replicate_mask, level.betas) if use_replicate],
-        **level.context,
-    )
-    betas = betas / betas.sum()
-
-    global_X = level.embeddings.detach()
-    global_Z = global_X / torch.linalg.norm(global_X, axis=1, ord=1, keepdim=True)
-    global_nu = level.adjacency_matrix @ global_Z
-    num_edges_per_fov = [
-        int(np.diff(level.adjacency.indptr)[level.sample_axis.indices(sample)].sum()) for sample in samples
-    ]
-
-    if not any(num_edges > 0 for num_edges in num_edges_per_fov):
-        return
-
-    linear_term_coefficient = torch.zeros_like(Sigma_x_inv).requires_grad_(False)
-    nus = []  # sum of neighbors' z
-    weighted_total_cells = 0
-
-    for sample, num_edges, beta in zip(samples, num_edges_per_fov, betas):
-        indices = level.sample_indices[sample]
-        Z = global_Z.index_select(0, indices)
-        nu = global_nu.index_select(0, indices)
-        linear_term_coefficient.addmm_(Z.T, nu, alpha=beta)
-
-        nus.append(nu)
-        weighted_total_cells += beta * num_edges
-        del Z
-
-    for sample, nu in zip(samples, nus):
-        if not torch.isfinite(nu).all():
-            raise FloatingPointError(f"Neighbor sums contain non-finite values for sample {sample!r}.")
-    if not torch.isfinite(Sigma_x_inv).all():
+    state = level.spatial_affinity
+    parameters = [state.values[name] for name in state.parameter_names]
+    affinities = torch.stack(parameters)
+    if not torch.isfinite(affinities).all():
         raise FloatingPointError("Spatial affinity contains non-finite values before optimization.")
 
-    if level.verbose >= 3:
-        logger.debug(
-            "Spatial-affinity linear coefficient range: {:.2e} to {:.2e}",
-            linear_term_coefficient.min().item(),
-            linear_term_coefficient.max().item(),
+    (
+        linear_factors,
+        packed_neighbor_sums,
+        observation_weights,
+        observation_mask,
+        weighted_edge_counts,
+    ) = _prepare_affinity_inputs(level)
+    active = weighted_edge_counts > 0
+    if not active.any():
+        return weighted_edge_counts.detach()
+
+    # Differential group means are frozen across the inner optimization loop.
+    group_means = None
+    group_membership = None
+    if differentiate and level.spatial_affinity_mode == "differential lookup":
+        group_names = tuple(state.groups)
+        group_mean_snapshot = state.group_means()
+        group_means = torch.stack([group_mean_snapshot[name] for name in group_names])
+        group_membership = affinities.new_tensor(
+            [
+                [group in state.tags[parameter_name] for group in group_names]
+                for parameter_name in state.parameter_names
+            ],
         )
 
     progress_bar = trange(
@@ -149,92 +247,81 @@ def estimate_spatial_affinity(
         dynamic_ncols=True,
         mininterval=1,
     )
+    best_affinities = affinities.detach().clone()
+    best_losses = affinities.new_full((len(parameters),), torch.inf)
+    best_losses[~active] = 0
+    best_epochs = torch.full((len(parameters),), -1, dtype=torch.long, device=affinities.device)
+    previous_affinities = affinities.detach().clone()
 
-    Sigma_x_inv_best = Sigma_x_inv.detach().clone()
-    loss_best = Sigma_x_inv.new_full((), torch.inf)
-    epoch_best = torch.full((), -1, dtype=torch.long, device=Sigma_x_inv.device)
-    dSigma_x_inv = np.inf
-    Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
     for epoch in progress_bar:
-        optimizer.zero_grad()
-
-        objective_neighbor_sums = []
-        for nu, sample in zip(nus, samples):
-            sample_indices = level.sample_axis.indices(sample)
-            sample_size = len(sample_indices)
-            if subsample_rate is not None:
-                node_limit = int(subsample_rate * sample_size)
-                sample_adjacency = level.adjacency[sample_indices][:, sample_indices]
-                subsample_index = np.sort(sample_graph_iid(sample_adjacency, range(sample_size), node_limit))
-                subsample_multiplier = 1 / subsample_rate
-                nu = nu[subsample_index]
-
-            objective_neighbor_sums.append(nu)
-
-        objective_weights = betas if subsample_rate is None else betas / subsample_rate
-        loss = _spatial_affinity_loss(
-            Sigma_x_inv,
-            linear_term_coefficient,
-            objective_neighbor_sums,
-            objective_weights,
-            weighted_total_cells,
+        optimizer.zero_grad(set_to_none=True)
+        affinities = torch.stack(parameters)
+        losses = _spatial_affinity_losses(
+            affinities,
+            linear_factors,
+            packed_neighbor_sums,
+            observation_weights,
+            observation_mask,
+            weighted_edge_counts,
             regularization_strength=level.lambda_Sigma_x_inv,
             regularization_power=level.spatial_affinity_regularization_power,
-            group_means=Sigma_x_inv_bar,
+            group_means=group_means,
+            group_membership=group_membership,
             group_regularization_strength=level.lambda_Sigma_bar,
         )
 
         with torch.no_grad():
-            improved = loss.detach() < loss_best
-            loss_best = torch.where(improved, loss.detach(), loss_best)
-            Sigma_x_inv_best = torch.where(improved, Sigma_x_inv.detach(), Sigma_x_inv_best)
-            epoch_best = torch.where(improved, epoch_best.new_tensor(epoch), epoch_best)
+            improved = active & (losses.detach() < best_losses)
+            best_losses = torch.where(improved, losses.detach(), best_losses)
+            best_affinities = torch.where(improved[:, None, None], affinities.detach(), best_affinities)
+            best_epochs = torch.where(improved, best_epochs.new_full((), epoch), best_epochs)
 
-        loss.backward()
-        Sigma_x_inv.grad = (Sigma_x_inv.grad + Sigma_x_inv.grad.T) / 2
+        losses[active].sum().backward()
+        for parameter in parameters:
+            parameter.grad.copy_((parameter.grad + parameter.grad.T) / 2)
         optimizer.step()
-        with torch.no_grad():
-            if level.spatial_affinity_centering:
-                Sigma_x_inv -= Sigma_x_inv.mean()
 
-            if level.spatial_affinity_constraint == "clamp":
-                Sigma_x_inv.clamp_(
-                    min=-level.spatial_affinity_scaling,
-                    max=level.spatial_affinity_scaling,
-                )
-            elif level.spatial_affinity_constraint == "scale":
-                Sigma_x_inv.mul_(level.spatial_affinity_scaling / Sigma_x_inv.abs().max())
+        with torch.no_grad():
+            for parameter in parameters:
+                if level.spatial_affinity_centering:
+                    parameter.sub_(parameter.mean())
+                if level.spatial_affinity_constraint == "clamp":
+                    parameter.clamp_(
+                        min=-level.spatial_affinity_scaling,
+                        max=level.spatial_affinity_scaling,
+                    )
+                elif level.spatial_affinity_constraint == "scale":
+                    parameter.mul_(level.spatial_affinity_scaling / parameter.abs().max())
 
             if epoch % check_frequency == 0 or epoch == n_epochs:
-                if not torch.isfinite(Sigma_x_inv).all():
-                    raise FloatingPointError(
-                        f"Spatial affinity became non-finite at optimization epoch {epoch}.",
-                    )
-                loss_value = loss.detach().item()
-                if not np.isfinite(loss_value):
+                affinities = torch.stack(parameters)
+                if not torch.isfinite(affinities).all():
+                    raise FloatingPointError(f"Spatial affinity became non-finite at optimization epoch {epoch}.")
+                if not torch.isfinite(losses[active]).all():
                     raise FloatingPointError(f"Spatial-affinity objective became non-finite at epoch {epoch}.")
-                epoch_best_value = epoch_best.item()
 
-                dSigma_x_inv = Sigma_x_inv_prev.sub(Sigma_x_inv).abs().max().item()
-                Sigma_x_inv_prev = Sigma_x_inv.clone().detach()
-
-                progress_bar.set_postfix(loss=f"{loss_value:.1e}", delta=f"{dSigma_x_inv:.1e}")
+                deltas = (previous_affinities - affinities).abs().amax(dim=(1, 2))
+                previous_affinities = affinities.detach().clone()
+                mean_loss = losses[active].mean().item()
+                max_delta = deltas[active].max().item()
+                progress_bar.set_postfix(loss=f"{mean_loss:.1e}", delta=f"{max_delta:.1e}")
                 if level.verbose >= 3:
                     logger.debug(
-                        "Spatial-affinity objective: loss={:.3e}, range={:.3e} to {:.3e}",
-                        loss_value,
-                        Sigma_x_inv.min().item(),
-                        Sigma_x_inv.max().item(),
+                        "Spatial-affinity objective: mean_loss={:.3e}, max_delta={:.3e}",
+                        mean_loss,
+                        max_delta,
                     )
 
-                if dSigma_x_inv < tol * check_frequency or epoch > epoch_best_value + 2 * check_frequency:
+                converged = deltas < tol * check_frequency
+                stale = epoch > best_epochs + 2 * check_frequency
+                if torch.all(~active | converged | stale):
                     break
 
     progress_bar.close()
-
-    Sigma_x_inv_best.requires_grad_(False)
-
-    return Sigma_x_inv_best, loss_best * weighted_total_cells
+    with torch.no_grad():
+        for parameter, best_affinity in zip(parameters, best_affinities):
+            parameter.copy_(best_affinity)
+    return best_losses * weighted_edge_counts
 
 
 class SpatialAffinityState(nn.Module):
@@ -267,6 +354,11 @@ class SpatialAffinityState(nn.Module):
         """Return the affinity matrix applicable to a sample."""
 
         return self.values[self._sample_to_parameter[sample]]
+
+    def parameter_for_sample(self, sample: str) -> str:
+        """Return the unique affinity parameter name used by a sample."""
+
+        return self._sample_to_parameter[sample]
 
     def set_sample_(self, sample: str, value: torch.Tensor) -> None:
         """Copy an affinity matrix into the parameter applicable to a sample."""
