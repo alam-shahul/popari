@@ -20,6 +20,8 @@ model:
   spatial_affinity_centering: false
   spatial_affinity_scaling: 10
   spatial_affinity_regularization_power: 2
+  spatial_affinity_parameterization: full
+  spatial_affinity_rank: null
   embedding_mini_iterations: 1000
   embedding_acceleration_trick: true
   embedding_step_size_multiplier: 1.0

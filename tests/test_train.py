@@ -45,6 +45,7 @@ class FakeLevel:
         self.spatial_affinity = SimpleNamespace(
             parameter_names=("default",),
             values={"default": parameter},
+            parameters=lambda: iter((parameter,)),
         )
 
     def _initialize_spatial_affinities(self):
@@ -397,7 +398,11 @@ def test_superresolve_applies_both_stages_per_level(monkeypatch):
             self.level = level
             self.metagenes = torch.nn.Parameter(torch.ones((1, 1)))
             affinity = torch.nn.Parameter(torch.zeros((1, 1)))
-            self.spatial_affinity = SimpleNamespace(parameter_names=("sample",), values={"sample": affinity})
+            self.spatial_affinity = SimpleNamespace(
+                parameter_names=("sample",),
+                values={"sample": affinity},
+                parameters=lambda: iter((affinity,)),
+            )
 
         def embedding(self, sample):
             return torch.ones((1, 1))

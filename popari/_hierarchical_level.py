@@ -25,7 +25,15 @@ from popari.optim.spatial_affinity import (
     compute_empirical_spatial_affinities,
 )
 from popari.preprocessing import compute_spatial_neighbors
-from popari.schema import BIN_ASSIGNMENTS_KEY, DATASET_NAME_KEY, SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY
+from popari.schema import (
+    BIN_ASSIGNMENTS_KEY,
+    DATASET_NAME_KEY,
+    SAMPLE_KEY_KEY,
+    SCHEMA_VERSION,
+    SCHEMA_VERSION_KEY,
+    SPATIAL_AFFINITY_FACTORS_KEY,
+    SPATIAL_FACTOR_EMBEDDING_KEY,
+)
 
 
 class HierarchicalLevel(nn.Module):
@@ -58,6 +66,8 @@ class HierarchicalLevel(nn.Module):
         spatial_affinity_centering: bool,
         spatial_affinity_scaling: int,
         spatial_affinity_regularization_power: int,
+        spatial_affinity_parameterization: str,
+        spatial_affinity_rank: int,
         M_constraint: str,
         sigma_yx_inv_mode: str,
         spatial_affinity_mode: str,
@@ -99,6 +109,8 @@ class HierarchicalLevel(nn.Module):
         self.spatial_affinity_centering = spatial_affinity_centering
         self.spatial_affinity_scaling = spatial_affinity_scaling
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
+        self.spatial_affinity_parameterization = spatial_affinity_parameterization
+        self.spatial_affinity_rank = spatial_affinity_rank
         self.M_constraint = M_constraint
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.spatial_affinity_mode = spatial_affinity_mode
@@ -196,6 +208,8 @@ class HierarchicalLevel(nn.Module):
             normalized_spatial_affinity_groups,
             mode=self.spatial_affinity_mode,
             context=self.context,
+            parameterization=self.spatial_affinity_parameterization,
+            rank=self.spatial_affinity_rank,
         )
 
         if self.pretrained:
@@ -206,11 +220,26 @@ class HierarchicalLevel(nn.Module):
                 self.metagenes.copy_(
                     torch.from_numpy(self.adata.uns["M"]).to(**self.context),
                 )
-            for sample in self.replicate_names:
-                self.spatial_affinity.set_sample_(
-                    sample,
-                    torch.from_numpy(self.adata.uns["Sigma_x_inv"][sample]).to(**self.context),
-                )
+            if self.spatial_affinity_parameterization == "factorized":
+                if SPATIAL_AFFINITY_FACTORS_KEY not in self.adata.uns:
+                    raise ValueError(
+                        f"Factorized pretrained results require `uns[{SPATIAL_AFFINITY_FACTORS_KEY!r}]`.",
+                    )
+                self.spatial_affinity.load_factors_(self.adata.uns[SPATIAL_AFFINITY_FACTORS_KEY])
+                for sample in self.replicate_names:
+                    expected = torch.as_tensor(
+                        self.adata.uns["Sigma_x_inv"][sample],
+                        device=self.context["device"],
+                        dtype=self.context["dtype"],
+                    )
+                    if not torch.allclose(self.spatial_affinity.for_sample(sample), expected, atol=1e-6, rtol=1e-6):
+                        raise ValueError(f"Persisted factors do not reproduce Sigma_x_inv for sample {sample!r}.")
+            else:
+                for sample in self.replicate_names:
+                    self.spatial_affinity.set_sample_(
+                        sample,
+                        torch.from_numpy(self.adata.uns["Sigma_x_inv"][sample]).to(**self.context),
+                    )
 
             self._recompute_observation_noise()
         else:
@@ -357,7 +386,7 @@ class HierarchicalLevel(nn.Module):
             self.spatial_affinity_scaling,
             self.initial_context,
         )
-        self.spatial_affinity.initialize_(initial_affinities, self.betas)
+        self.spatial_affinity.initialize_(initial_affinities, self.betas, random_state=self.random_state)
 
     def _reload_state(self):
         """Reload Popari state using results from saved datasets.
@@ -372,11 +401,14 @@ class HierarchicalLevel(nn.Module):
             self.metagenes.copy_(
                 torch.from_numpy(self.adata.uns["M"]).to(**self.context),
             )
-        for sample in self.replicate_names:
-            self.spatial_affinity.set_sample_(
-                sample,
-                torch.from_numpy(self.adata.uns["Sigma_x_inv"][sample]).to(**self.context),
-            )
+        if self.spatial_affinity_parameterization == "factorized":
+            self.spatial_affinity.load_factors_(self.adata.uns[SPATIAL_AFFINITY_FACTORS_KEY])
+        else:
+            for sample in self.replicate_names:
+                self.spatial_affinity.set_sample_(
+                    sample,
+                    torch.from_numpy(self.adata.uns["Sigma_x_inv"][sample]).to(**self.context),
+                )
 
         self._recompute_observation_noise()
 
@@ -394,6 +426,26 @@ class HierarchicalLevel(nn.Module):
         self.adata.uns["Sigma_x_inv"] = {
             sample: self.spatial_affinity.for_sample(sample).cpu().detach().numpy() for sample in self.replicate_names
         }
+        if self.spatial_affinity_parameterization == "factorized":
+            self.adata.uns[SPATIAL_AFFINITY_FACTORS_KEY] = self.spatial_affinity.materialized_factors()
+            normalized_embeddings = self.embeddings / torch.linalg.norm(
+                self.embeddings,
+                dim=1,
+                ord=1,
+                keepdim=True,
+            )
+            spatial_factor_embeddings = normalized_embeddings.new_empty((self.adata.n_obs, self.spatial_affinity_rank))
+            for sample in self.sample_names:
+                spatial_factor_embeddings.index_copy_(
+                    0,
+                    self.sample_indices[sample],
+                    normalized_embeddings[self.sample_indices[sample]]
+                    @ self.spatial_affinity.transform_for_sample(sample).T,
+                )
+            self.adata.obsm[SPATIAL_FACTOR_EMBEDDING_KEY] = spatial_factor_embeddings.detach().cpu().numpy()
+        else:
+            self.adata.uns.pop(SPATIAL_AFFINITY_FACTORS_KEY, None)
+            self.adata.obsm.pop(SPATIAL_FACTOR_EMBEDDING_KEY, None)
 
         if self.spatial_affinity_mode == "differential lookup":
             self.adata.uns["spatial_affinity_bar"] = {
@@ -466,7 +518,7 @@ class HierarchicalLevel(nn.Module):
             raise NotImplementedError(f"Unsupported spatial-affinity mode: {self.spatial_affinity_mode!r}")
 
         for parameter_name, samples in parameter_samples:
-            affinity = self.spatial_affinity.values[parameter_name]
+            affinity = self.spatial_affinity.for_parameter(parameter_name)
             linear_factor = torch.zeros_like(affinity)
             sample_neighbor_sums = []
             edge_count = 0

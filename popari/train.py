@@ -102,7 +102,7 @@ class Trainer:
     def _create_spatial_affinity_optimizer(self, level) -> torch.optim.Adam:
         state = level.spatial_affinity
         return torch.optim.Adam(
-            [state.values[name] for name in state.parameter_names],
+            list(state.parameters()),
             lr=level.spatial_affinity_lr,
             betas=(0.5, 0.9),
         )
