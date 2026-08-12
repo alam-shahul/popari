@@ -114,6 +114,7 @@ def cluster_domains(
     target_domains: int | None = None,
     skip_thresholding: bool = True,
     batch_correct: bool = False,
+    scanorama_kwargs: dict | None = None,
 ):
     """Discover spatial domains across a unified multisample embedding.
 
@@ -141,7 +142,9 @@ def cluster_domains(
 
     processed_key = normalized_key
     if batch_correct:
-        sce.pp.scanorama_integrate(dataset, sample_key, basis=normalized_key, verbose=1)
+        integration_kwargs = {"basis": normalized_key, "verbose": 1}
+        integration_kwargs.update(scanorama_kwargs or {})
+        sce.pp.scanorama_integrate(dataset, sample_key, **integration_kwargs)
         processed_key = "X_scanorama"
 
     dataset.popari.validate_spatial_graph()

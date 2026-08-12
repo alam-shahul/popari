@@ -7,6 +7,7 @@ from typing import Optional
 
 import anndata as ad
 import numpy as np
+import seaborn as sns
 from matplotlib import colormaps
 from matplotlib import pyplot as plt
 from matplotlib.transforms import Affine2D
@@ -17,6 +18,63 @@ from scipy.stats import wilcoxon, zscore
 
 from popari.plotting._samples import resolve_samples
 from popari.plotting.heatmaps import multireplicate_heatmap
+
+
+def metagene_proportion_difference(
+    dataset: ad.AnnData,
+    first_metagene: int,
+    second_metagene: int,
+    *,
+    category_key: str,
+    proportion_key: str = "metagene_proportions",
+    category_order: Sequence[str] | None = None,
+    palette=None,
+    ax=None,
+    **kde_kwargs,
+):
+    """Plot a metagene-proportion contrast for each category.
+
+    The plotted score is ``first_metagene - second_metagene``. Subset the
+    AnnData before calling this function when the comparison concerns a
+    particular cell type or other observation population.
+
+    """
+
+    if proportion_key not in dataset.obsm:
+        raise KeyError(
+            f"Missing metagene proportions in obsm[{proportion_key!r}]. "
+            "Run tl.compute_metagene_proportions() first.",
+        )
+    if category_key not in dataset.obs:
+        raise KeyError(f"Missing categories in obs[{category_key!r}].")
+
+    proportions = np.asarray(dataset.obsm[proportion_key])
+    if proportions.ndim != 2:
+        raise ValueError(f"obsm[{proportion_key!r}] must be a two-dimensional matrix.")
+    for metagene in (first_metagene, second_metagene):
+        if not 0 <= metagene < proportions.shape[1]:
+            raise IndexError(f"Metagene index {metagene} is outside [0, {proportions.shape[1]}).")
+
+    if ax is None:
+        figure, ax = plt.subplots()
+    else:
+        figure = ax.figure
+
+    difference = proportions[:, first_metagene] - proportions[:, second_metagene]
+    plot_data = dataset.obs[[category_key]].copy()
+    plot_data["proportion_difference"] = difference
+    sns.kdeplot(
+        data=plot_data,
+        x="proportion_difference",
+        hue=category_key,
+        hue_order=category_order,
+        palette=palette,
+        common_norm=False,
+        ax=ax,
+        **kde_kwargs,
+    )
+    ax.set_xlabel(f"Metagene proportion difference (m{first_metagene} - m{second_metagene})")
+    return figure
 
 
 def pretty_spatial_affinities(

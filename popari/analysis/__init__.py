@@ -7,7 +7,7 @@ from popari.analysis.differential import (
     compute_category_marker_scores,
     compute_metagene_signature_expression,
 )
-from popari.analysis.embeddings import postprocess_embeddings
+from popari.analysis.embeddings import compute_metagene_proportions, postprocess_embeddings
 from popari.analysis.gene_sets import (
     compute_gene_set_auroc,
     compute_gene_set_enrichment,
@@ -46,7 +46,7 @@ from popari.analysis.metrics import (
 )
 from popari.analysis.samples import aggregate_sample_matrices
 from popari.analysis.similarity import calculate_dataset_similarity_matrix
-from popari.analysis.trends import normalized_affinity_trends, propagate_labels
+from popari.analysis.trends import MatrixTrends, matrix_trends, normalized_affinity_trends, propagate_labels
 
 __all__ = [
     cluster.__name__,
@@ -57,6 +57,7 @@ __all__ = [
     compile_de_genes.__name__,
     compute_category_marker_scores.__name__,
     compute_metagene_signature_expression.__name__,
+    compute_metagene_proportions.__name__,
     postprocess_embeddings.__name__,
     compute_gene_set_auroc.__name__,
     compute_gene_set_enrichment.__name__,
@@ -90,6 +91,8 @@ __all__ = [
     score_marker_expression.__name__,
     aggregate_sample_matrices.__name__,
     calculate_dataset_similarity_matrix.__name__,
+    MatrixTrends.__name__,
+    matrix_trends.__name__,
     normalized_affinity_trends.__name__,
     propagate_labels.__name__,
 ]

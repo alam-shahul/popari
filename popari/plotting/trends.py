@@ -10,6 +10,7 @@ import scanpy as sc
 from matplotlib import colormaps
 from matplotlib import pyplot as plt
 
+from popari.analysis.trends import MatrixTrends
 from popari.plotting._samples import resolve_samples
 from popari.plotting.utils import setup_squarish_axes
 
@@ -125,3 +126,88 @@ def normalized_affinity_trends(
     ax.set_ylabel("Pairwise affinity")
     ax.legend(loc="upper left", bbox_to_anchor=(1, 0))
     return fig
+
+
+def matrix_trend_dotplot(
+    trends: MatrixTrends,
+    labels: Sequence[str],
+    *,
+    title: str | None = None,
+    min_dot_size: float = 5,
+    max_dot_size: float = 150,
+    cmap: str = "seismic",
+    colorbar_label: str = "Pearson correlation",
+    figsize: tuple[float, float] = (8, 7),
+    dpi: int = 300,
+):
+    """Plot trends in a symmetric matrix using color and dot size.
+
+    Correlation controls color and absolute regression slope controls size. Only
+    the lower triangle, including the diagonal, is displayed.
+
+    """
+
+    correlations = np.asarray(trends.correlations, dtype=float)
+    slopes = np.asarray(trends.slopes, dtype=float)
+    if correlations.ndim != 2 or correlations.shape[0] != correlations.shape[1]:
+        raise ValueError("trend matrices must be square.")
+    if slopes.shape != correlations.shape:
+        raise ValueError("correlations and slopes must have the same shape.")
+    if len(labels) != len(correlations):
+        raise ValueError("labels must contain one name per matrix dimension.")
+    if min_dot_size < 0 or max_dot_size < min_dot_size:
+        raise ValueError("dot sizes must satisfy 0 <= min_dot_size <= max_dot_size.")
+
+    triangle = np.tril(np.ones(correlations.shape, dtype=bool))
+    triangle &= np.isfinite(correlations) & np.isfinite(slopes)
+    rows, columns = np.where(triangle)
+    if not len(rows):
+        raise ValueError("the lower triangle contains no finite trends to plot.")
+
+    correlation_limit = np.max(np.abs(correlations[rows, columns]))
+    if correlation_limit == 0:
+        correlation_limit = 1.0
+    slope_limit = np.max(np.abs(slopes[rows, columns]))
+    relative_slopes = np.divide(
+        np.abs(slopes[rows, columns]),
+        slope_limit,
+        out=np.zeros(len(rows), dtype=float),
+        where=slope_limit != 0,
+    )
+    sizes = min_dot_size + (max_dot_size - min_dot_size) * relative_slopes
+
+    figure, axis = plt.subplots(figsize=figsize, dpi=dpi)
+    points = axis.scatter(
+        columns,
+        rows,
+        c=correlations[rows, columns],
+        s=sizes,
+        cmap=cmap,
+        vmin=-correlation_limit,
+        vmax=correlation_limit,
+        edgecolors="black",
+        linewidths=0.3,
+    )
+    for row, column in zip(rows, columns):
+        axis.add_patch(
+            plt.Rectangle(
+                (column - 0.5, row - 0.5),
+                1,
+                1,
+                fill=False,
+                edgecolor="gray",
+                linewidth=1,
+            ),
+        )
+
+    axis.set_xticks(np.arange(len(labels)), labels, rotation=90)
+    axis.set_yticks(np.arange(len(labels)), labels)
+    axis.set_xlim(-0.5, len(labels) - 0.5)
+    axis.set_ylim(len(labels) - 0.5, -0.5)
+    axis.set_title(title)
+    axis.set_aspect("equal")
+    axis.grid(False)
+    for spine in axis.spines.values():
+        spine.set_visible(False)
+    figure.colorbar(points, ax=axis, label=colorbar_label)
+    return figure

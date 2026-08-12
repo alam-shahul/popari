@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.sparse import csr_array, csr_matrix
-from scipy.stats import false_discovery_control, fisher_exact, zscore
+from scipy.stats import false_discovery_control, fisher_exact, linregress, pearsonr, zscore
 
 from popari import pl, tl
 from popari._sample_axis import SampleAxis
@@ -382,6 +382,26 @@ def test_propagate_labels_mutates_hierarchy_and_returns_none():
     assert fine.obs["domain"].tolist() == ["A", "A", "B"]
 
 
+def test_compute_metagene_proportions_normalizes_rows_and_preserves_zero_rows():
+    dataset = ad.AnnData(X=np.ones((3, 1)))
+    dataset.obsm["X"] = np.array([[1.0, 3.0], [0.0, 0.0], [2.0, 2.0]])
+
+    tl.compute_metagene_proportions(dataset)
+
+    np.testing.assert_allclose(
+        dataset.obsm["metagene_proportions"],
+        [[0.25, 0.75], [0.0, 0.0], [0.5, 0.5]],
+    )
+
+
+def test_compute_metagene_proportions_rejects_negative_embeddings():
+    dataset = ad.AnnData(X=np.ones((1, 1)))
+    dataset.obsm["X"] = np.array([[1.0, -1.0]])
+
+    with pytest.raises(ValueError, match="nonnegative"):
+        tl.compute_metagene_proportions(dataset)
+
+
 def test_postprocess_embeddings_is_sample_local_and_preserves_observation_order(monkeypatch):
     sample_a = np.column_stack(
         [
@@ -466,6 +486,64 @@ def test_postprocess_embeddings_joint_mode_treats_all_observations_as_one_popula
     assert neighbor_calls == [(dataset.n_obs, "normalized_X")]
 
 
+def test_postprocess_embeddings_joint_mode_supports_named_graph(monkeypatch):
+    dataset = ad.AnnData(
+        X=np.ones((4, 1)),
+        obs=pd.DataFrame({"batch": pd.Categorical(["a", "a", "b", "b"])}),
+    )
+    dataset.obsm["X"] = np.arange(8, dtype=float).reshape(4, 2)
+    neighbor_calls = []
+
+    def fake_neighbors(processed_dataset, use_rep, *, key_added):
+        neighbor_calls.append((use_rep, key_added))
+
+    monkeypatch.setattr("popari.analysis.embeddings.sc.pp.neighbors", fake_neighbors)
+
+    tl.postprocess_embeddings(
+        dataset,
+        normalized_key="joint_normalized_X",
+        mode="joint",
+        neighbors_key="joint_neighbors",
+    )
+
+    np.testing.assert_allclose(
+        dataset.obsm["joint_normalized_X"],
+        zscore(dataset.obsm["X"], axis=0),
+    )
+    assert neighbor_calls == [("joint_normalized_X", "joint_neighbors")]
+
+
+def test_postprocess_embeddings_sample_mode_supports_named_block_graph(monkeypatch):
+    dataset = ad.AnnData(
+        X=np.ones((6, 1)),
+        obs=pd.DataFrame(
+            {"batch": pd.Categorical(["a", "b"] * 3)},
+            index=[f"cell_{index}" for index in range(6)],
+        ),
+    )
+    dataset.obsm["X"] = np.arange(12, dtype=float).reshape(6, 2)
+
+    def fake_neighbors(sample_dataset, use_rep, *, key_added):
+        graph = csr_matrix(np.ones((sample_dataset.n_obs, sample_dataset.n_obs)) - np.eye(sample_dataset.n_obs))
+        sample_dataset.obsp[f"{key_added}_distances"] = graph
+        sample_dataset.obsp[f"{key_added}_connectivities"] = graph
+        sample_dataset.uns[key_added] = {
+            "connectivities_key": f"{key_added}_connectivities",
+            "distances_key": f"{key_added}_distances",
+            "params": {"use_rep": use_rep},
+        }
+
+    monkeypatch.setattr("popari.analysis.embeddings.sc.pp.neighbors", fake_neighbors)
+
+    tl.postprocess_embeddings(dataset, mode="sample", neighbors_key="sample_neighbors")
+
+    sample_axis = SampleAxis.from_anndata(dataset, sample_key="batch")
+    rows, columns = dataset.obsp["sample_neighbors_connectivities"].nonzero()
+    assert np.all(sample_axis.codes[rows] == sample_axis.codes[columns])
+    assert dataset.uns["sample_neighbors"]["connectivities_key"] == "sample_neighbors_connectivities"
+    assert "connectivities" not in dataset.obsp
+
+
 def test_cluster_domains_thresholds_each_sample(monkeypatch):
     sample_a = np.array(
         [
@@ -507,6 +585,35 @@ def test_cluster_domains_thresholds_each_sample(monkeypatch):
     expected[::2] = threshold_normalize(sample_a)
     expected[1::2] = threshold_normalize(sample_b)
     np.testing.assert_allclose(dataset.obsm["normalized_thresholded_expression"], expected)
+    assert dataset.obs["smoothed_domain"].tolist() == ["0"] * dataset.n_obs
+
+
+def test_cluster_domains_forwards_scanorama_kwargs(monkeypatch):
+    dataset = ad.AnnData(
+        X=np.ones((4, 1)),
+        obs=pd.DataFrame(
+            {"sample": pd.Categorical(["a", "a", "b", "b"])},
+            index=[f"cell_{index}" for index in range(4)],
+        ),
+    )
+    dataset.uns["popari_sample_key"] = "sample"
+    dataset.obsm["normalized_X"] = np.arange(8, dtype=float).reshape(4, 2)
+    dataset.obsp["adjacency_matrix"] = csr_matrix(np.eye(dataset.n_obs))
+
+    def fake_scanorama_integrate(integrated_dataset, key, **kwargs):
+        assert key == "sample"
+        assert kwargs["basis"] == "normalized_X"
+        assert kwargs["approx"] is False
+        integrated_dataset.obsm["X_scanorama"] = integrated_dataset.obsm["normalized_X"].copy()
+
+    def fake_cluster(clustered_dataset, **kwargs):
+        clustered_dataset.obs["leiden"] = pd.Categorical(["0"] * clustered_dataset.n_obs)
+
+    monkeypatch.setattr("popari.analysis.clustering.sce.pp.scanorama_integrate", fake_scanorama_integrate)
+    monkeypatch.setattr("popari.analysis.clustering.cluster", fake_cluster)
+
+    tl.cluster_domains(dataset, batch_correct=True, scanorama_kwargs={"approx": False})
+
     assert dataset.obs["smoothed_domain"].tolist() == ["0"] * dataset.n_obs
 
 
@@ -573,3 +680,41 @@ def test_differential_affinity_analysis_helpers(differential_model_factory, gpu_
     assert top_pairs
     assert correlations
     assert variances
+
+
+def test_matrix_trends_matches_scipy_entrywise():
+    covariate = np.array([0.0, 1.0, 3.0, 4.0])
+    matrices = np.array(
+        [
+            [[1.0, 4.0], [2.0, 8.0]],
+            [[2.0, 3.0], [4.0, 8.0]],
+            [[5.0, 2.0], [3.0, 8.0]],
+            [[7.0, 0.0], [8.0, 8.0]],
+        ],
+    )
+
+    trends = tl.matrix_trends(matrices, covariate)
+
+    for row in range(2):
+        for column in range(2):
+            values = matrices[:, row, column]
+            expected_slope = linregress(covariate, values).slope
+            assert trends.slopes[row, column] == pytest.approx(expected_slope)
+            if np.ptp(values) == 0:
+                assert np.isnan(trends.correlations[row, column])
+            else:
+                assert trends.correlations[row, column] == pytest.approx(pearsonr(covariate, values).statistic)
+
+
+@pytest.mark.parametrize(
+    ("matrices", "covariate", "message"),
+    [
+        (np.ones((3, 2)), [0, 1, 2], "shape"),
+        (np.ones((3, 2, 2)), [0, 1], "one value per sample"),
+        (np.ones((3, 2, 2)), [0, np.nan, 2], "finite"),
+        (np.ones((3, 2, 2)), [1, 1, 1], "constant"),
+    ],
+)
+def test_matrix_trends_validates_inputs(matrices, covariate, message):
+    with pytest.raises(ValueError, match=message):
+        tl.matrix_trends(matrices, covariate)

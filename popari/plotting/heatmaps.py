@@ -14,9 +14,12 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.colors import Normalize
 from matplotlib.ticker import FixedLocator
+from scipy.cluster.hierarchy import dendrogram, leaves_list, linkage
+from scipy.spatial.distance import pdist, squareform
 
 from popari.plotting._samples import resolve_samples
 from popari.plotting.utils import setup_squarish_axes
+from popari.schema import SPATIAL_AFFINITY_FACTORS_KEY
 
 
 def _matrix_data_and_labels(matrix, xticklabels=None, yticklabels=None):
@@ -187,6 +190,63 @@ def matrix_heatmap(
     if return_image:
         return fig, image
     return fig
+
+
+def sample_to_sample_matrix_distance_heatmap(matrices: Mapping[str, np.ndarray]):
+    """Cluster samples by correlation distance between flattened matrices.
+
+    This visualization uses Ward linkage over correlation distances as a
+    heuristic clustering of sample-level matrix patterns.
+
+    Args:
+        matrices: Mapping from sample names to equally shaped matrices.
+
+    Returns:
+        The figure and the dictionary returned by
+        :func:`scipy.cluster.hierarchy.dendrogram`.
+
+    """
+
+    sample_names = tuple(matrices)
+    num_samples = len(sample_names)
+    features = [np.asarray(matrices[sample]).flatten() for sample in sample_names]
+    distances = pdist(features, metric="correlation")
+    distance_matrix = squareform(distances)
+
+    linkage_matrix = linkage(distances, method="ward")
+    sample_order = leaves_list(linkage_matrix)
+    reordered_distance_matrix = distance_matrix[sample_order][:, sample_order]
+
+    mask = np.zeros((num_samples, num_samples))
+    mask[np.triu_indices(num_samples)] = 1.0
+    mask[np.diag_indices(num_samples)] = 0
+    reordered_distance_matrix = np.ma.masked_where(mask, reordered_distance_matrix)
+
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_axes([0.3, 0.16, 0.6, 0.6])
+    dendrogram_ax = fig.add_axes([0.3, 0.1, 0.6, 0.05])
+    colorbar_ax = fig.add_axes([0.95, 0.16, 0.01, 0.6])
+
+    image = ax.imshow(reordered_distance_matrix, cmap="magma_r")
+    dendrogram_result = dendrogram(
+        linkage_matrix,
+        orientation="bottom",
+        labels=sample_names,
+        ax=dendrogram_ax,
+        color_threshold=0.65,
+    )
+
+    ordered_names = [sample_names[index] for index in sample_order]
+    ax.set_yticks(np.arange(num_samples), ordered_names)
+    ax.set_xticks([])
+    ax.grid(False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    dendrogram_ax.axis("off")
+    colorbar_ax.grid(False)
+    fig.colorbar(image, cax=colorbar_ax)
+
+    return fig, dendrogram_result
 
 
 def category_marker_heatmap(
@@ -469,6 +529,82 @@ def spatial_affinity_heatmap(
             ax.set_yticklabels(metagene_labels, fontsize="x-small")
 
     return fig
+
+
+def spatial_affinity_factor_heatmap(
+    adata: ad.AnnData,
+    *,
+    component: str = "A",
+    samples: str | Sequence[str] | None = None,
+    factor_key: str = SPATIAL_AFFINITY_FACTORS_KEY,
+    axes: Axes | Sequence[Axes] | None = None,
+    **heatmap_kwargs,
+):
+    """Plot the factors underlying factorized spatial affinities.
+
+    ``component="A"`` plots the shared row-stochastic spatial factors over
+    metagenes. ``component="B"`` plots sample-specific symmetric interactions
+    between those factors.
+
+    Args:
+        adata: Unified multisample AnnData containing materialized factorized
+            spatial affinities.
+        component: Factor to plot, either ``"A"`` or ``"B"``.
+        samples: Samples whose ``B`` matrices should be plotted. This is not
+            applicable to shared ``A``.
+        factor_key: Key in ``adata.uns`` containing the ``A`` and ``B`` factors.
+        axes: One existing axis for shared ``A`` or sample-faceted axes for ``B``.
+        **heatmap_kwargs: Arguments passed to the corresponding heatmap helper.
+
+    """
+
+    component = component.upper()
+    if component not in {"A", "B"}:
+        raise ValueError("component must be either 'A' or 'B'.")
+    if factor_key not in adata.uns:
+        raise KeyError(
+            f"`adata.uns[{factor_key!r}]` is missing; materialize results from a factorized Popari model first.",
+        )
+
+    factors = adata.uns[factor_key]
+    if component == "A":
+        if samples is not None:
+            raise ValueError("samples is only applicable when component='B'.")
+        if axes is not None and not isinstance(axes, Axes):
+            axes = np.asarray(axes).flat[0]
+        transform = np.asarray(factors["A"])
+        if transform.ndim != 2:
+            raise ValueError("Shared A must be a two-dimensional matrix.")
+        factor_labels = [f"s{index}" for index in range(transform.shape[0])]
+        metagene_labels = [f"m{index}" for index in range(transform.shape[1])]
+        heatmap_kwargs.setdefault("cmap", "Reds")
+        heatmap_kwargs.setdefault("vmin", 0)
+        heatmap_kwargs.setdefault("vmax", 1)
+        heatmap_kwargs.setdefault("colorbar_label", "Weight")
+        heatmap_kwargs.setdefault("title", "Shared spatial-factor composition A")
+        return matrix_heatmap(
+            pd.DataFrame(transform, index=factor_labels, columns=metagene_labels),
+            ax=axes,
+            **heatmap_kwargs,
+        )
+
+    _, selected_samples = resolve_samples(adata, samples=samples)
+    interactions = factors["B"]
+    matrices = {}
+    for sample in selected_samples:
+        if sample not in interactions:
+            raise KeyError(f"`adata.uns[{factor_key!r}]['B']` has no matrix for sample {sample!r}.")
+        interaction = np.asarray(interactions[sample])
+        if interaction.ndim != 2 or interaction.shape[0] != interaction.shape[1]:
+            raise ValueError(f"B for sample {sample!r} must be a square matrix.")
+        labels = [f"s{index}" for index in range(len(interaction))]
+        matrices[sample] = pd.DataFrame(interaction, index=labels, columns=labels)
+    heatmap_kwargs.setdefault("cmap", "bwr")
+    heatmap_kwargs.setdefault("center_zero", True)
+    heatmap_kwargs.setdefault("shared_scale", True)
+    heatmap_kwargs.setdefault("colorbar", "shared")
+    heatmap_kwargs.setdefault("colorbar_label", "Interaction")
+    return matrix_heatmap_panel(matrices, axes=axes, **heatmap_kwargs)
 
 
 def multigroup_heatmap(
