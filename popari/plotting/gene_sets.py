@@ -285,10 +285,23 @@ def plot_metagene_gene_set_aurocs(
     ax = plt.subplot(grid_spec[0])
     cax = plt.subplot(grid_spec[1])
 
-    image = ax.pcolormesh(aurocs, vmin=1 - aurocs.max(), vmax=aurocs.max(), cmap="bwr", edgecolor="k")
-    ax.grid(color="k", linewidth=0.5)
+    row_edges = np.arange(num_gene_sets + 1) - 0.5
+    column_edges = np.arange(num_metagenes + 1) - 0.5
+    image = ax.pcolormesh(
+        column_edges,
+        row_edges,
+        aurocs,
+        vmin=1 - aurocs.max(),
+        vmax=aurocs.max(),
+        cmap="bwr",
+        edgecolors="black",
+        linewidth=0.5,
+        shading="flat",
+    )
+    ax.grid(False)
     ax.set_aspect("equal")
-    ax.invert_yaxis()
+    ax.set_xlim(-0.5, num_metagenes - 0.5)
+    ax.set_ylim(num_gene_sets - 0.5, -0.5)
     ax.set_yticks(np.arange(num_gene_sets), gene_sets.columns.values)
     ax.set_xticks(np.arange(num_metagenes), [f"m{k}" for k in sorted_indices], rotation=90)
 

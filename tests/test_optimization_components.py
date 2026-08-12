@@ -13,7 +13,7 @@ pytestmark = [pytest.mark.baseline, pytest.mark.cheap]
 
 def _spatial_affinity_optimizer(level):
     return torch.optim.Adam(
-        [level.spatial_affinity.values[name] for name in level.spatial_affinity.parameter_names],
+        list(level.spatial_affinity.parameters()),
         lr=level.spatial_affinity_lr,
         betas=(0.5, 0.9),
     )
@@ -146,7 +146,7 @@ def _direct_joint_pseudolikelihood(level, *, use_spatial):
 
     if level.spatial_affinity_mode == "shared lookup":
         for group, samples in level.spatial_affinity_groups.items():
-            affinity = level.spatial_affinity.values[group]
+            affinity = level.spatial_affinity.for_parameter(group)
             edge_count = sum(int(edge_counts[level.sample_axis.indices(sample)].sum()) for sample in samples)
             loss += (
                 edge_count
@@ -324,6 +324,18 @@ def test_shared_forward_matches_direct_joint_pseudolikelihood(shared_model_facto
 
 def test_differential_forward_matches_direct_joint_pseudolikelihood(differential_model_factory):
     model = differential_model_factory()
+    level = model.hierarchy[-1]
+
+    expected = _direct_joint_pseudolikelihood(level, use_spatial=True)
+
+    assert torch.allclose(level(use_spatial=True), expected)
+
+
+def test_factorized_forward_matches_direct_joint_pseudolikelihood(differential_model_factory):
+    model = differential_model_factory(
+        spatial_affinity_parameterization="factorized",
+        spatial_affinity_rank=2,
+    )
     level = model.hierarchy[-1]
 
     expected = _direct_joint_pseudolikelihood(level, use_spatial=True)

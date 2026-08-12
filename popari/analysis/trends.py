@@ -3,13 +3,60 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 import anndata as ad
 import numpy as np
-from scipy.stats import pearsonr
 
 from popari._sample_axis import SampleAxis
 from popari.analysis.clustering import smooth_labels
+
+
+@dataclass(frozen=True)
+class MatrixTrends:
+    """Entrywise linear trends for a sequence of matrices."""
+
+    correlations: np.ndarray
+    slopes: np.ndarray
+
+
+def matrix_trends(matrices, covariate) -> MatrixTrends:
+    """Compute entrywise Pearson correlations and regression slopes.
+
+    Args:
+        matrices: Numeric array with shape ``(samples, rows, columns)``.
+        covariate: Numeric value for each sample.
+
+    Returns:
+        Correlation and slope matrices with shape ``(rows, columns)``.
+
+    """
+
+    values = np.asarray(matrices, dtype=float)
+    covariate = np.asarray(covariate, dtype=float)
+    if values.ndim != 3:
+        raise ValueError("matrices must have shape (samples, rows, columns).")
+    if covariate.ndim != 1 or len(covariate) != len(values):
+        raise ValueError("covariate must contain one value per sample.")
+    if not np.isfinite(covariate).all():
+        raise ValueError("covariate must contain only finite values.")
+
+    centered_covariate = covariate - covariate.mean()
+    covariate_sum_squares = np.sum(centered_covariate**2)
+    if covariate_sum_squares == 0:
+        raise ValueError("covariate must not be constant.")
+
+    centered_values = values - values.mean(axis=0)
+    cross_products = np.einsum("s,sij->ij", centered_covariate, centered_values)
+    value_sum_squares = np.einsum("sij,sij->ij", centered_values, centered_values)
+    slopes = cross_products / covariate_sum_squares
+    correlations = np.divide(
+        cross_products,
+        np.sqrt(covariate_sum_squares * value_sum_squares),
+        out=np.full(values.shape[1:], np.nan),
+        where=value_sum_squares != 0,
+    )
+    return MatrixTrends(correlations=correlations, slopes=slopes)
 
 
 def normalized_affinity_trends(
@@ -41,19 +88,17 @@ def normalized_affinity_trends(
         if timepoint_std:
             timepoint_values = timepoint_values / timepoint_std
 
-    timepoint_std = timepoint_values.std()
-    affinity_std = affinities.std(axis=0)
+    trends = matrix_trends(affinities, timepoint_values)
     pearson_correlations = {}
     variances = {}
     slopes = {}
     for first in range(affinities.shape[1]):
         for second in range(first + 1):
             values = affinities[:, first, second]
-            correlation, _ = pearsonr(values, timepoint_values)
             pair = (first, second)
-            pearson_correlations[pair] = correlation
+            pearson_correlations[pair] = trends.correlations[pair]
             variances[pair] = np.var(values)
-            slopes[pair] = correlation * affinity_std[first, second] / timepoint_std if timepoint_std else np.nan
+            slopes[pair] = trends.slopes[pair]
 
     metrics = pearson_correlations if highlight_metric == "pearson" else variances
     if highlight_metric not in {"pearson", "variance"}:

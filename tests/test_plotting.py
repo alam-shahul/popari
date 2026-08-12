@@ -9,7 +9,9 @@ import scanpy as sc
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection, PathCollection
 from matplotlib.figure import Figure
+from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.sparse import csr_matrix
+from scipy.spatial.distance import pdist, squareform
 
 from popari import pl, tl
 from tests._training import train_model
@@ -170,6 +172,33 @@ def test_gene_set_upset_validates_inputs(gene_sets, background, message):
         pl.gene_set_upset(gene_sets, background=background)
 
 
+def test_metagene_gene_set_aurocs_uses_single_cell_grid():
+    dataset = ad.AnnData(X=np.ones((2, 4)), var=pd.DataFrame(index=["g0", "g1", "g2", "g3"]))
+    dataset.uns["M"] = np.array(
+        [
+            [4.0, 0.0],
+            [3.0, 1.0],
+            [1.0, 3.0],
+            [0.0, 4.0],
+        ],
+    )
+    gene_sets = pd.DataFrame({"first": ["g0", "g1"], "second": ["g2", "g3"]})
+
+    figure = pl.plot_metagene_gene_set_aurocs(dataset, gene_sets)
+
+    try:
+        axis = figure.axes[0]
+        mesh = axis.collections[0]
+        assert axis.get_xlim() == pytest.approx((-0.5, 1.5))
+        assert axis.get_ylim() == pytest.approx((1.5, -0.5))
+        assert [label.get_text() for label in axis.get_yticklabels()] == ["first", "second"]
+        assert all(not gridline.get_visible() for gridline in axis.get_xgridlines() + axis.get_ygridlines())
+        assert np.allclose(mesh.get_linewidths(), 0.5)
+        assert np.allclose(mesh.get_edgecolors()[0], matplotlib.colors.to_rgba("black"))
+    finally:
+        _close_figures(figure)
+
+
 def test_affinity_difference_plot_returns_figure():
     dataset = ad.AnnData(X=np.ones((2, 3)))
     dataset.uns["Sigma_x_inv"] = {
@@ -233,6 +262,35 @@ def test_matrix_heatmap_draws_default_cell_grid():
         _close_figures(figure)
 
 
+def test_sample_to_sample_matrix_distance_heatmap_matches_existing_clustering():
+    matrices = {
+        "sample_0": np.array([[0.0, 1.0], [2.0, 4.0]]),
+        "sample_1": np.array([[0.0, 2.0], [1.0, 3.0]]),
+        "sample_2": np.array([[4.0, 1.0], [0.0, 2.0]]),
+        "sample_3": np.array([[3.0, 0.0], [2.0, 1.0]]),
+    }
+    features = np.stack([matrix.flatten() for matrix in matrices.values()])
+    distances = pdist(features, metric="correlation")
+    expected_linkage = linkage(distances, method="ward")
+    expected_order = leaves_list(expected_linkage)
+    expected_distances = squareform(distances)[expected_order][:, expected_order]
+    expected_names = [tuple(matrices)[index] for index in expected_order]
+
+    figure, dendrogram_result = pl.sample_to_sample_matrix_distance_heatmap(matrices)
+
+    try:
+        heatmap_ax = figure.axes[0]
+        plotted_distances = heatmap_ax.images[0].get_array()
+        np.testing.assert_allclose(plotted_distances.data, expected_distances)
+        np.testing.assert_array_equal(np.ma.getmaskarray(plotted_distances), np.triu(np.ones((4, 4)), k=1))
+        assert [tick.get_text() for tick in heatmap_ax.get_yticklabels()] == expected_names
+        assert all(not spine.get_visible() for spine in heatmap_ax.spines.values())
+        assert dendrogram_result["ivl"] == expected_names
+        assert len(dendrogram_result["leaves_color_list"]) == len(matrices)
+    finally:
+        _close_figures(figure)
+
+
 def test_category_marker_heatmap_uses_grouped_marker_matrix():
     index = pd.MultiIndex.from_tuples(
         [("A", "gene_0"), ("A", "gene_1"), ("B", "gene_2")],
@@ -260,6 +318,44 @@ def test_category_marker_heatmap_uses_grouped_marker_matrix():
         _close_figures(figure)
 
 
+def test_metagene_proportion_difference_plots_categories():
+    dataset = ad.AnnData(X=np.ones((6, 1)))
+    dataset.obsm["metagene_proportions"] = np.array(
+        [
+            [0.8, 0.2],
+            [0.7, 0.3],
+            [0.6, 0.4],
+            [0.4, 0.6],
+            [0.3, 0.7],
+            [0.2, 0.8],
+        ],
+    )
+    dataset.obs["cluster"] = pd.Categorical(["C1"] * 3 + ["C2"] * 3)
+
+    figure = pl.metagene_proportion_difference(
+        dataset,
+        0,
+        1,
+        category_key="cluster",
+        category_order=["C1", "C2"],
+    )
+
+    try:
+        assert isinstance(figure, Figure)
+        assert figure.axes[0].get_xlabel() == "Metagene proportion difference (m0 - m1)"
+        assert figure.axes[0].get_legend() is not None
+    finally:
+        _close_figures(figure)
+
+
+def test_metagene_proportion_difference_requires_computed_proportions():
+    dataset = ad.AnnData(X=np.ones((2, 1)))
+    dataset.obs["cluster"] = ["C1", "C2"]
+
+    with pytest.raises(KeyError, match="compute_metagene_proportions"):
+        pl.metagene_proportion_difference(dataset, 0, 1, category_key="cluster")
+
+
 def test_embedding_label_dotplot_returns_scanpy_plot():
     dataset = ad.AnnData(X=np.ones((4, 1)))
     dataset.obs["domain"] = pd.Categorical(["A", "A", "B", "B"])
@@ -280,6 +376,32 @@ def test_embedding_label_dotplot_returns_scanpy_plot():
         assert dotplot.fig is not None
     finally:
         _close_figures(dotplot.fig)
+
+
+def test_embedding_label_heatmap_has_single_cell_grid():
+    dataset = ad.AnnData(X=np.ones((4, 1)))
+    dataset.obs["domain"] = pd.Categorical(["A", "A", "B", "B"])
+    dataset.obsm["normalized_X"] = np.array(
+        [
+            [1.0, 0.0],
+            [0.8, 0.2],
+            [0.1, 0.9],
+            [0.0, 1.0],
+        ],
+    )
+
+    figure, _ = pl.embedding_label_heatmap(dataset, label_key="domain")
+
+    try:
+        mesh = figure.axes[0].collections[0]
+        assert mesh.get_linewidths()[0] == pytest.approx(0.5)
+        np.testing.assert_allclose(mesh.get_edgecolors()[0], [0, 0, 0, 1])
+        assert figure.axes[0].get_xlim() == pytest.approx((-0.5, 1.5))
+        assert figure.axes[0].get_ylim() == pytest.approx((1.5, -0.5))
+        assert not any(line.get_visible() for line in figure.axes[0].get_xgridlines())
+        assert not any(line.get_visible() for line in figure.axes[0].get_ygridlines())
+    finally:
+        _close_figures(figure)
 
 
 def test_matrix_heatmap_panel_uses_shared_scale_and_colorbar():
@@ -460,7 +582,7 @@ def test_all_embeddings_without_adjacency_returns_figure():
 
     try:
         assert isinstance(figure, Figure)
-        assert [axis.get_title() for axis in figure.axes[:2]] == ["X_0", "X_1"]
+        assert [axis.get_title() for axis in figure.axes[:2]] == ["m_0", "m_1"]
     finally:
         _close_figures(figure)
 
@@ -469,9 +591,11 @@ def test_all_embeddings_restores_publication_size_scaling(monkeypatch):
     dataset = _multisample_spatial_dataset()
     dataset.obsm["X"] = np.arange(16, dtype=float).reshape(8, 2)
     sizes = []
+    linewidths = []
 
     def fake_spatial_scatter(adata, **kwargs):
         sizes.append(kwargs["size"])
+        linewidths.append(kwargs["linewidths"])
 
     monkeypatch.setattr("popari.plotting.spatial.sq.pl.spatial_scatter", fake_spatial_scatter)
 
@@ -479,6 +603,25 @@ def test_all_embeddings_restores_publication_size_scaling(monkeypatch):
 
     try:
         assert sizes == [pytest.approx(2 * dataset.n_obs / 100)] * 4
+        assert linewidths == [0] * 4
+    finally:
+        _close_figures(figure)
+
+
+def test_all_embeddings_uses_column_titles_and_sample_row_labels(monkeypatch):
+    dataset = _multisample_spatial_dataset()
+    dataset.obsm["X"] = np.arange(16, dtype=float).reshape(8, 2)
+    monkeypatch.setattr("popari.plotting.spatial.sq.pl.spatial_scatter", lambda *args, **kwargs: None)
+
+    figure = pl.all_embeddings(dataset)
+
+    try:
+        axes = np.asarray(figure.axes).reshape(2, 2)
+        assert [axis.get_title() for axis in axes[0]] == ["m_0", "m_1"]
+        assert [axis.get_title() for axis in axes[1]] == ["", ""]
+        assert [axis.get_ylabel() for axis in axes[:, 0]] == ["sample_a", "sample_b"]
+        assert [axis.get_ylabel() for axis in axes[:, 1]] == ["", ""]
+        assert all(not axis.get_xticks().size and not axis.get_yticks().size for axis in axes.flat)
     finally:
         _close_figures(figure)
 
@@ -618,6 +761,31 @@ def test_in_situ_restores_publication_plotting_defaults(monkeypatch):
         _close_figures(figure)
 
 
+def test_in_situ_preserves_global_categories_while_squidpy_facets_samples(monkeypatch):
+    dataset = _multisample_spatial_dataset()
+    dataset.obs["domain"] = pd.Categorical(
+        ["A", "B", "C", "A", "A", "B", "A", "B"],
+        categories=["A", "B", "C"],
+    )
+    captured = {}
+
+    def fake_spatial_scatter(adata, **kwargs):
+        captured["remove_unused_categories"] = ad.settings.remove_unused_categories
+        captured["categories"] = adata[adata.obs["batch"] == "sample_b"].obs["domain"].cat.categories.tolist()
+
+    monkeypatch.setattr("popari.plotting.spatial.sq.pl.spatial_scatter", fake_spatial_scatter)
+
+    figure = pl.in_situ(dataset, color="domain", edges_width=0, shape=None)
+
+    try:
+        assert captured["remove_unused_categories"] is False
+        assert captured["categories"] == ["A", "B", "C"]
+    finally:
+        _close_figures(figure)
+
+    assert ad.settings.remove_unused_categories is True
+
+
 def test_in_situ_facets_selected_samples_with_total_figure_size():
     dataset = _multisample_spatial_dataset()
 
@@ -747,6 +915,43 @@ def test_plotting_wrappers_return_figures(analyzed_shared_model):
         )
 
 
+def test_spatial_affinity_factor_heatmaps(differential_model_factory):
+    model = differential_model_factory(
+        spatial_affinity_parameterization="factorized",
+        spatial_affinity_rank=2,
+    )
+    model.materialize_results()
+
+    transform_figure = pl.spatial_affinity_factor_heatmap(
+        model.adata,
+        component="A",
+        figsize=(4, 5),
+    )
+    interaction_figure = pl.spatial_affinity_factor_heatmap(
+        model.adata,
+        component="B",
+        figsize=(4, 3),
+    )
+
+    try:
+        assert isinstance(transform_figure, Figure)
+        assert tuple(transform_figure.get_size_inches()) == pytest.approx((4, 5))
+        transform_axes = [axis for axis in transform_figure.axes if axis.get_title()]
+        assert [axis.get_title() for axis in transform_axes] == ["Shared spatial-factor composition A"]
+        transform_axis = transform_axes[0]
+        assert [tick.get_text() for tick in transform_axis.get_xticklabels()] == ["m0", "m1", "m2"]
+        assert [tick.get_text() for tick in transform_axis.get_yticklabels()] == ["s0", "s1"]
+        transform_image = transform_axis.collections[0]
+        assert transform_image.get_cmap().name == "Reds"
+        assert transform_image.get_clim() == (0, 1)
+
+        assert isinstance(interaction_figure, Figure)
+        interaction_axes = [axis for axis in interaction_figure.axes if axis.get_title()]
+        assert [axis.get_title() for axis in interaction_axes] == model.replicate_names
+    finally:
+        _close_figures(transform_figure, interaction_figure)
+
+
 @pytest.mark.expensive
 def test_embedding_category_and_umap_plots(clustered_shared_model):
     model = clustered_shared_model
@@ -825,6 +1030,52 @@ def test_affinity_trend_plot(analyzed_shared_model):
         assert trend_figure.axes
     finally:
         _close_figures(trend_figure)
+
+
+def test_matrix_trend_dotplot_encodes_lower_triangle():
+    trends = tl.MatrixTrends(
+        correlations=np.array(
+            [
+                [0.0, 0.25, 0.5],
+                [-0.5, 0.75, 0.9],
+                [-1.0, 0.5, 1.0],
+            ],
+        ),
+        slopes=np.array(
+            [
+                [0.0, 1.0, 1.0],
+                [1.0, 0.5, 1.0],
+                [0.25, 0.75, 1.0],
+            ],
+        ),
+    )
+
+    figure = pl.matrix_trend_dotplot(trends, ["A", "B", "C"])
+
+    try:
+        axis = figure.axes[0]
+        points = axis.collections[0]
+        np.testing.assert_array_equal(
+            points.get_offsets(),
+            [[0, 0], [0, 1], [1, 1], [0, 2], [1, 2], [2, 2]],
+        )
+        assert points.get_cmap().name == "seismic"
+        assert points.get_clim() == (-1, 1)
+        assert points.get_sizes().min() == pytest.approx(5)
+        assert points.get_sizes().max() == pytest.approx(150)
+        assert len(axis.patches) == 6
+        assert [tick.get_text() for tick in axis.get_xticklabels()] == ["A", "B", "C"]
+        assert all(not spine.get_visible() for spine in axis.spines.values())
+    finally:
+        _close_figures(figure)
+
+
+def test_matrix_trend_dotplot_validates_shapes():
+    with pytest.raises(ValueError, match="square"):
+        pl.matrix_trend_dotplot(
+            tl.MatrixTrends(np.ones((2, 3)), np.ones((2, 3))),
+            ["A", "B"],
+        )
 
 
 @pytest.mark.gpu

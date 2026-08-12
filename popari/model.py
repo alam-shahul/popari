@@ -47,6 +47,8 @@ class Popari(nn.Module):
         torch_context: keyword args to use of PyTorch tensors during training.
         initial_context: keyword args to use during initialization of PyTorch tensors.
         spatial_affinity_mode: modality of spatial affinity parameters. Default: ``shared lookup``
+        spatial_affinity_parameterization: internal affinity representation, either ``full`` or ``factorized``.
+        spatial_affinity_rank: rank of the factorized spatial representation. Defaults to ``K``.
         lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
             ``spatial_affinity_mode`` is ``shared lookup``. Default: ``0.5``
         spatial_affinity_lr: learning rate for optimization of ``Sigma_x_inv``
@@ -92,6 +94,8 @@ class Popari(nn.Module):
         spatial_affinity_centering: bool = False,
         spatial_affinity_scaling: int = 10,
         spatial_affinity_regularization_power: int = 2,
+        spatial_affinity_parameterization: str = "full",
+        spatial_affinity_rank: int | None = None,
         embedding_mini_iterations: int = 1000,
         embedding_acceleration_trick: bool = True,
         embedding_step_size_multiplier: float = 1.0,
@@ -112,6 +116,16 @@ class Popari(nn.Module):
 
         if K <= 1:
             raise ValueError("`K` must be an integer value greater than 1.")
+        if spatial_affinity_parameterization not in {"full", "factorized"}:
+            raise ValueError("spatial_affinity_parameterization must be 'full' or 'factorized'.")
+        if spatial_affinity_parameterization == "factorized" and spatial_affinity_centering:
+            raise ValueError("spatial_affinity_centering is not supported for factorized spatial affinities.")
+        if spatial_affinity_rank is None:
+            spatial_affinity_rank = K
+        if not 1 <= spatial_affinity_rank <= K:
+            raise ValueError(
+                f"spatial_affinity_rank must satisfy 1 <= rank <= K; received {spatial_affinity_rank} for K={K}.",
+            )
 
         if not torch_context:
             torch_context = dict(device="cpu", dtype=torch.float32)
@@ -135,6 +149,8 @@ class Popari(nn.Module):
         self.spatial_affinity_centering = spatial_affinity_centering
         self.spatial_affinity_scaling = spatial_affinity_scaling
         self.spatial_affinity_regularization_power = spatial_affinity_regularization_power
+        self.spatial_affinity_parameterization = spatial_affinity_parameterization
+        self.spatial_affinity_rank = spatial_affinity_rank
         self.M_constraint = M_constraint
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
         self.spatial_affinity_mode = spatial_affinity_mode
@@ -244,6 +260,8 @@ class Popari(nn.Module):
             "spatial_affinity_centering": self.spatial_affinity_centering,
             "spatial_affinity_scaling": self.spatial_affinity_scaling,
             "spatial_affinity_regularization_power": self.spatial_affinity_regularization_power,
+            "spatial_affinity_parameterization": self.spatial_affinity_parameterization,
+            "spatial_affinity_rank": self.spatial_affinity_rank,
             "M_constraint": self.M_constraint,
             "sigma_yx_inv_mode": self.sigma_yx_inv_mode,
             "spatial_affinity_mode": self.spatial_affinity_mode,
@@ -321,6 +339,8 @@ class Popari(nn.Module):
             "spatial_affinity_centering": self.spatial_affinity_centering,
             "spatial_affinity_scaling": self.spatial_affinity_scaling,
             "spatial_affinity_regularization_power": self.spatial_affinity_regularization_power,
+            "spatial_affinity_parameterization": self.spatial_affinity_parameterization,
+            "spatial_affinity_rank": self.spatial_affinity_rank,
             "M_constraint": self.M_constraint,
             "sigma_yx_inv_mode": self.sigma_yx_inv_mode,
             "spatial_affinity_mode": self.spatial_affinity_mode,

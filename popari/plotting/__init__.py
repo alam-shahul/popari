@@ -3,6 +3,7 @@
 from popari.plotting.diagnostics import (
     cell_type_to_metagene,
     cell_type_to_metagene_difference,
+    metagene_proportion_difference,
     pretty_spatial_affinities,
     sparsity,
 )
@@ -19,6 +20,8 @@ from popari.plotting.heatmaps import (
     matrix_heatmap_panel,
     multigroup_heatmap,
     multireplicate_heatmap,
+    sample_to_sample_matrix_distance_heatmap,
+    spatial_affinity_factor_heatmap,
     spatial_affinity_heatmap,
 )
 from popari.plotting.interactions import affinity_difference, edge_interactions, edge_interactions_panel
@@ -32,12 +35,13 @@ from popari.plotting.spatial import (
     metagene_embedding,
     umap,
 )
-from popari.plotting.trends import affinity_magnitude_vs_difference, normalized_affinity_trends
+from popari.plotting.trends import affinity_magnitude_vs_difference, matrix_trend_dotplot, normalized_affinity_trends
 from popari.plotting.utils import setup_squarish_axes
 
 __all__ = [
     cell_type_to_metagene.__name__,
     cell_type_to_metagene_difference.__name__,
+    metagene_proportion_difference.__name__,
     pretty_spatial_affinities.__name__,
     sparsity.__name__,
     enrichment_barplot.__name__,
@@ -50,6 +54,8 @@ __all__ = [
     matrix_heatmap_panel.__name__,
     multigroup_heatmap.__name__,
     multireplicate_heatmap.__name__,
+    sample_to_sample_matrix_distance_heatmap.__name__,
+    spatial_affinity_factor_heatmap.__name__,
     spatial_affinity_heatmap.__name__,
     affinity_difference.__name__,
     edge_interactions.__name__,
@@ -63,6 +69,7 @@ __all__ = [
     metagene_embedding.__name__,
     umap.__name__,
     affinity_magnitude_vs_difference.__name__,
+    matrix_trend_dotplot.__name__,
     normalized_affinity_trends.__name__,
     setup_squarish_axes.__name__,
 ]

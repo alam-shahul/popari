@@ -194,21 +194,25 @@ def in_situ(
     if len(selected_axes) == 1:
         selected_axes = selected_axes[0]
 
-    sq.pl.spatial_scatter(
-        adata,
-        shape=shape,
-        color=color,
-        library_key=library_key,
-        library_id=list(selected_samples),
-        connectivity_key=connectivity_key,
-        edges_width=edges_width,
-        size=size,
-        palette=palette,
-        legend_fontsize=legend_fontsize,
-        ax=selected_axes,
-        fig=fig,
-        **spatial_kwargs,
-    )
+    # Squidpy subsets each library before assigning categorical colors. Keep
+    # globally defined categories so a category missing from one sample does
+    # not shift the colors of every subsequent category in the palette.
+    with ad.settings.override(remove_unused_categories=False):
+        sq.pl.spatial_scatter(
+            adata,
+            shape=shape,
+            color=color,
+            library_key=library_key,
+            library_id=list(selected_samples),
+            connectivity_key=connectivity_key,
+            edges_width=edges_width,
+            size=size,
+            palette=palette,
+            legend_fontsize=legend_fontsize,
+            ax=selected_axes,
+            fig=fig,
+            **spatial_kwargs,
+        )
 
     return fig
 
@@ -350,7 +354,7 @@ def all_embeddings(
 
     _, K = adata.obsm[embedding_key].shape
     if column_names is None:
-        column_names = [f"{embedding_key}_{index}" for index in range(K)]
+        column_names = [f"m_{index}" for index in range(K)]
     elif len(column_names) != K:
         raise ValueError(f"column_names must contain {K} labels.")
 
@@ -365,6 +369,7 @@ def all_embeddings(
     cmap = spatial_kwargs.pop("cmap", "viridis")
     dpi = spatial_kwargs.pop("dpi", 100)
     figsize = spatial_kwargs.pop("figsize", None)
+    spatial_kwargs.setdefault("linewidths", 0)
     expected_axes = len(selected_samples) * K
     if axes is None:
         fig, axes = plt.subplots(
@@ -395,7 +400,7 @@ def all_embeddings(
 
     for sample_index, sample in enumerate(selected_samples):
         dataset = adata[sample_axis.indices(sample)]
-        extracted = sq.pl.extract(dataset, embedding_key, prefix=embedding_key)
+        extracted = sq.pl.extract(dataset, embedding_key, prefix="m")
         for feature_index, column_name in enumerate(column_names):
             ax = axes.flat[sample_index * K + feature_index]
             vmin, vmax = limits[feature_index]
@@ -411,10 +416,15 @@ def all_embeddings(
                 vmax=vmax,
                 library_key=sample_axis.sample_key,
                 library_id=sample,
-                title=column_name if len(selected_samples) == 1 else f"{sample}: {column_name}",
+                title=column_name if sample_index == 0 else "",
                 ax=ax,
                 **spatial_kwargs,
             )
+            ax.set_title(column_name if sample_index == 0 else "")
+            ax.set_xlabel("")
+            ax.set_ylabel(sample if feature_index == 0 else "")
+            ax.set_xticks([])
+            ax.set_yticks([])
     for index in range(expected_axes, axes.size):
         axes.flat[index].axis("off")
     return fig
@@ -515,9 +525,20 @@ def embedding_label_heatmap(
     grid_spec = gridspec.GridSpec(2, 1, height_ratios=[1, 0.05])
     ax = plt.subplot(grid_spec[0])
     colorbar_ax = plt.subplot(grid_spec[1])
-    image = ax.pcolormesh(values, cmap="magma", edgecolor="k")
+    num_rows, num_columns = values.shape
+    image = ax.pcolormesh(
+        np.arange(num_columns + 1) - 0.5,
+        np.arange(num_rows + 1) - 0.5,
+        values,
+        cmap="magma",
+        edgecolors="black",
+        linewidth=0.5,
+        shading="flat",
+    )
     ax.set_aspect("equal")
-    ax.invert_yaxis()
+    ax.set_xlim(-0.5, num_columns - 0.5)
+    ax.set_ylim(num_rows - 0.5, -0.5)
+    ax.grid(False)
     ax.set_xticks(np.arange(num_features), [f"m{index}" for index in order], rotation=90)
     ax.set_yticks(np.arange(len(mean_expression.index)), mean_expression.index)
     if title is not None:
