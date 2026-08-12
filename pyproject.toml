@@ -63,6 +63,7 @@ jupyter = [
   "jupyterlab",
   "jupyterlab_execute_time",
   "jupyter-resource-usage",
+  "openpyxl>=3.1",
 ]
 wandb = [
   "wandb>=0.17.9,<0.18",
