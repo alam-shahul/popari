@@ -4,5 +4,9 @@ __pycache__/
 data/
 notebooks/
 *.ipynb
+!docs/source/tutorial_gallery/kidney_injury_analysis.ipynb
 popari/genes_ncbi_mus_musculus_proteincoding.py
 *.h5ad
+/docs/build/
+/docs/source/api/
+/docs/.buildinfo

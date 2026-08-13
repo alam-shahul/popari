@@ -26,7 +26,6 @@ dependencies = [
     "squidpy",
     "gseapy",
     "kneed",
-    "louvain",
     "leidenalg",
     "pymetis",
     "ortools",
