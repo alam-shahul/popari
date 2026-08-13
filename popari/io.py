@@ -1,244 +1,116 @@
+"""Strict I/O for canonical unified Popari AnnData artifacts."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Optional, Sequence, Union
 
 import anndata as ad
-import awkward as ak
-import numpy as np
-import torch
-from scipy.sparse import csr_array, issparse
+from anndata import AnnData
+from scipy.sparse import csr_array
 
-from popari.components import PopariDataset
-from popari.util import concatenate, convert_adjacency_matrix_to_awkward_array, unconcatenate
+from popari.schema import SAMPLE_KEY_KEY, SCHEMA_VERSION, SCHEMA_VERSION_KEY, validate_anndata_hierarchy
 
-
-def load_anndata(filepath: Union[str, Path]):
-    """Load AnnData object from h5ad file and reformat for Popari."""
-
-    merged_dataset = ad.read_h5ad(filepath)
-
-    datasets, replicate_names = unmerge_anndata(merged_dataset)
-
-    return datasets, replicate_names
+LEVEL_FILE_PATTERN = re.compile(r"^level_(\d+)\.h5ad$")
 
 
-def unmerge_anndata(merged_dataset: ad.AnnData):
-    """Unmerge composite AnnData object into constituent datasets."""
+def load_anndata(filepath: str | Path) -> AnnData:
+    """Load and validate one canonical Popari H5AD artifact."""
 
-    merged_dataset.X = csr_array(merged_dataset.X)
-    datasets = unconcatenate(merged_dataset)
-
-    for dataset in datasets:
-        replicate_string = f"{dataset.name}"
-        if "Sigma_x_inv" in dataset.uns:
-            # Keep only Sigma_x_inv corresponding to a particular replicate
-            replicate_Sigma_x_inv = dataset.uns["Sigma_x_inv"][replicate_string]
-            if np.isscalar(replicate_Sigma_x_inv) and replicate_Sigma_x_inv == -1:
-                replicate_Sigma_x_inv = None
-
-            dataset.uns["Sigma_x_inv"] = {
-                replicate_string: replicate_Sigma_x_inv,
-            }
-
-        if "Sigma_x_inv_bar" in dataset.uns:
-            # Keep only Sigma_x_inv_bar corresponding to a particular replicate
-            replicate_Sigma_x_inv_bar = dataset.uns["Sigma_x_inv_bar"][replicate_string]
-            if np.isscalar(replicate_Sigma_x_inv_bar) and replicate_Sigma_x_inv_bar == -1:
-                replicate_Sigma_x_inv_bar = None
-
-            dataset.uns["Sigma_x_inv_bar"] = {
-                replicate_string: replicate_Sigma_x_inv_bar,
-            }
-
-        # Hacks to load adjacency matrices efficiently
-        if "adjacency_matrix" in dataset.uns:
-            dataset.obsp["adjacency_matrix"] = csr_array(
-                dataset.uns["adjacency_matrix"][replicate_string],
-            )
-
-        adjacency_matrix = dataset.obsp["adjacency_matrix"].tocoo()
-
-        if "adjacency_list" not in dataset.obsm:
-            dataset.obsm["adjacency_list"] = convert_adjacency_matrix_to_awkward_array(adjacency_matrix)
-
-        if "M" in dataset.uns:
-            if replicate_string in dataset.uns["M"]:
-                replicate_M = make_hdf5_compatible(dataset.uns["M"][replicate_string])
-                dataset.uns["M"] = {replicate_string: replicate_M}
-
-        if "M_bar" in dataset.uns:
-            if replicate_string in dataset.uns["M_bar"]:
-                replicate_M_bar = make_hdf5_compatible(
-                    dataset.uns["M_bar"][replicate_string],
-                )
-                dataset.uns["M_bar"] = {replicate_string: replicate_M_bar}
-
-        if "popari_hyperparameters" in dataset.uns:
-            if "prior_x" in dataset.uns["popari_hyperparameters"]:
-                prior_x = make_hdf5_compatible(
-                    dataset.uns["popari_hyperparameters"]["prior_x"],
-                )
-                dataset.uns["popari_hyperparameters"]["prior_x"] = prior_x
-
-            if "spatial_affinity_groups" in dataset.uns["popari_hyperparameters"]:
-                name_parts = dataset.name.split("_level_")
-                if len(name_parts) > 1:
-                    *_, level = name_parts
-                    level = int(level)
-                else:
-                    level = 0
-
-                groups = dataset.uns["popari_hyperparameters"]["spatial_affinity_groups"]
-                filtered_groups = {}
-                for group, group_replicates in groups.items():
-                    group_name_parts = group.split("_level_")
-                    if len(group_name_parts) > 1:
-                        *_, group_level = group_name_parts
-                        group_level = int(group_level)
-                    else:
-                        group_level = 0
-
-                    if group_level == level:
-                        filtered_groups[group] = group_replicates
-
-                dataset.uns["popari_hyperparameters"]["spatial_affinity_groups"] = filtered_groups
-
-            if "metagene_groups" in dataset.uns["popari_hyperparameters"]:
-                name_parts = dataset.name.split("_level_")
-                if len(name_parts) > 1:
-                    *_, level = name_parts
-                    level = int(level)
-                else:
-                    level = 0
-
-                groups = dataset.uns["popari_hyperparameters"]["metagene_groups"]
-                filtered_groups = {}
-                for group, group_replicates in groups.items():
-                    group_name_parts = group.split("_level_")
-                    if len(group_name_parts) > 1:
-                        *_, group_level = group_name_parts
-                        group_level = int(group_level)
-                    else:
-                        group_level = 0
-
-                    if group_level == level:
-                        filtered_groups[group] = group_replicates
-
-                dataset.uns["popari_hyperparameters"]["metagene_groups"] = filtered_groups
-
-        # if "X" in dataset.obsm:
-        #     replicate_X = make_hdf5_compatible(dataset.obsm["X"])
-        #     dataset.obsm["X"] = replicate_X
-
-    replicate_names = [dataset.name for dataset in datasets]
-    return datasets, replicate_names
-
-
-def merge_anndata(datasets: Sequence[PopariDataset], ignore_raw_data: bool = False):
-    """Merge multiple PopariDatasets into a single AnnData object (for
-    storage)."""
-
-    dataset_copies = []
-    for dataset in datasets:
-        replicate = dataset.name
-        replicate_string = f"{replicate}"
-        if ignore_raw_data:
-            dataset.X = csr_array(dataset.X.shape)
-        else:
-            dataset.X = csr_array(dataset.X)
-
-        dataset_copy = PopariDataset(dataset, dataset.name)
-
-        # Hacks to store adjacency matrices efficiently
-        if "adjacency_matrix" in dataset.obsp:
-            adjacency_matrix = make_hdf5_compatible(dataset.obsp["adjacency_matrix"])
-            dataset_copy.uns["adjacency_matrix"] = {replicate_string: adjacency_matrix}
-        elif "adjacency_matrix" in dataset.uns:
-            dataset_copy.uns["adjacency_matrix"] = {
-                replicate_string: make_hdf5_compatible(adjacency_matrix)
-                for replicate_string, adjacency_matrix in dataset.uns["adjacency_matrix"]
-            }
-
-        if "Sigma_x_inv" in dataset_copy.uns:
-            replicate_Sigma_x_inv = dataset_copy.uns["Sigma_x_inv"][replicate_string]
-            if replicate_string in dataset_copy.uns["Sigma_x_inv"]:
-                # Using a sentinel value - hopefully this can be fixed in the future!
-                if replicate_Sigma_x_inv is None:
-                    replicate_Sigma_x_inv = -1
-                else:
-                    replicate_Sigma_x_inv = make_hdf5_compatible(replicate_Sigma_x_inv)
-            dataset_copy.uns["Sigma_x_inv"] = {replicate_string: replicate_Sigma_x_inv}
-
-        if "Sigma_x_inv_bar" in dataset_copy.uns:
-            replicate_Sigma_x_inv_bar = dataset_copy.uns["Sigma_x_inv_bar"][replicate_string]
-            if replicate_string in dataset_copy.uns["Sigma_x_inv_bar"]:
-                # Using a sentinel value - hopefully this can be fixed in the future!
-                if replicate_Sigma_x_inv_bar is None:
-                    replicate_Sigma_x_inv_bar = -1
-                else:
-                    replicate_Sigma_x_inv_bar = make_hdf5_compatible(
-                        replicate_Sigma_x_inv_bar,
-                    )
-            dataset_copy.uns["Sigma_x_inv_bar"] = {
-                replicate_string: replicate_Sigma_x_inv_bar,
-            }
-
-        if "M" in dataset_copy.uns:
-            if replicate_string in dataset_copy.uns["M"]:
-                replicate_M = make_hdf5_compatible(
-                    dataset_copy.uns["M"][replicate_string],
-                )
-                dataset_copy.uns["M"] = {replicate_string: replicate_M}
-
-        if "M_bar" in dataset_copy.uns:
-            if replicate_string in dataset_copy.uns["M_bar"]:
-                replicate_M_bar = make_hdf5_compatible(
-                    dataset_copy.uns["M_bar"][replicate_string],
-                )
-                dataset_copy.uns["M_bar"] = {replicate_string: replicate_M_bar}
-
-        if "popari_hyperparameters" in dataset_copy.uns:
-            if "prior_x" in dataset_copy.uns["popari_hyperparameters"]:
-                prior_x = make_hdf5_compatible(
-                    dataset_copy.uns["popari_hyperparameters"]["prior_x"],
-                )
-                dataset_copy.uns["popari_hyperparameters"]["prior_x"] = prior_x
-
-        if "dataset_name" not in dataset_copy.uns:
-            dataset_copy.uns["dataset_name"] = dataset.name
-
-        # if "X" in dataset_copy.obsm:
-        #     replicate_X = make_hdf5_compatible(dataset_copy.obsm["X"])
-        #     dataset_copy.obsm["X"] = replicate_X
-        dataset_copies.append(dataset_copy)
-
-    merged_dataset = concatenate(dataset_copies, join="outer")
-
-    return merged_dataset
+    adata = ad.read_h5ad(filepath)
+    version = adata.uns.get(SCHEMA_VERSION_KEY)
+    if version != SCHEMA_VERSION:
+        raise ValueError(
+            f"{filepath} uses Popari schema version {version!r}; expected {SCHEMA_VERSION}. "
+            "Run `uv run python scripts/migrate_popari_artifact.py INPUT OUTPUT` first.",
+        )
+    adata.popari.validate()
+    return adata
 
 
 def save_anndata(
-    filepath: Union[str, Path],
-    datasets: Sequence[PopariDataset],
+    filepath: str | Path,
+    adata: AnnData,
     ignore_raw_data: bool = False,
-):
-    """Save Popari state as AnnData object."""
+    *,
+    sample_key: str | None = None,
+) -> AnnData:
+    """Validate and write one unified Popari AnnData artifact."""
 
-    merged_dataset = merge_anndata(datasets, ignore_raw_data=ignore_raw_data)
-    merged_dataset.write(filepath)
+    if not isinstance(adata, AnnData):
+        raise TypeError("save_anndata expects one unified AnnData object.")
+    canonical = adata.copy()
+    if sample_key is not None:
+        canonical.uns[SAMPLE_KEY_KEY] = sample_key
+    canonical.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+    canonical.popari.validate()
+    if ignore_raw_data:
+        canonical.X = csr_array(canonical.shape)
 
-    return merged_dataset
+    canonical.write_h5ad(filepath)
+    return canonical
 
 
-def make_hdf5_compatible(array: Union[torch.Tensor, np.ndarray]):
-    """Convert tensors to Numpy array for compatibility with HDF5.
+def _hierarchy_files(path: str | Path) -> dict[int, Path]:
+    path = Path(path)
+    if path.is_file():
+        return {0: path}
+    sibling = path.with_suffix(".h5ad")
+    if sibling.is_file():
+        return {0: sibling}
+    if not path.is_dir():
+        raise FileNotFoundError(f"No Popari AnnData artifact found at {path}.")
+    files = {
+        int(match.group(1)): candidate
+        for candidate in path.glob("level_*.h5ad")
+        if (match := LEVEL_FILE_PATTERN.match(candidate.name)) is not None
+    }
+    if not files:
+        raise ValueError(f"No level_*.h5ad files found in {path}.")
+    levels = sorted(files)
+    if levels != list(range(len(levels))):
+        raise ValueError(f"Hierarchy levels must be contiguous from zero; found {levels}.")
+    return files
 
-    Args:
-        array: array to convert to Numpy.
 
-    """
-    if type(array) == torch.Tensor:
-        cpu_tensor = array.detach().cpu()
-        if cpu_tensor.is_sparse:
-            cpu_tensor = cpu_tensor.to_dense()
-        return cpu_tensor.numpy()
-    return array
+def load_anndata_hierarchy(path: str | Path) -> dict[int, AnnData]:
+    """Load and validate one canonical AnnData per hierarchy level."""
+
+    hierarchy = {level: load_anndata(file) for level, file in sorted(_hierarchy_files(path).items())}
+    validate_anndata_hierarchy(hierarchy)
+    return hierarchy
+
+
+def save_anndata_hierarchy(
+    path: str | Path,
+    hierarchy: Mapping[int, AnnData],
+    *,
+    ignore_raw_data: bool = False,
+    sample_key: str | None = None,
+) -> dict[int, AnnData]:
+    """Write one canonical H5AD file per hierarchy level."""
+
+    prepared = {}
+    for level, adata in hierarchy.items():
+        current = adata.copy()
+        if sample_key is not None:
+            current.uns[SAMPLE_KEY_KEY] = sample_key
+        current.uns[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+        prepared[level] = current
+    validate_anndata_hierarchy(prepared)
+
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return {
+        level: save_anndata(path / f"level_{level}.h5ad", prepared[level], ignore_raw_data=ignore_raw_data)
+        for level in sorted(prepared)
+    }
+
+
+__all__ = [
+    load_anndata.__name__,
+    load_anndata_hierarchy.__name__,
+    save_anndata.__name__,
+    save_anndata_hierarchy.__name__,
+]

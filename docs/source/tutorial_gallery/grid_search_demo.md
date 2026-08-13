@@ -1,95 +1,57 @@
-# Grid Search with MLflow
+# Tracking and parameter sweeps
 
-Using MLflow, we can effectively grid search for the best combination of Popari hyperparameters. Note that you must have {ref}`installed <installation>` the optional MLflow-related dependencies first. 
+Install the optional Weights & Biases dependency:
 
-## Configuring your grid search
-In order to specify the range of Popari hyperparameters over which to grid search, we have designed a [TOML](https://en.wikipedia.org/wiki/TOML)-formatted configuration file. Below is an example config, annotated with comments explaining the purpose of each setting:  
-
-```
-[runtime]
-project_name = "example_project" # Name of the project
-dataset_path = "/path/to/dataset.h5ad" # Path to the preprocessed Popari input
-num_processes = 4 # Max number of parallel Popari jobs to run at once; limited by number of available CUDA-enabled devices
-# As an alternative to `num_processes`, you can also explicitly provide a list of available devices, as below:
-# device_list = ['cuda:0', 'cuda:3', 'cuda:7', 'cpu'] # If using this argument, then `num_processes=len(device_list)`
-
-[hyperparameters]
-
-    [hyperparameters.K] # Grid search config for K (number of metagenes); the below yields [10, 15, 20] as options
-    start = 10 # First value along grid search axis
-    end = 20 # Last value along grid search axis
-    gridpoints = 3 # Number of equally-spaced grid points to divide the range into
-    scale = 'linear' # Scale on which to interpret the range 
-    dtype = 'int' # Datatype of hyperparameter; if 'int', values will be rounded to the nearest integer
-    
-    [hyperparameters.nmf_preiterations] # -> [10]
-    start = 10
-    end = 10
-    gridpoints = 1
-    scale = 'linear'
-    dtype = 'int'
-
-    [hyperparameters.spatial_preiterations] # -> [50]
-    start = 50
-    end = 50
-    gridpoints = 1
-    scale = 'linear'
-    dtype = 'int'
-    
-    [hyperparameters.num_iterations] # -> [200]
-    start = 200
-    end = 200
-    gridpoints = 1
-    scale = 'linear'
-    dtype = 'int'
-
-    [hyperparameters.lambda_Sigma_x_inv] # -> [1e-4]
-    start = -4
-    end = -4
-    gridpoints = 1
-    scale = 'log'
-    dtype = 'float'
-
-    [hyperparameters.lambda_Sigma_bar] # -> [1e-3, 1e-4, 1e-5]
-    start = -5
-    end = -3
-    gridpoints = 3
-    scale = 'log'
-    dtype = 'float'
-
-    [hyperparameters.binning_downsample_rate] # -> [0.25, 0.5]
-    start = 0.25
-    end = 0.5
-    gridpoints = 2
-    scale = 'linear'
-    dtype = 'float'
-
-    [hyperparameters.hierarchical_levels] # -> [2]
-    start = 2
-    end = 2
-    gridpoints = 1
-    scale = 'linear'
-    dtype = 'int'
+```bash
+pip install popari[wandb]
 ```
 
-The above configuration would yield `3 * 1 * 1 * 1 * 1 * 3 * 2 * 1 = 18` hyperparameter combinations, implying that `18` Popari jobs will be executed by the MLflow framework. Furthermore, according to the `num_processes` setting, a maximum of `4` of these processes will be running at any single moment in time.
+## Track one run
 
-To start a grid search, navigate to the folder where you want to store your grid search results (e.g. `example_grid_search`), and then run the `popari-grid-search` script:
+Tracking is opt-in and defaults to the `popari/revisions` W&B project:
 
-```console
-mkdir example_grid_search
-cd example_grid_search
-popari-grid-search --configuration_filepath=/path/to/config_file.toml
+```bash
+uv run --extra wandb python scripts/train.py \
+  data.dataset_path=/path/to/input.h5ad \
+  model.K=10 \
+  initial_device=cuda \
+  torch_device=cuda \
+  output_dir=/path/to/results \
+  tracking.enabled=true
 ```
 
-You can also run benchmarking runs using SpiceMix and NMF using the flag `--include_benchmarks`, and you can run only the benchmarks by additionally including the `--only_benchmarks` flag. Note that this will effectively triple the number of jobs that will run during the grid search.
+The run records the resolved Hydra configuration and training losses. Its
+final canonical model is uploaded as a `popari-model` artifact that can be
+loaded with `popari.wandb_util.load_popari_model_from_wandb`.
+The local result directory is `output_dir/<config-uuid>/`, independently of
+whether W&B tracking is enabled. It contains `model.h5ad` for a single-level
+model or a `model/` directory for a hierarchy. W&B uploads whichever result
+representation Popari creates.
 
+## Run a W&B sweep
 
-## View results
-To view the results of your grid search (including relevant metrics), run the following command from the same folder
+Edit `sweeps/popari.yaml` to set the dataset and parameter grid, then create
+the sweep:
 
-```console
-mlflow ui --port=5000
+```bash
+uv run --extra wandb wandb sweep sweeps/popari.yaml
 ```
 
-and navigate to `localhost:5000` on your web browser.
+Run the agent command returned by W&B:
+
+```bash
+uv run --extra wandb wandb agent popari/revisions/<sweep-id>
+```
+
+The sweep uses `${args_no_hyphens}` to pass each selected parameter as a Hydra
+override such as `model.K=10`. Launch additional agents locally or in separate
+SLURM jobs to run trials concurrently.
+
+For a local sweep without W&B scheduling, use Hydra's multirun mode:
+
+```bash
+uv run python scripts/train.py -m \
+  data.dataset_path=/path/to/input.h5ad \
+  model.K=10,15,20 \
+  model.random_state=0,1,2,3,4
+```

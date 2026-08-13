@@ -1,57 +1,63 @@
 # Quickstart
 
-## Load datasets
-```python
-from pathlib import Path
+Popari operates on one unified, schema-v2 `AnnData` object. The categorical
+sample column recorded in the Popari schema identifies the observations from
+each spatial sample.
 
-import anndata as ad
+## Load a dataset
+
+```python
 import torch
 
-from popari.model import Popari
+from popari import Popari, Trainer
+from popari.io import load_anndata, save_anndata_hierarchy
 
-datasets = []
-replicate_names = []
-for fov in range(5):
-    dataset = ad.read_h5ad(f"./example_st_dataset_fov_{replicate}.h5ad") # Each dataset must have spatial information stored as an adjacency matrix
-    name = f"{fov}"
-    datasets.append(dataset)
-    replicate_names.append(name)
+adata = load_anndata("./preprocessed_dataset.h5ad")
+print(adata.popari.sample_names)
 ```
 
-## Define hyperparameters
-```python
-K = 20 # Number of metagenes
-lambda_Sigma_x_inv = 1e-4 # Spatial affinity regularization hyperparameter
-torch_context = dict(device='cuda:0', dtype=torch.float32) # Context for PyTorch tensor instantiation 
-```
+The dataset must contain spatial coordinates and a block-diagonal spatial
+graph in `adata.obsp["adjacency_matrix"]`. Use the preprocessing tutorial to
+construct a Popari dataset from raw spatial transcriptomics data.
 
-## Initialize
+## Initialize the model
+
 ```python
-popari_demo = Popari(
-    K=K,
-    datasets=datasets,
-    lambda_Sigma_x_inv=lambda_Sigma_x_inv,
-    torch_context=torch_context
+model = Popari(
+    K=20,
+    adata=adata,
+    lambda_Sigma_x_inv=1e-4,
+    initialization_method="leiden_fast",
+    initial_context={"device": "cpu", "dtype": torch.float64},
+    torch_context={"device": "cuda:0", "dtype": torch.float64},
 )
-```    
+```
+
+`initial_context` controls where initialization runs, while `torch_context`
+controls model optimization. Use `device="cpu"` for both when CUDA is not
+available.
+
 ## Train
-```python
-# Initialization with NMF
-for iteration in range(5):
-    popari_demo.estimate_parameters(update_spatial_affinities=False)
-    popari_demo.estimate_weights(use_neighbors=False)
 
-# Using spatial information
-num_iterations = 200
-for iteration in range(num_iterations):
-    popari_demo.estimate_parameters()
-    popari_demo.estimate_weights()
+```python
+trainer = Trainer(
+    model,
+    nmf_iterations=5,
+    iterations=200,
+    verbose=1,
+)
+trainer.train()
 ```
 
-## Save to disk
+## Materialize and save results
+
 ```python
-result_filepath = Path(f"./demo_{num_iterations}_iterations.h5ad")
-popari_demo.save_results(result_filepath)
+hierarchy = model.materialize_results()
+save_anndata_hierarchy("./popari_results", hierarchy)
 ```
 
-See **Analysis Demo** for examples of how to analyze Popari outputs.
+For a non-hierarchical model, the output directory contains `level_0.h5ad`.
+Hierarchical models additionally write one H5AD file for each coarser level.
+
+See the **Analysis Demo** for examples of analyzing materialized Popari
+results.

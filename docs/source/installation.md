@@ -2,34 +2,91 @@
 
 # Installation
 
-`popari` requires Python version >=3.10.
+Popari requires Python 3.12 or newer. We recommend using
+[uv](https://docs.astral.sh/uv/) to install Python, manage the environment, and
+run Popari commands.
 
-Install `popari` with pip.
+## Install with uv
 
-```
-pip install popari
-```
+Install `uv` on Linux or macOS:
 
-To use the Jupyter Lab-based GUI for designing simulated multisample spatially resolved transcriptomics, install the optional dependencies:
-
-```
-pip install popari[simulation]
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-To use the optional experiment tracking/grid search functionality, install Popari with MLflow:
+On Windows, use PowerShell:
 
-```
-pip install popari[mlflow]
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-````{note}
-Since Popari lies at the cutting edge of the mSRT analysis frontier, it is possible that the most
-updated version of Popari depends on some package versions which are not yet available on PyPI.
-Thus, it may be necessary to install as follows:
+Create a project environment and install Popari from PyPI:
+
+```bash
+mkdir popari-analysis
+cd popari-analysis
+uv init --python 3.12
+uv add popari
+```
+
+Run Python inside the managed environment without activating it:
+
+```bash
+uv run python
+```
+
+For example, verify the installed version:
+
+```bash
+uv run python -c "import popari; print(popari.__version__)"
+```
+
+To work in JupyterLab, install Popari's Jupyter dependencies and launch the
+server through `uv`:
+
+```bash
+uv add "popari[jupyter]"
+uv run jupyter lab
+```
+
+Weights & Biases support and the simulation interface are also available as
+optional dependencies:
+
+```bash
+uv add "popari[wandb,simulation]"
+```
+
+## Install from source
+
+To use the latest development version, clone the repository and synchronize
+its environment:
 
 ```bash
 git clone https://github.com/alam-shahul/popari.git
 cd popari
-pip install .[mlflow,simulation]
+uv sync --extra wandb --extra simulation
+uv run python
 ```
-````
+
+All repository scripts and tests should likewise be launched through the
+managed environment, for example:
+
+```bash
+uv run python scripts/train.py --help
+uv run pytest
+```
+
+## Install with pip
+
+Popari can alternatively be installed into an existing Python 3.12
+environment with `pip`:
+
+```bash
+pip install popari
+```
+
+Optional dependencies use the same extras:
+
+```bash
+pip install "popari[jupyter,wandb,simulation]"
+```

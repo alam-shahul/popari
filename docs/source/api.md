@@ -8,123 +8,148 @@
 
 # API
 
-```{eval-rst}
-.. module:: popari
+## Model and training
 
-.. automodule:: popari
-   :noindex:
-```
-
-## IO: `io`
-
-Tools for loading and saving Popari data and parameters.
+Core entry points for constructing and training Popari models.
 
 ```{eval-rst}
-.. module:: popari.io
 .. currentmodule:: popari
 
 .. autosummary::
     :toctree: api/
     :recursive:
 
-    io.save_anndata
-    io.load_anndata
+    Popari
+    Trainer
+    from_pretrained
 ```
 
-## Model
+## Input and output: `io`
 
-Entry points for implementations of the Popari algorithm.
+Read and write canonical unified Popari results.
 
 ```{eval-rst}
-.. module:: popari.model
-.. currentmodule:: popari
+.. currentmodule:: popari.io
 
 .. autosummary::
     :toctree: api/
     :recursive:
 
-    model.Popari
-    model.load_trained_model
+    load_anndata
+    save_anndata
+    load_anndata_hierarchy
+    save_anndata_hierarchy
 ```
 
-## Components
+## Preprocessing: `pp`
 
-Objects that are helpful for working with Popari.
+Prepare unified expression data, annotations, sample subsets, and spatial
+graphs.
 
 ```{eval-rst}
-.. module:: popari.components
-.. currentmodule:: popari
+.. currentmodule:: popari.pp
 
 .. autosummary::
     :toctree: api/
     :recursive:
 
-    components.PopariDataset
+    pca
+    compute_spatial_neighbors
+    remove_connectivity_artifacts
+    relabel_categories
+    subset_samples
 ```
 
 ## Analysis: `tl`
 
-Functions for visualizing and evaluating Popari results.
+Postprocess embeddings and quantify clusters, metagenes, spatial interactions,
+sample differences, and trajectories.
 
 ```{eval-rst}
-.. module:: popari.tl
-.. currentmodule:: popari
+.. currentmodule:: popari.tl
 
 .. autosummary::
     :toctree: api/
     :recursive:
 
-    tl.preprocess_embeddings
-    tl.leiden
-    tl.compute_ari_scores
-    tl.compute_silhouette_scores
-    tl.compute_empirical_correlations
-    tl.propagate_labels
-    tl.metagene_gsea
-    tl.find_differential_genes
-    tl.plot_gene_activations
-    tl.plot_gene_trajectories
-    tl.evaluate_classification_task
-    tl.compute_confusion_matrix
-    tl.compute_columnwise_autocorrelation
+    postprocess_embeddings
+    compute_metagene_proportions
+    cluster
+    cluster_domains
+    leiden
+    umap
+    compute_ari_scores
+    compute_silhouette_scores
+    compute_confusion_matrix
+    evaluate_classification_task
+    compute_empirical_correlations
+    compute_columnwise_autocorrelation
+    propagate_labels
+    call_de_genes
+    compile_de_genes
+    compute_category_marker_scores
+    compute_metagene_signature_expression
+    compute_gene_set_auroc
+    compute_gene_set_enrichment
+    compute_metagene_enrichment
+    compute_edge_interactions
+    compute_differential_edge_interactions
+    compute_posthoc_colocalization
+    match_categories_to_factors
+    aggregate_sample_matrices
+    calculate_dataset_similarity_matrix
+    matrix_trends
+    normalized_affinity_trends
 ```
 
 ## Plotting: `pl`
 
-Functions for visualizing and evaluating Popari results.
+Visualize embeddings, spatial annotations, metagenes, affinities, interactions,
+gene sets, and sample trajectories.
 
 ```{eval-rst}
-.. module:: popari.pl
-.. currentmodule:: popari
+.. currentmodule:: popari.pl
 
 .. autosummary::
     :toctree: api/
     :recursive:
 
-    pl.in_situ
-    pl.all_embeddings
-    pl.metagene_embedding
-    pl.multireplicate_heatmap
-    pl.multigroup_heatmap
-    pl.confusion_matrix
-    pl.metagene_signature_enrichment
-    pl.clusters_to_categories
+    in_situ
+    umap
+    all_embeddings
+    metagene_embedding
+    embedding_label_dotplot
+    embedding_label_heatmap
+    spatial_affinity_heatmap
+    spatial_affinity_factor_heatmap
+    matrix_heatmap
+    matrix_heatmap_panel
+    sample_to_sample_matrix_distance_heatmap
+    multireplicate_heatmap
+    multigroup_heatmap
+    confusion_matrix
+    category_marker_heatmap
+    edge_interactions
+    edge_interactions_panel
+    affinity_difference
+    metagene_proportion_difference
+    enrichment_barplot
+    enrichment_dotplot
+    gene_set_upset
+    matrix_trend_dotplot
+    normalized_affinity_trends
 ```
 
 ## Simulation
 
-Tools to generate simulated (multisample) spatially-resolved transcriptomics, or (m)SRT.
+Generate and evaluate synthetic multisample spatial transcriptomics data.
 
 ```{eval-rst}
-
-.. module:: popari.simulation_framework
 .. currentmodule:: popari
 
 .. autosummary::
     :toctree: api/
     :recursive:
 
-    simulation_framework.SimulationParameters
-    simulation_framework.SyntheticDataset
-    simulation_framework.MultiReplicateSyntheticDataset
+    simulation
 ```

@@ -1,0 +1,98 @@
+"""Analysis tools for synchronized Popari AnnData results."""
+
+from popari.analysis.clustering import cluster, cluster_domains, leiden, umap
+from popari.analysis.differential import (
+    call_de_genes,
+    compile_de_genes,
+    compute_category_marker_scores,
+    compute_metagene_signature_expression,
+)
+from popari.analysis.embeddings import compute_metagene_proportions, postprocess_embeddings
+from popari.analysis.gene_sets import (
+    compute_gene_set_auroc,
+    compute_gene_set_enrichment,
+    compute_metagene_enrichment,
+    get_metagene_signature,
+    order_columns_by_best_row,
+    run_enrichr,
+)
+from popari.analysis.interactions import (
+    EdgeInteractions,
+    average_category_interaction,
+    compute_category_edge_rates,
+    compute_cell_average_interaction,
+    compute_differential_edge_interactions,
+    compute_edge_interactions,
+    compute_metagene_pair_interaction,
+    compute_pair_edge_classification_scores,
+    compute_posthoc_colocalization,
+    compute_spatial_colocalization,
+    frequency_weighted_interaction_matrix,
+    match_categories_to_factors,
+    summarize_matrix_correlations,
+)
+from popari.analysis.metrics import (
+    adjacency_permutation_test,
+    compute_ari_scores,
+    compute_columnwise_autocorrelation,
+    compute_confusion_matrix,
+    compute_empirical_correlations,
+    compute_silhouette_scores,
+    compute_spatial_gene_correlation,
+    evaluate_classification_task,
+    get_optimal_permutation,
+    metagene_neighbor_interactions,
+    score_marker_expression,
+)
+from popari.analysis.samples import aggregate_sample_matrices
+from popari.analysis.similarity import calculate_dataset_similarity_matrix
+from popari.analysis.trends import MatrixTrends, matrix_trends, normalized_affinity_trends, propagate_labels
+
+__all__ = [
+    cluster.__name__,
+    cluster_domains.__name__,
+    leiden.__name__,
+    umap.__name__,
+    call_de_genes.__name__,
+    compile_de_genes.__name__,
+    compute_category_marker_scores.__name__,
+    compute_metagene_signature_expression.__name__,
+    compute_metagene_proportions.__name__,
+    postprocess_embeddings.__name__,
+    compute_gene_set_auroc.__name__,
+    compute_gene_set_enrichment.__name__,
+    compute_metagene_enrichment.__name__,
+    get_metagene_signature.__name__,
+    order_columns_by_best_row.__name__,
+    run_enrichr.__name__,
+    EdgeInteractions.__name__,
+    average_category_interaction.__name__,
+    compute_category_edge_rates.__name__,
+    compute_cell_average_interaction.__name__,
+    compute_differential_edge_interactions.__name__,
+    compute_edge_interactions.__name__,
+    compute_metagene_pair_interaction.__name__,
+    compute_pair_edge_classification_scores.__name__,
+    compute_posthoc_colocalization.__name__,
+    compute_spatial_colocalization.__name__,
+    frequency_weighted_interaction_matrix.__name__,
+    match_categories_to_factors.__name__,
+    summarize_matrix_correlations.__name__,
+    adjacency_permutation_test.__name__,
+    compute_ari_scores.__name__,
+    compute_columnwise_autocorrelation.__name__,
+    compute_confusion_matrix.__name__,
+    compute_empirical_correlations.__name__,
+    compute_silhouette_scores.__name__,
+    compute_spatial_gene_correlation.__name__,
+    evaluate_classification_task.__name__,
+    get_optimal_permutation.__name__,
+    metagene_neighbor_interactions.__name__,
+    score_marker_expression.__name__,
+    aggregate_sample_matrices.__name__,
+    calculate_dataset_similarity_matrix.__name__,
+    MatrixTrends.__name__,
+    matrix_trends.__name__,
+    normalized_affinity_trends.__name__,
+    propagate_labels.__name__,
+]
