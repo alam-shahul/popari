@@ -560,6 +560,27 @@ def test_edge_interactions_panel_uses_shared_category_pair_scale():
         _close_figures(figure)
 
 
+def test_edge_interactions_panel_accepts_custom_axes():
+    dataset = _edge_interaction_dataset("sample")
+    interactions = {"sample": tl.compute_edge_interactions(dataset, sample="sample")}
+    figure, axes = plt.subplots(1, 2)
+
+    result = pl.edge_interactions_panel(
+        dataset,
+        interactions,
+        axes=axes,
+        color=None,
+        size=20,
+    )
+
+    try:
+        assert result is figure
+        assert axes[0].get_title() == "sample"
+        assert not axes[1].get_visible()
+    finally:
+        _close_figures(figure)
+
+
 def test_all_embeddings_without_adjacency_returns_figure():
     dataset = ad.AnnData(
         X=np.ones((4, 3)),
@@ -1087,7 +1108,7 @@ def test_multigroup_heatmap_with_differential_affinities(differential_model_fact
 
     figure = pl.multigroup_heatmap(
         model.adata,
-        groups=model.spatial_affinity_groups,
+        groups=model.regularization_groups,
         key="spatial_affinity_bar",
     )
 

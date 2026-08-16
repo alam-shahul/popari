@@ -157,6 +157,7 @@ def edge_interactions_panel(
     interactions: Mapping[str, EdgeInteractions],
     *,
     samples: str | Sequence[str] | None = None,
+    axes: Sequence[Axes] | None = None,
     score: str = "total",
     metagene_pair: tuple[int, int] | None = None,
     category_key: str | None = None,
@@ -210,14 +211,20 @@ def edge_interactions_panel(
         edge_vmin = min(values.min() for values in nonempty_values)
         edge_vmax = max(values.max() for values in nonempty_values)
 
-    fig, axes = setup_squarish_axes(
-        len(selected_samples),
-        dpi=dpi,
-        figsize=figsize,
-        constrained_layout=False,
-        sharex=False,
-        sharey=False,
-    )
+    if axes is None:
+        fig, axes = setup_squarish_axes(
+            len(selected_samples),
+            dpi=dpi,
+            figsize=figsize,
+            constrained_layout=False,
+            sharex=False,
+            sharey=False,
+        )
+    else:
+        axes = np.asarray(axes, dtype=object)
+        if axes.size < len(selected_samples):
+            raise ValueError("axes must provide at least one axis per selected sample.")
+        fig = axes.flat[0].get_figure()
     for sample, values, ax in zip(selected_samples, selected_values, axes.flat):
         result = interactions[sample]
         if not len(values):
