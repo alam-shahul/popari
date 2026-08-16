@@ -57,7 +57,8 @@ class HierarchicalLevel(nn.Module):
         use_inplace_ops: bool,
         pretrained: bool,
         verbose: str,
-        spatial_affinity_groups: dict,
+        groups: dict | str | None,
+        regularization_groups: dict | None,
         lambda_Sigma_x_inv: float,
         lambda_Sigma_bar: float,
         spatial_affinity_lr: float,
@@ -70,7 +71,6 @@ class HierarchicalLevel(nn.Module):
         spatial_affinity_rank: int,
         M_constraint: str,
         sigma_yx_inv_mode: str,
-        spatial_affinity_mode: str,
         embedding_step_size_multiplier: float,
         embedding_mini_iterations: int,
         embedding_acceleration_trick: bool,
@@ -113,47 +113,12 @@ class HierarchicalLevel(nn.Module):
         self.spatial_affinity_rank = spatial_affinity_rank
         self.M_constraint = M_constraint
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
-        self.spatial_affinity_mode = spatial_affinity_mode
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
         self.embedding_mini_iterations = embedding_mini_iterations
         self.embedding_acceleration_trick = embedding_acceleration_trick
 
         self.num_replicates = len(self.sample_axis)
         self._dirty = True
-
-        def fill_groups(groups, are_exclusive=False):
-            if not groups:
-                groups = {"_default": self.replicate_names}
-            else:
-                groups = {str(group): list(group_samples) for group, group_samples in groups.items()}
-
-            included_replicate_names = sum(groups.values(), [])
-            difference = set(self.replicate_names) - set(included_replicate_names)
-            if difference:
-                groups[f"_default"] = list(difference)
-
-            # Make group names unique to hierarchical level
-            groups = {
-                key if key.endswith(self.level_suffix) else f"{key}{self.level_suffix}": value
-                for key, value in groups.items()
-            }
-
-            tags = {replicate_name: [] for replicate_name in self.replicate_names}
-            for group, group_replicates in groups.items():
-                for replicate in group_replicates:
-                    if are_exclusive and len(tags[replicate]) > 0:
-                        raise ValueError("If in shared mode, each replicate can only appear in one group.")
-                    tags[replicate].append(group)
-
-            return groups
-
-        if spatial_affinity_groups == "disjoint":
-            spatial_affinity_groups = {replicate_name: [replicate_name] for replicate_name in self.replicate_names}
-
-        normalized_spatial_affinity_groups = fill_groups(
-            spatial_affinity_groups,
-            are_exclusive=(self.spatial_affinity_mode == "shared lookup"),
-        )
 
         if binned_Ys is None:
             self.Ys = []
@@ -205,8 +170,8 @@ class HierarchicalLevel(nn.Module):
         self.spatial_affinity = SpatialAffinityState(
             self.K,
             self.replicate_names,
-            normalized_spatial_affinity_groups,
-            mode=self.spatial_affinity_mode,
+            groups,
+            regularization_groups,
             context=self.context,
             parameterization=self.spatial_affinity_parameterization,
             rank=self.spatial_affinity_rank,
@@ -314,16 +279,16 @@ class HierarchicalLevel(nn.Module):
         self.adata.uns["losses"] = {key: list(values) for key, values in self.adata.uns.get("losses", {}).items()}
 
     @property
-    def spatial_affinity_groups(self):
-        """Return the runtime spatial-affinity groups."""
+    def groups(self):
+        """Return sample groups sharing spatial-affinity parameters."""
 
         return self.spatial_affinity.groups
 
     @property
-    def spatial_affinity_tags(self):
-        """Return spatial-affinity group memberships by sample."""
+    def regularization_groups(self):
+        """Return groups of affinities sharing regularization means."""
 
-        return self.spatial_affinity.tags
+        return self.spatial_affinity.regularization_groups
 
     def embedding(self, sample: str) -> torch.Tensor:
         """Return embeddings for one sample from the global embedding tensor."""
@@ -447,11 +412,13 @@ class HierarchicalLevel(nn.Module):
             self.adata.uns.pop(SPATIAL_AFFINITY_FACTORS_KEY, None)
             self.adata.obsm.pop(SPATIAL_FACTOR_EMBEDDING_KEY, None)
 
-        if self.spatial_affinity_mode == "differential lookup":
+        if self.spatial_affinity.regularization_groups:
+            means, _ = self.spatial_affinity.regularization_structure()
             self.adata.uns["spatial_affinity_bar"] = {
-                group_name: group_mean.cpu().numpy()
-                for group_name, group_mean in self.spatial_affinity.group_means().items()
+                group_name: group_mean.cpu().numpy() for group_name, group_mean in means.items()
             }
+        else:
+            self.adata.uns.pop("spatial_affinity_bar", None)
 
         self._dirty = False
         return self.adata
@@ -506,16 +473,13 @@ class HierarchicalLevel(nn.Module):
         normalized = self.embeddings / torch.linalg.norm(self.embeddings, dim=1, ord=1, keepdim=True)
         neighbor_sums = self.adjacency_matrix @ normalized
         edge_counts = np.diff(self.adjacency.indptr)
-        group_means = (
-            self.spatial_affinity.group_means() if self.spatial_affinity_mode == "differential lookup" else None
-        )
+        group_means = None
+        if self.spatial_affinity.regularization_groups and (
+            self.spatial_affinity_parameterization == "full" or self.spatial_affinity.sample_specific
+        ):
+            group_means, _ = self.spatial_affinity.regularization_structure()
 
-        if self.spatial_affinity_mode == "shared lookup":
-            parameter_samples = self.spatial_affinity_groups.items()
-        elif self.spatial_affinity_mode == "differential lookup":
-            parameter_samples = ((sample, [sample]) for sample in self.sample_names)
-        else:
-            raise NotImplementedError(f"Unsupported spatial-affinity mode: {self.spatial_affinity_mode!r}")
+        parameter_samples = self.spatial_affinity.samples_by_parameter().items()
 
         for parameter_name, samples in parameter_samples:
             affinity = self.spatial_affinity.for_parameter(parameter_name)
@@ -532,7 +496,8 @@ class HierarchicalLevel(nn.Module):
 
             affinity_group_means = None
             if group_means is not None:
-                affinity_group_means = [group_means[group] for group in self.spatial_affinity_tags[parameter_name]]
+                parameter_groups = self.spatial_affinity.regularization_tags[parameter_name]
+                affinity_group_means = [group_means[group] for group in parameter_groups]
 
             if edge_count:
                 sample_weights = affinity.new_ones(len(samples))
@@ -555,6 +520,22 @@ class HierarchicalLevel(nn.Module):
                     integrate_of_exponential_over_simplex(sample_neighbors @ affinity).sum()
                     for sample_neighbors in sample_neighbor_sums
                 )
+
+        if (
+            self.spatial_affinity.regularization_groups
+            and self.spatial_affinity_parameterization == "factorized"
+            and not self.spatial_affinity.sample_specific
+        ):
+            interaction_means, parameter_tags = self.spatial_affinity.regularization_structure(interactions=True)
+            for parameter_name in self.spatial_affinity.parameter_names:
+                memberships = parameter_tags[parameter_name]
+                if memberships:
+                    interaction = self.spatial_affinity.interaction_for_parameter(parameter_name)
+                    total_loss += (
+                        self.lambda_Sigma_bar
+                        / (2 * len(memberships))
+                        * sum((interaction - interaction_means[group]).square().sum() for group in memberships)
+                    )
 
         return total_loss
 

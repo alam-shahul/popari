@@ -11,6 +11,13 @@ from scripts import train as train_script
 
 CONFIG_DIRECTORY = Path(__file__).parents[1] / "configs"
 SWEEP_PATH = Path(__file__).parents[1] / "sweeps" / "popari.yaml"
+KIDNEY_SWEEP_PATHS = [
+    Path(__file__).parents[1] / "sweeps" / name
+    for name in (
+        "kidney_injury_cohort.yaml",
+        "kidney_injury.yaml",
+    )
+]
 
 
 def compose_train_config(*overrides):
@@ -44,7 +51,7 @@ def mock_training(monkeypatch):
     def construct_trainer(constructed_model, **kwargs):
         trainer.model = constructed_model
         trainer.kwargs = kwargs
-        trainer.wandb_run = Mock(id="run-id") if kwargs.get("use_wandb") else None
+        trainer.wandb_run = Mock(id="run-id", summary={}) if kwargs.get("use_wandb") else None
         return trainer
 
     trainer_constructor = Mock(side_effect=construct_trainer)
@@ -59,14 +66,16 @@ def test_hydra_config_composes_training_overrides():
     config = compose_train_config(
         "data.dataset_path=/path/to/input.h5ad",
         "model.K=10",
-        "model.spatial_affinity_mode=differential lookup",
+        "model.groups=disjoint",
+        "model.regularization_groups={all:[sample_1,sample_2]}",
         "training.iterations=20",
         "tracking.enabled=true",
     )
 
     assert config.data.dataset_path == "/path/to/input.h5ad"
     assert config.model.K == 10
-    assert config.model.spatial_affinity_mode == "differential lookup"
+    assert config.model.groups == "disjoint"
+    assert OmegaConf.to_container(config.model.regularization_groups) == {"all": ["sample_1", "sample_2"]}
     assert config.training.iterations == 20
     assert config.tracking.enabled
     assert config.tracking.entity == "popari"
@@ -94,7 +103,8 @@ def test_train_from_config_builds_local_training_run(tmp_path, monkeypatch):
     expected_context = {"device": "cuda", "dtype": getattr(torch, config.dtype)}
     assert model_kwargs["initial_context"] == expected_context
     assert model_kwargs["torch_context"] == expected_context
-    assert "spatial_affinity_groups" not in model_kwargs
+    assert "groups" not in model_kwargs
+    assert "regularization_groups" not in model_kwargs
     assert constructed_model is model_constructor.return_value
     assert trainer_kwargs["iterations"] == 2
     assert trainer.trained
@@ -108,6 +118,10 @@ def test_train_from_config_builds_local_training_run(tmp_path, monkeypatch):
     log_results.assert_not_called()
     assert result_path.parent == tmp_path
     assert not list(result_path.rglob("*.pt"))
+    saved_config = OmegaConf.load(result_path / "config.yaml")
+    assert saved_config.model.K == 10
+    assert saved_config.config_uuid == result_path.name
+    assert saved_config.result_directory == str(result_path)
 
 
 def test_train_from_config_configures_wandb_tracking(tmp_path, monkeypatch):
@@ -127,14 +141,35 @@ def test_train_from_config_configures_wandb_tracking(tmp_path, monkeypatch):
     assert wandb_kwargs["entity"] == "popari"
     assert wandb_kwargs["project"] == "revisions"
     assert "enabled" not in wandb_kwargs
+    assert "upload_results" not in wandb_kwargs
     assert wandb_kwargs["config"]["model"]["K"] == 10
     assert wandb_kwargs["config"]["tracking"]["enabled"] is True
+    assert wandb_kwargs["config"]["tracking"]["upload_results"] is False
     assert wandb_kwargs["config"]["config_uuid"] == result_path.name
     assert wandb_kwargs["config"]["result_directory"] == str(result_path)
     assert "result_path" not in wandb_kwargs["config"]
     save_results.assert_called_once()
-    log_results.assert_called_once()
+    log_results.assert_not_called()
+    assert trainer.wandb_run.summary == {
+        "config_uuid": result_path.name,
+        "result_directory": str(result_path),
+    }
     assert result_path.parent == tmp_path
+
+
+def test_train_from_config_uploads_results_when_requested(tmp_path, monkeypatch):
+    _, _, _, _, log_results = mock_training(monkeypatch)
+    config = compose_train_config(
+        "data.dataset_path=/path/to/input.h5ad",
+        "model.K=10",
+        f"output_dir={tmp_path}",
+        "tracking.enabled=true",
+        "tracking.upload_results=true",
+    )
+
+    train_script.train_from_config(config)
+
+    log_results.assert_called_once()
 
 
 def test_result_config_hash_excludes_tracking_verbosity_and_output_directory():
@@ -151,6 +186,7 @@ def test_result_config_hash_excludes_tracking_verbosity_and_output_directory():
         "verbose=2",
         "output_dir=second",
         "tracking.enabled=true",
+        "tracking.upload_results=true",
     )
 
     first_result = train_script.select_minimal_config(first, train_script.RESULT_CONFIG_KEYS)
@@ -212,3 +248,37 @@ def test_wandb_sweep_uses_hydra_overrides():
     assert "tracking.enabled=true" in sweep["command"]
     for parameter_path in sweep["parameters"]:
         assert OmegaConf.select(config, parameter_path) is not None, f"Unknown sweep parameter: {parameter_path}"
+
+
+def test_kidney_wandb_sweeps_define_nine_local_result_runs():
+    sweeps = [yaml.safe_load(path.read_text()) for path in KIDNEY_SWEEP_PATHS]
+    run_counts = [
+        len(sweep["parameters"]["model.K"]["values"])
+        * len(sweep["parameters"]["model.regularization_groups"].get("values", [None]))
+        for sweep in sweeps
+    ]
+    assert sum(run_counts) == 9
+
+    for sweep in sweeps:
+        parameters = sweep["parameters"]
+        assert sweep["method"] == "grid"
+        assert parameters["model.K"]["values"] == [10, 15, 20]
+        assert parameters["model.lambda_Sigma_x_inv"] == {"value": 1e-4}
+        assert parameters["model.lambda_Sigma_bar"] == {"value": 1e-4}
+        assert parameters["tracking.upload_results"] == {"value": False}
+        assert parameters["output_dir"] == {"value": "artifacts/kidney_injury"}
+
+        groups = parameters["model.groups"]["value"]
+        regularization_values = parameters["model.regularization_groups"].get(
+            "values",
+            [parameters["model.regularization_groups"].get("value")],
+        )
+        for regularization_groups in regularization_values:
+            regularization_groups = "null" if regularization_groups is None else regularization_groups
+            config = compose_train_config(
+                f"data.dataset_path={parameters['data.dataset_path']['value']}",
+                "model.K=10",
+                f"model.groups={groups}",
+                f"model.regularization_groups={regularization_groups}",
+            )
+            assert config.model.groups is not None

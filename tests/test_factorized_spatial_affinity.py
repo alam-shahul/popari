@@ -36,8 +36,8 @@ def test_factorized_affinity_gradients_reach_shared_transform_and_every_interact
     state = SpatialAffinityState(
         K=3,
         sample_names=("first", "second"),
-        groups={"all": ["first", "second"]},
-        mode="differential lookup",
+        groups="disjoint",
+        regularization_groups={"all": ["first", "second"]},
         context=context,
         parameterization="factorized",
         rank=2,
@@ -64,7 +64,7 @@ def test_factorized_affinity_projection_constrains_transforms_and_effective_scal
         K=3,
         sample_names=("sample",),
         groups={"sample": ["sample"]},
-        mode="differential lookup",
+        regularization_groups={"all": ["sample"]},
         context=context,
         parameterization="factorized",
         rank=2,
@@ -93,6 +93,32 @@ def test_shared_factorized_affinity_uses_shared_transform_and_interaction(shared
     first, second = model.replicate_names
     assert state.transform_for_sample(first) is state.transform_for_sample(second)
     torch.testing.assert_close(state.for_sample(first), state.for_sample(second))
+
+
+def test_differential_group_factorized_affinity_shares_interactions_within_groups(
+    adata_factory,
+    differential_model_factory,
+):
+    samples = ["early_1", "early_2", "late_1", "late_2"]
+    model = differential_model_factory(
+        adata=adata_factory(num_replicates=4, replicate_names=samples),
+        groups={"early": samples[:2], "late": samples[2:]},
+        regularization_groups={"all": ["early", "late"]},
+        spatial_affinity_parameterization="factorized",
+        spatial_affinity_rank=2,
+    )
+    state = model.hierarchy[0].spatial_affinity
+
+    assert state.parameter_names == ("early", "late")
+    assert state.interaction_for_sample("early_1") is state.interaction_for_sample("early_2")
+    assert state.interaction_for_sample("late_1") is state.interaction_for_sample("late_2")
+    assert state.interaction_for_sample("early_1") is not state.interaction_for_sample("late_1")
+
+    with torch.no_grad():
+        state.interaction_for_parameter("early").fill_(1)
+        state.interaction_for_parameter("late").fill_(3)
+    means, _ = state.regularization_structure(interactions=True)
+    torch.testing.assert_close(means["all"], torch.full((2, 2), 2.0, dtype=state.transform.dtype))
 
 
 def test_factorized_affinity_training_preserves_constraints(differential_model_factory):

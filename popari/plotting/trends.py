@@ -31,13 +31,22 @@ def affinity_magnitude_vs_difference(
         samples=samples,
     )
     fig, axes = setup_squarish_axes(len(selected_samples), figsize=figsize)
-    affinity_groups = adata.uns["popari_hyperparameters"]["spatial_affinity_groups"]
+    hyperparameters = adata.uns["popari_hyperparameters"]
+    affinity_groups = hyperparameters["groups"]
+    regularization_groups = hyperparameters["regularization_groups"]
     all_top_pairs = []
     for ax, sample in zip(axes.flat, selected_samples):
-        sample_groups = [group for group, members in affinity_groups.items() if sample in members]
+        parameter_names = [group for group, members in affinity_groups.items() if sample in members]
+        if len(parameter_names) != 1:
+            raise ValueError(
+                f"Sample {sample!r} must belong to exactly one affinity group; found {parameter_names}.",
+            )
+        parameter_name = parameter_names[0]
+        sample_groups = [group for group, members in regularization_groups.items() if parameter_name in members]
         if len(sample_groups) != 1:
             raise ValueError(
-                f"Sample {sample!r} must belong to exactly one spatial-affinity group; " f"found {sample_groups}.",
+                f"Affinity group {parameter_name!r} must belong to exactly one regularization group; "
+                f"found {sample_groups}.",
             )
         group_name = sample_groups[0]
         affinity = adata.uns[spatial_affinity_key][sample]

@@ -1,3 +1,5 @@
+from itertools import chain
+
 import numpy as np
 import torch
 from loguru import logger
@@ -8,6 +10,37 @@ from tqdm.auto import trange
 from popari._named_state import ParameterDict
 from popari.optim.projection import project2simplex_
 from popari.optim.simplex_integral import integrate_of_exponential_over_simplex
+
+
+def _resolve_groups(sample_names, groups, regularization_groups):
+    """Return validated sample and regularization group mappings."""
+
+    if groups is None:
+        groups = {"_default": sample_names}
+    elif groups == "disjoint":
+        groups = {sample: [sample] for sample in sample_names}
+    elif not isinstance(groups, dict):
+        raise TypeError("groups must be a mapping, 'disjoint', or None.")
+
+    groups = {str(name): [str(sample) for sample in samples] for name, samples in groups.items()}
+    if any(not samples for samples in groups.values()):
+        raise ValueError("Groups must not be empty.")
+    if sorted(chain.from_iterable(groups.values())) != sorted(sample_names):
+        raise ValueError("groups must assign every sample exactly once.")
+
+    if regularization_groups is None:
+        regularization_groups = {}
+    elif not isinstance(regularization_groups, dict):
+        raise TypeError("regularization_groups must be a mapping or None.")
+    regularization_groups = {
+        str(name): [str(group) for group in members] for name, members in regularization_groups.items()
+    }
+    if any(not members for members in regularization_groups.values()):
+        raise ValueError("Regularization groups must not be empty.")
+    unknown = set(chain.from_iterable(regularization_groups.values())) - set(groups)
+    if unknown:
+        raise ValueError(f"Unknown affinity groups in regularization_groups: {sorted(unknown)}.")
+    return groups, regularization_groups
 
 
 def compute_empirical_spatial_affinities(embeddings, adjacency, sample_axis, scaling, context):
@@ -223,21 +256,21 @@ def estimate_spatial_affinities(
     if not active.any():
         return weighted_edge_counts.detach()
 
-    # Differential group means are frozen across the inner optimization loop.
+    # Differential reference means are frozen across the inner optimization loop.
     group_means = None
     interaction_group_means = None
     group_membership = None
-    if differentiate and level.spatial_affinity_mode == "differential lookup":
-        group_names = tuple(state.groups)
+    if differentiate and state.regularization_groups:
+        group_names = tuple(state.regularization_groups)
         if state.parameterization == "full":
-            group_mean_snapshot = state.group_means()
-            group_means = torch.stack([group_mean_snapshot[name] for name in group_names])
+            means, parameter_tags = state.regularization_structure()
+            group_means = torch.stack([means[name] for name in group_names])
         else:
-            group_mean_snapshot = state.interaction_group_means()
-            interaction_group_means = torch.stack([group_mean_snapshot[name] for name in group_names])
+            means, parameter_tags = state.regularization_structure(interactions=True)
+            interaction_group_means = torch.stack([means[name] for name in group_names])
         group_membership = affinities.new_tensor(
             [
-                [group in state.tags[parameter_name] for group in group_names]
+                [group in parameter_tags[parameter_name] for group in group_names]
                 for parameter_name in state.parameter_names
             ],
         )
@@ -354,7 +387,16 @@ def estimate_spatial_affinities(
 class SpatialAffinityState(nn.Module):
     """Registered spatial affinities and their runtime grouping behavior."""
 
-    def __init__(self, K, sample_names, groups, mode, context, parameterization="full", rank=None):
+    def __init__(
+        self,
+        K,
+        sample_names,
+        groups,
+        regularization_groups,
+        context,
+        parameterization="full",
+        rank=None,
+    ):
         super().__init__()
         if parameterization not in {"full", "factorized"}:
             raise ValueError("spatial_affinity_parameterization must be 'full' or 'factorized'.")
@@ -366,23 +408,26 @@ class SpatialAffinityState(nn.Module):
         self.K = K
         self.rank = rank
         self.sample_names = tuple(sample_names)
-        self.groups = {name: list(samples) for name, samples in groups.items()}
-        self.mode = mode
+        self.groups, self.regularization_groups = _resolve_groups(
+            self.sample_names,
+            groups,
+            regularization_groups,
+        )
         self.parameterization = parameterization
-        self.tags = {
-            sample: [group for group, samples in self.groups.items() if sample in samples]
-            for sample in self.sample_names
+        self.regularization_tags = {
+            parameter_name: [
+                regularization_group
+                for regularization_group, parameter_names in self.regularization_groups.items()
+                if parameter_name in parameter_names
+            ]
+            for parameter_name in self.groups
         }
 
+        self.sample_specific = all(len(samples) == 1 for samples in self.groups.values())
+
         self.values = ParameterDict(prefix="spatial_affinity")
-        if mode == "shared lookup":
-            self._sample_to_parameter = {sample: group for group, samples in self.groups.items() for sample in samples}
-            parameter_names = tuple(self.groups)
-        elif mode == "differential lookup":
-            self._sample_to_parameter = {sample: sample for sample in self.sample_names}
-            parameter_names = self.sample_names
-        else:
-            raise NotImplementedError(f"{mode=} is not implemented.")
+        self._sample_to_parameter = {sample: group for group, samples in self.groups.items() for sample in samples}
+        parameter_names = tuple(self.groups)
         self.parameter_names = tuple(parameter_names)
 
         self.interactions = ParameterDict(prefix="spatial_affinity_interaction")
@@ -447,41 +492,38 @@ class SpatialAffinityState(nn.Module):
         with torch.no_grad():
             self.for_sample(sample).copy_(value)
 
-    def group_means(self) -> dict[str, torch.Tensor]:
-        """Return detached arithmetic means of current sample affinities."""
+    def regularization_structure(self, *, interactions=False) -> tuple[dict[str, torch.Tensor], dict[str, list[str]]]:
+        """Return frozen reference means and parameter memberships."""
 
-        with torch.no_grad():
-            return {
-                group: torch.stack([self.for_sample(sample) for sample in samples]).mean(dim=0)
-                for group, samples in self.groups.items()
-            }
-
-    def interaction_group_means(self) -> dict[str, torch.Tensor]:
-        """Return detached group means of sample-specific interactions."""
-
-        if self.parameterization != "factorized":
+        if interactions and self.parameterization != "factorized":
             raise RuntimeError("Full spatial affinities do not have factor interactions.")
+        accessor = self.interaction_for_parameter if interactions else self.for_parameter
         with torch.no_grad():
-            return {
-                group: torch.stack([self.interaction_for_sample(sample) for sample in samples]).mean(dim=0)
-                for group, samples in self.groups.items()
+            means = {
+                name: torch.stack([accessor(parameter_name) for parameter_name in parameter_names]).mean(dim=0)
+                for name, parameter_names in self.regularization_groups.items()
             }
+        return means, self.regularization_tags
 
     def initialize_(self, sample_values: dict[str, torch.Tensor], betas: torch.Tensor, random_state=0) -> None:
         """Initialize state from one empirical affinity matrix per sample."""
 
         with torch.no_grad():
             targets = {}
-            if self.mode == "shared lookup":
+            if not self.regularization_groups or not self.sample_specific:
                 for group, samples in self.groups.items():
                     target = next(iter(sample_values.values())).new_zeros((self.K, self.K))
+                    total_weight = target.new_zeros(())
                     for sample, beta in zip(self.sample_names, betas):
                         if sample in samples:
                             target.add_(beta * sample_values[sample])
+                            total_weight.add_(beta)
+                    if self.regularization_groups:
+                        target.div_(total_weight)
                     targets[group] = target
             else:
-                for sample in self.sample_names:
-                    targets[sample] = sample_values[sample]
+                for group, samples in self.groups.items():
+                    targets[group] = sample_values[samples[0]]
 
             if self.parameterization == "full":
                 for name, target in targets.items():

@@ -1,0 +1,57 @@
+program: scripts/train.py
+entity: popari
+project: revisions
+method: grid
+
+metric:
+  name: nll_spatial
+  goal: minimize
+
+parameters:
+  "data.dataset_path":
+    value: /work/magroup/shahula/spatiotemporal_transcriptomics_integration/data/xenium/kidney_injury/processed_dataset.h5ad
+  "model.K":
+    values: [10, 15, 20]
+  "model.groups":
+    value: "{healthy:[Ctrl1,Ctrl2,Ctrl3],injured:[IRI1,IRI2,IRI3]}"
+  "model.regularization_groups":
+    values:
+      - null
+      - "{all:[healthy,injured]}"
+  "model.spatial_affinity_parameterization":
+    value: full
+  "model.lambda_Sigma_x_inv":
+    value: 1.0e-4
+  "model.lambda_Sigma_bar":
+    value: 1.0e-4
+  "model.initialization_method":
+    value: leiden_fast
+  "model.random_state":
+    value: 0
+  "training.nmf_iterations":
+    value: 5
+  "training.spatial_preiterations":
+    value: 0
+  "training.iterations":
+    value: 200
+  dtype:
+    value: float64
+  initial_device:
+    value: cuda
+  torch_device:
+    value: cuda
+  output_dir:
+    value: artifacts/kidney_injury
+  verbose:
+    value: 1
+  "tracking.group":
+    value: kidney-injury-cohort
+  "tracking.upload_results":
+    value: false
+
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args_no_hyphens}
+  - tracking.enabled=true

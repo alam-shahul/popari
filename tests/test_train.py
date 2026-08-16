@@ -34,8 +34,6 @@ class FakeRun:
 
 
 class FakeLevel:
-    spatial_affinity_mode = "shared lookup"
-    spatial_affinity_groups = {"default": ["sample_0", "sample_1"]}
     spatial_affinity_lr = 0.01
 
     def __init__(self, model):
@@ -50,6 +48,9 @@ class FakeLevel:
 
     def _initialize_spatial_affinities(self):
         self.model.reinitializations += 1
+
+    def _recompute_observation_noise(self):
+        self.model.noise_updates += 1
 
     def mark_dirty(self):
         pass
@@ -67,6 +68,7 @@ class FakeModel:
         self.parameter_updates = []
         self.weight_updates = []
         self.reinitializations = 0
+        self.noise_updates = 0
         self.nll_calls = []
         self.hierarchy = [FakeLevel(self)]
 
@@ -150,7 +152,10 @@ def test_trainer_logs_wandb_metrics(monkeypatch):
     assert not run.artifacts
     assert run.finish_calls == [0]
     assert model.parameter_updates == [
-        {"differentiate_spatial_affinities": False, "spatial_affinity_epochs": 1000},
+        {
+            "differentiate_spatial_affinities": False,
+            "spatial_affinity_epochs": 1000,
+        },
         {"spatial_affinity_epochs": 1000},
     ]
     assert model.weight_updates == [{}, {}]

@@ -2,6 +2,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 from scipy.sparse import csr_array
 
 from popari.io import load_anndata, load_anndata_hierarchy, save_anndata, save_anndata_hierarchy
@@ -289,7 +290,8 @@ def test_materialized_default_affinity_group_is_serializable(shared_model_factor
     save_anndata(filepath, model.materialize_results()[0])
     reloaded = load_anndata(filepath)
 
-    assert list(reloaded.uns["popari_hyperparameters"]["spatial_affinity_groups"]) == ["_default"]
+    assert list(reloaded.uns["popari_hyperparameters"]["groups"]) == ["_default"]
+    assert reloaded.uns["popari_hyperparameters"]["regularization_groups"] == {}
 
 
 def test_hierarchy_validation_requires_coarse_bin_assignments(hierarchical_model_factory):
@@ -310,7 +312,8 @@ def test_load_trained_model_roundtrip(shared_model_factory, tmp_path):
     reloaded = load_trained_model(filepath)
 
     assert reloaded.replicate_names == model.replicate_names
-    assert reloaded.spatial_affinity_mode == model.spatial_affinity_mode
+    assert reloaded.groups == model.groups
+    assert reloaded.regularization_groups == model.regularization_groups
 
     assert np.allclose(reloaded.adata.obsm["X"], model.adata.obsm["X"])
     assert np.allclose(reloaded.adata.uns["M"], model.adata.uns["M"])
@@ -326,10 +329,75 @@ def test_load_differential_affinities_from_shared_file(shared_model_factory, tmp
 
     differential = load_trained_model(
         filepath,
-        spatial_affinity_mode="differential lookup",
+        groups="disjoint",
+        regularization_groups={"_default": list(model.replicate_names)},
     )
 
-    assert differential.spatial_affinity_mode == "differential lookup"
+    assert differential.groups == {sample: [sample] for sample in differential.replicate_names}
+    assert differential.regularization_groups == {"_default": list(differential.replicate_names)}
+
+
+def test_differential_group_affinity_roundtrip(adata_factory, differential_model_factory, tmp_path):
+    samples = ["early_1", "early_2", "late_1", "late_2"]
+    groups = {"early": samples[:2], "late": samples[2:]}
+    model = differential_model_factory(
+        adata=adata_factory(num_replicates=4, replicate_names=samples),
+        groups=groups,
+        regularization_groups={"all": list(groups)},
+    )
+    state = model.hierarchy[0].spatial_affinity
+    with torch.no_grad():
+        state.for_parameter("early").fill_(1)
+        state.for_parameter("late").fill_(2)
+    filepath = tmp_path / "differential_group.h5ad"
+    save_anndata(filepath, model.materialize_results()[0])
+
+    reloaded = load_trained_model(filepath)
+    restored = reloaded.hierarchy[0].spatial_affinity
+
+    assert reloaded.groups == groups
+    assert reloaded.regularization_groups == {"all": list(groups)}
+    assert restored.for_sample("early_1") is restored.for_sample("early_2")
+    assert restored.for_sample("late_1") is restored.for_sample("late_2")
+    torch.testing.assert_close(restored.for_parameter("early"), state.for_parameter("early"))
+    torch.testing.assert_close(restored.for_parameter("late"), state.for_parameter("late"))
+
+
+@pytest.mark.parametrize(
+    ("legacy_mode", "groups", "regularization_groups", "legacy_groups"),
+    [
+        ("shared lookup", None, None, {"_default": ["0", "1"]}),
+        ("differential lookup", "disjoint", {"cohort": ["0", "1"]}, {"cohort": ["0", "1"]}),
+        (
+            "differential group lookup",
+            {"first": ["0"], "second": ["1"]},
+            {"all": ["first", "second"]},
+            {"first": ["0"], "second": ["1"]},
+        ),
+    ],
+)
+def test_load_trained_model_translates_legacy_affinity_metadata(
+    shared_model_factory,
+    tmp_path,
+    legacy_mode,
+    groups,
+    regularization_groups,
+    legacy_groups,
+):
+    model = shared_model_factory(groups=groups, regularization_groups=regularization_groups)
+    adata = model.materialize_results()[0].copy()
+    hyperparameters = adata.uns["popari_hyperparameters"]
+    hyperparameters["spatial_affinity_mode"] = legacy_mode
+    hyperparameters["spatial_affinity_groups"] = legacy_groups
+    hyperparameters.pop("groups")
+    hyperparameters.pop("regularization_groups")
+    filepath = tmp_path / f"{legacy_mode.replace(' ', '_')}.h5ad"
+    save_anndata(filepath, adata)
+
+    reloaded = load_trained_model(filepath)
+
+    assert reloaded.groups == model.groups
+    assert list(reloaded.regularization_groups.values()) == list(model.regularization_groups.values())
 
 
 @pytest.mark.gpu

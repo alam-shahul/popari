@@ -24,12 +24,12 @@ def test_differential_affinity_group_averages_track_replicate_parameters(differe
     model = differential_model_factory(torch_context=gpu_context, initial_context=gpu_context)
     train_model(model)
 
-    group_means = model.hierarchy[-1].spatial_affinity.group_means()
-    for group_name, group_replicates in model.spatial_affinity_groups.items():
+    group_means, _ = model.hierarchy[-1].spatial_affinity.regularization_structure()
+    for group_name, parameter_names in model.regularization_groups.items():
         average = sum(
-            model.hierarchy[-1].spatial_affinity.for_sample(dataset_name).detach().cpu().numpy()
-            for dataset_name in group_replicates
-        ) / len(group_replicates)
+            model.hierarchy[-1].spatial_affinity.for_parameter(parameter_name).detach().cpu().numpy()
+            for parameter_name in parameter_names
+        ) / len(parameter_names)
         assert np.allclose(
             average,
             group_means[group_name].cpu().numpy(),

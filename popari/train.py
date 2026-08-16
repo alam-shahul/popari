@@ -169,6 +169,7 @@ class Trainer:
         simplex_projection_mode: str = "exact",
         edge_subsample_rate: float | None = None,
         spatial_affinity_epochs: int = 1000,
+        update_sigma_yx: bool = True,
     ) -> dict[str, float]:
         level = self.training_level
         metrics = {}
@@ -196,9 +197,10 @@ class Trainer:
         with torch.no_grad():
             level.metagenes.copy_(metagenes)
         metrics["metagene_loss"] = float(metagene_loss)
-        if self.verbose >= 2:
-            logger.info("Updating observation noise")
-        level._recompute_observation_noise()
+        if update_sigma_yx:
+            if self.verbose >= 2:
+                logger.info("Updating observation noise")
+            level._recompute_observation_noise()
         metrics["sigma_yx_mean"] = float(level.sigma_yxs.mean())
         level.mark_dirty()
         return metrics
@@ -297,7 +299,9 @@ class Trainer:
         )
         for iteration in progress_bar:
             self.superresolution_completed = False
-            metrics = self._update_parameters(spatial_affinity_epochs=self.spatial_affinity_epochs)
+            metrics = self._update_parameters(
+                spatial_affinity_epochs=self.spatial_affinity_epochs,
+            )
             metrics.update(self._update_embeddings())
             self.global_step += 1
             self._log(metrics)

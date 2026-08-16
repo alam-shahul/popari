@@ -82,21 +82,25 @@ def train_from_config(config: DictConfig) -> Path:
     # Derive and reserve the result directory from the effective configuration.
     result_config = select_minimal_config(config, RESULT_CONFIG_KEYS)
     config_uuid = hash_config(result_config)
-    result_directory = Path(config.output_dir) / config_uuid
+    result_directory = Path(config.output_dir).resolve() / config_uuid
     try:
         result_directory.mkdir(parents=True)
     except FileExistsError as error:
         raise FileExistsError(f"Result directory already exists: {result_directory}") from error
+
+    resolved_config = OmegaConf.create(OmegaConf.to_container(config, resolve=True))
+    resolved_config["config_uuid"] = config_uuid
+    resolved_config["result_directory"] = str(result_directory)
+    OmegaConf.save(resolved_config, result_directory / "config.yaml")
 
     # Resolve W&B arguments.
     wandb_kwargs = None
     if config.tracking.enabled:
         wandb_kwargs = OmegaConf.to_container(config.tracking, resolve=True)
         wandb_kwargs.pop("enabled")
+        wandb_kwargs.pop("upload_results")
         wandb_kwargs = {key: value for key, value in wandb_kwargs.items() if value is not None}
-        wandb_kwargs["config"] = OmegaConf.to_container(config, resolve=True)
-        wandb_kwargs["config"]["config_uuid"] = config_uuid
-        wandb_kwargs["config"]["result_directory"] = str(result_directory)
+        wandb_kwargs["config"] = OmegaConf.to_container(resolved_config, resolve=True)
 
     model = Popari(**model_kwargs)
     with Trainer(
@@ -112,15 +116,18 @@ def train_from_config(config: DictConfig) -> Path:
         hierarchy = model.materialize_results()
         save_anndata_hierarchy(result_directory, hierarchy)
         if trainer.wandb_run is not None:
-            log_popari_results(
-                trainer.wandb_run,
-                result_directory,
-                metadata={
-                    "schema_version": SCHEMA_VERSION,
-                    "hierarchical_levels": len(hierarchy),
-                    "config_uuid": config_uuid,
-                },
-            )
+            trainer.wandb_run.summary["config_uuid"] = config_uuid
+            trainer.wandb_run.summary["result_directory"] = str(result_directory)
+            if config.tracking.upload_results:
+                log_popari_results(
+                    trainer.wandb_run,
+                    result_directory,
+                    metadata={
+                        "schema_version": SCHEMA_VERSION,
+                        "hierarchical_levels": len(hierarchy),
+                        "config_uuid": config_uuid,
+                    },
+                )
         return result_directory
 
 

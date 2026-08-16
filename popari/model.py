@@ -36,21 +36,18 @@ class Popari(nn.Module):
             Supports ``dummy``, ``kmeans``, ``svd``, ``leiden``, ``leiden_fast``, and ``ground_truth``.
             ``leiden_fast`` uses the igraph backend with two iterations. Default: ``leiden``
         hierarchical_levels: number of hierarchical levels to use. Default: ``1`` (non-hierarchical mode)
-        spatial_affinity_groups: defines a grouping of replicates for the spatial affinity optimization.
-            If ``spatial_affinity_mode == "shared lookup"``, then one set of spatial_affinities will be created for each group;
-            if ``spatial_affinity_mode == "differential lookup"``,  then all replicates will have their own set of spatial
-            affinities, but each group will share a ``spatial_affinity_bar``.
+        groups: exhaustive partition of samples sharing spatial-affinity parameters. ``None`` creates one shared
+            parameter; ``"disjoint"`` creates one parameter per sample.
+        regularization_groups: groups of spatial-affinity parameter names regularized toward common means.
         betas: weighting of each dataset during optimization. Defaults to equally weighting each dataset
         prior_x_modes: family of prior distribution for embeddings of each dataset
         M_constraint: constraint on columns of M. Default: ``simplex``
         sigma_yx_inv_mode: form of sigma_yx_inv parameter. Default: ``separate``
         torch_context: keyword args to use of PyTorch tensors during training.
         initial_context: keyword args to use during initialization of PyTorch tensors.
-        spatial_affinity_mode: modality of spatial affinity parameters. Default: ``shared lookup``
         spatial_affinity_parameterization: internal affinity representation, either ``full`` or ``factorized``.
         spatial_affinity_rank: rank of the factorized spatial representation. Defaults to ``K``.
-        lambda_Sigma_bar: hyperparameter to constrain spatial affinity deviation in differential case. Ignored if
-            ``spatial_affinity_mode`` is ``shared lookup``. Default: ``0.5``
+        lambda_Sigma_bar: hyperparameter constraining affinities within ``regularization_groups``. Default: ``1e-3``
         spatial_affinity_lr: learning rate for optimization of ``Sigma_x_inv``
         spatial_affinity_tol: convergence tolerance during optimization of ``Sigma_x_inv``
         spatial_affinity_constraint: method to ensure that spatial affinities lie within an appropriate range
@@ -79,14 +76,14 @@ class Popari(nn.Module):
         pretrained: bool = False,
         initialization_method: str = "leiden",
         hierarchical_levels: int = 1,
-        spatial_affinity_groups: Optional[dict] = None,
+        groups: dict | str | None = None,
+        regularization_groups: dict | None = None,
         betas: Optional[Sequence[float]] = None,
         prior_x_modes: Optional[Sequence[str]] = None,
         M_constraint: str = "simplex",
         sigma_yx_inv_mode: str = "separate",
         torch_context: Optional[dict] = None,
         initial_context: Optional[dict] = None,
-        spatial_affinity_mode: str = "shared lookup",
         lambda_Sigma_bar: float = 1e-3,
         spatial_affinity_lr: float = 1e-2,
         spatial_affinity_tol: float = 2e-3,
@@ -153,10 +150,7 @@ class Popari(nn.Module):
         self.spatial_affinity_rank = spatial_affinity_rank
         self.M_constraint = M_constraint
         self.sigma_yx_inv_mode = sigma_yx_inv_mode
-        self.spatial_affinity_mode = spatial_affinity_mode
         self.pretrained = pretrained
-
-        self._configured_spatial_affinity_groups = spatial_affinity_groups
 
         self.embedding_step_size_multiplier = embedding_step_size_multiplier
         self.embedding_mini_iterations = embedding_mini_iterations
@@ -178,7 +172,14 @@ class Popari(nn.Module):
         self.replicate_names = list(self._adata.popari.sample_names)
         self.num_replicates = len(self.replicate_names)
 
-        self._initialize(betas=betas, prior_x_modes=prior_x_modes, method=initialization_method, pretrained=pretrained)
+        self._build_hierarchy(
+            betas=betas,
+            prior_x_modes=prior_x_modes,
+            method=initialization_method,
+            pretrained=pretrained,
+            groups=groups,
+            regularization_groups=regularization_groups,
+        )
 
     @property
     def adata(self):
@@ -189,14 +190,12 @@ class Popari(nn.Module):
         return self._adata
 
     @property
-    def spatial_affinity_groups(self):
-        if hasattr(self, "hierarchy"):
-            return self.hierarchy[-1].spatial_affinity_groups
-        return self._configured_spatial_affinity_groups
+    def groups(self):
+        return self.hierarchy[-1].groups
 
     @property
-    def spatial_affinity_tags(self):
-        return self.hierarchy[-1].spatial_affinity_tags
+    def regularization_groups(self):
+        return self.hierarchy[-1].regularization_groups
 
     def load_anndata(self, adata: ad.AnnData):
         """Load one unified Popari AnnData."""
@@ -222,12 +221,14 @@ class Popari(nn.Module):
         self.dataset_path = dataset_path
         self.sample_key = self._adata.popari.sample_key
 
-    def _initialize(
+    def _build_hierarchy(
         self,
         pretrained=False,
         betas: Optional[Sequence[float]] = None,
         prior_x_modes: Optional[Sequence[str]] = None,
         method: str = "svd",
+        groups: dict | str | None = None,
+        regularization_groups: dict | None = None,
     ):
         """Initialize metagenes and hidden states.
 
@@ -250,7 +251,8 @@ class Popari(nn.Module):
             "method": method,
             "pretrained": self.pretrained,
             "verbose": self.verbose,
-            "spatial_affinity_groups": self.spatial_affinity_groups,
+            "groups": groups,
+            "regularization_groups": regularization_groups,
             "sample_key": self.sample_key,
             "lambda_Sigma_x_inv": self.lambda_Sigma_x_inv,
             "lambda_Sigma_bar": self.lambda_Sigma_bar,
@@ -264,7 +266,6 @@ class Popari(nn.Module):
             "spatial_affinity_rank": self.spatial_affinity_rank,
             "M_constraint": self.M_constraint,
             "sigma_yx_inv_mode": self.sigma_yx_inv_mode,
-            "spatial_affinity_mode": self.spatial_affinity_mode,
             "embedding_step_size_multiplier": self.embedding_step_size_multiplier,
             "embedding_mini_iterations": self.embedding_mini_iterations,
             "embedding_acceleration_trick": self.embedding_acceleration_trick,
@@ -343,9 +344,8 @@ class Popari(nn.Module):
             "spatial_affinity_rank": self.spatial_affinity_rank,
             "M_constraint": self.M_constraint,
             "sigma_yx_inv_mode": self.sigma_yx_inv_mode,
-            "spatial_affinity_mode": self.spatial_affinity_mode,
-            "spatial_affinity_groups": view.spatial_affinity_groups,
-            "spatial_affinity_tags": view.spatial_affinity_tags,
+            "groups": view.groups,
+            "regularization_groups": view.regularization_groups,
             "embedding_step_size_multiplier": self.embedding_step_size_multiplier,
             "embedding_mini_iterations": self.embedding_mini_iterations,
             "embedding_acceleration_trick": self.embedding_acceleration_trick,
@@ -436,10 +436,30 @@ def load_pretrained(
     """Load a pretrained Popari model from a unified AnnData."""
 
     saved_hyperparameters = copy.deepcopy(adata.uns["popari_hyperparameters"])
-
-    spatial_affinity_groups = saved_hyperparameters["spatial_affinity_groups"]
-    for group in spatial_affinity_groups:
-        spatial_affinity_groups[group] = list(spatial_affinity_groups[group])
+    if "groups" not in saved_hyperparameters:
+        legacy_groups = {
+            str(name): list(samples) for name, samples in saved_hyperparameters.pop("spatial_affinity_groups").items()
+        }
+        legacy_mode = saved_hyperparameters.pop("spatial_affinity_mode")
+        if legacy_mode == "shared lookup":
+            saved_hyperparameters["groups"] = legacy_groups
+            saved_hyperparameters["regularization_groups"] = {}
+        elif legacy_mode == "differential lookup":
+            saved_hyperparameters["groups"] = "disjoint"
+            saved_hyperparameters["regularization_groups"] = legacy_groups
+        elif legacy_mode == "differential group lookup":
+            saved_hyperparameters["groups"] = legacy_groups
+            saved_hyperparameters["regularization_groups"] = {"_global": list(legacy_groups)}
+        else:
+            raise ValueError(f"Unsupported saved spatial-affinity mode: {legacy_mode!r}.")
+    else:
+        saved_hyperparameters["groups"] = {
+            str(name): list(samples) for name, samples in saved_hyperparameters["groups"].items()
+        }
+        saved_hyperparameters["regularization_groups"] = {
+            str(name): list(parameter_names)
+            for name, parameter_names in saved_hyperparameters.get("regularization_groups", {}).items()
+        }
 
     new_kwargs = saved_hyperparameters | popari_kwargs
 
@@ -480,7 +500,8 @@ def from_pretrained(pretrained_model: Popari, popari_context: dict = None, lambd
         adata,
         reloaded_hierarchy=reloaded_hierarchy,
         hierarchical_levels=pretrained_model.hierarchical_levels,
-        spatial_affinity_mode="differential lookup",
+        groups="disjoint",
+        regularization_groups={"_default": list(pretrained_model.replicate_names)},
         context=popari_context,
         lambda_Sigma_bar=lambda_Sigma_bar,
     )

@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 import numpy as np
 import pytest
 import torch
@@ -28,7 +30,7 @@ def _sigma_yxs_numpy(model):
 
 
 def _shared_affinity_group_and_mask(model):
-    group_name, group_replicates = next(iter(model.spatial_affinity_groups.items()))
+    group_name, group_replicates = next(iter(model.groups.items()))
     replicate_mask = np.array([sample in group_replicates for sample in model.replicate_names], dtype=bool)
     first_dataset_name = group_replicates[0]
     return group_name, group_replicates, replicate_mask, first_dataset_name
@@ -144,30 +146,25 @@ def _direct_joint_pseudolikelihood(level, *, use_spatial):
     if not use_spatial:
         return loss
 
-    if level.spatial_affinity_mode == "shared lookup":
-        for group, samples in level.spatial_affinity_groups.items():
-            affinity = level.spatial_affinity.for_parameter(group)
-            edge_count = sum(int(edge_counts[level.sample_axis.indices(sample)].sum()) for sample in samples)
-            loss += (
-                edge_count
-                * level.lambda_Sigma_x_inv
-                * affinity.abs().pow(level.spatial_affinity_regularization_power).sum()
-                / 2
+    group_means, parameter_tags = level.spatial_affinity.regularization_structure()
+    for parameter_name, samples in level.spatial_affinity.samples_by_parameter().items():
+        affinity = level.spatial_affinity.for_parameter(parameter_name)
+        edge_count = sum(int(edge_counts[level.sample_axis.indices(sample)].sum()) for sample in samples)
+        regularization = (
+            level.lambda_Sigma_x_inv
+            * affinity.abs()
+            .pow(
+                level.spatial_affinity_regularization_power,
             )
-    else:
-        group_means = level.spatial_affinity.group_means()
-        for sample in level.sample_names:
-            affinity = level.spatial_affinity.for_sample(sample)
-            edge_count = int(edge_counts[level.sample_axis.indices(sample)].sum())
-            regularization = (
-                level.lambda_Sigma_x_inv * affinity.abs().pow(level.spatial_affinity_regularization_power).sum()
-            )
-            sample_groups = level.spatial_affinity_tags[sample]
+            .sum()
+        )
+        memberships = parameter_tags[parameter_name]
+        if memberships:
             regularization += sum(
-                level.lambda_Sigma_bar * (group_means[group] - affinity).square().sum() / len(sample_groups)
-                for group in sample_groups
+                level.lambda_Sigma_bar * (group_means[group] - affinity).square().sum() / len(memberships)
+                for group in memberships
             )
-            loss += edge_count * regularization / 2
+        loss += edge_count * regularization / 2
 
     return loss
 
@@ -426,18 +423,25 @@ def test_direct_estimate_m_reduces_group_loss(shared_model_factory):
     )
 
 
-def test_update_metagenes_shared_changes_values_and_preserves_simplex(shared_model_factory):
+def test_update_metagenes_shared_changes_values_and_preserves_simplex(shared_model_factory, monkeypatch):
     model = shared_model_factory()
-    before = model.hierarchy[-1].metagenes.clone()
-    model.hierarchy[-1]._recompute_observation_noise()
+    level = model.hierarchy[-1]
+    before = level.metagenes.clone()
+    level._recompute_observation_noise()
+    sigma_yxs = level.sigma_yxs.clone()
+    recompute_observation_noise = Mock(wraps=level._recompute_observation_noise)
+    monkeypatch.setattr(level, "_recompute_observation_noise", recompute_observation_noise)
 
     metrics = _trainer(model)._update_parameters(
         update_spatial_affinities=False,
+        update_sigma_yx=False,
         simplex_projection_mode="exact",
     )
 
-    after = model.hierarchy[-1].metagenes
+    after = level.metagenes
     assert not torch.allclose(before, after)
+    assert torch.equal(level.sigma_yxs, sigma_yxs)
+    recompute_observation_noise.assert_not_called()
     assert np.isfinite(metrics["metagene_loss"])
     assert torch.all(after >= 0)
     assert torch.allclose(
@@ -563,10 +567,10 @@ def test_update_spatial_affinity_differential_derives_group_means(differential_m
         differentiate=True,
     )
 
-    group_means = model.hierarchy[-1].spatial_affinity.group_means()
-    for group_name, group_replicates in model.spatial_affinity_groups.items():
-        expected = sum(model.hierarchy[-1].spatial_affinity.for_sample(name) for name in group_replicates) / len(
-            group_replicates,
+    group_means, _ = model.hierarchy[-1].spatial_affinity.regularization_structure()
+    for group_name, parameter_names in model.regularization_groups.items():
+        expected = sum(model.hierarchy[-1].spatial_affinity.for_parameter(name) for name in parameter_names) / len(
+            parameter_names,
         )
         assert torch.allclose(
             group_means[group_name],
@@ -578,15 +582,15 @@ def test_update_spatial_affinity_differential_derives_group_means(differential_m
 def test_differential_affinity_update_uses_one_frozen_group_mean_snapshot(differential_model_factory, monkeypatch):
     model = differential_model_factory()
     level = model.hierarchy[-1]
-    original_group_means = level.spatial_affinity.group_means
+    original_regularization_structure = level.spatial_affinity.regularization_structure
     calls = 0
 
-    def counted_group_means():
+    def counted_regularization_structure(*, interactions=False):
         nonlocal calls
         calls += 1
-        return original_group_means()
+        return original_regularization_structure(interactions=interactions)
 
-    monkeypatch.setattr(level.spatial_affinity, "group_means", counted_group_means)
+    monkeypatch.setattr(level.spatial_affinity, "regularization_structure", counted_regularization_structure)
     _trainer(model)._update_spatial_affinities(
         level,
         _spatial_affinity_optimizer(level),
@@ -690,10 +694,10 @@ def test_differential_affinity_group_means_reflect_current_values(differential_m
         with torch.no_grad():
             model.hierarchy[-1].spatial_affinity.for_sample(dataset_name).fill_(float(offset))
 
-    group_means = model.hierarchy[-1].spatial_affinity.group_means()
-    for group_name, group_replicates in model.spatial_affinity_groups.items():
-        expected = sum(model.hierarchy[-1].spatial_affinity.for_sample(name) for name in group_replicates) / len(
-            group_replicates,
+    group_means, _ = model.hierarchy[-1].spatial_affinity.regularization_structure()
+    for group_name, parameter_names in model.regularization_groups.items():
+        expected = sum(model.hierarchy[-1].spatial_affinity.for_parameter(name) for name in parameter_names) / len(
+            parameter_names,
         )
         assert torch.allclose(
             group_means[group_name],
@@ -709,7 +713,7 @@ def test_differential_affinity_group_means_support_overlapping_groups(
     sample_names = ["left", "center", "right"]
     model = differential_model_factory(
         adata=adata_factory(num_replicates=3, replicate_names=sample_names),
-        spatial_affinity_groups={
+        regularization_groups={
             "left_pair": ["left", "center"],
             "right_pair": ["center", "right"],
         },
@@ -719,11 +723,75 @@ def test_differential_affinity_group_means_support_overlapping_groups(
         with torch.no_grad():
             state.for_sample(sample).fill_(value)
 
-    means = state.group_means()
+    means, tags = state.regularization_structure()
 
-    assert state.tags["center"] == ["left_pair", "right_pair"]
+    assert tags["center"] == ["left_pair", "right_pair"]
     assert torch.all(means["left_pair"] == 1.5)
     assert torch.all(means["right_pair"] == 2.5)
+
+
+def test_differential_group_affinities_share_parameters_and_use_equal_weight_global_mean(
+    adata_factory,
+    differential_model_factory,
+):
+    samples = ["large_1", "large_2", "large_3", "small"]
+    model = differential_model_factory(
+        adata=adata_factory(num_replicates=4, replicate_names=samples),
+        groups={"large": samples[:3], "small": [samples[3]]},
+        regularization_groups={"all": ["large", "small"]},
+    )
+    level = model.hierarchy[-1]
+    state = level.spatial_affinity
+
+    assert state.for_sample("large_1") is state.for_sample("large_2")
+    assert state.for_sample("large_1") is state.for_sample("large_3")
+    assert state.for_sample("large_1") is not state.for_sample("small")
+    with torch.no_grad():
+        state.for_parameter("large").fill_(1)
+        state.for_parameter("small").fill_(5)
+    means, _ = state.regularization_structure()
+    torch.testing.assert_close(means["all"], torch.full_like(state.for_parameter("large"), 3))
+
+    level._recompute_observation_noise()
+    _trainer(model)._update_spatial_affinities(
+        level,
+        _spatial_affinity_optimizer(level),
+        differentiate=True,
+        n_epochs=2,
+    )
+    torch.testing.assert_close(state.for_sample("large_1"), state.for_sample("large_2"))
+
+
+def test_affinity_groups_require_an_exhaustive_exclusive_partition(
+    adata_factory,
+    differential_model_factory,
+):
+    samples = ["first", "second", "third"]
+    with pytest.raises(ValueError, match="every sample exactly once"):
+        differential_model_factory(
+            adata=adata_factory(num_replicates=3, replicate_names=samples),
+            groups={"specified": samples[:2]},
+            regularization_groups=None,
+        )
+
+    with pytest.raises(ValueError, match="every sample exactly once"):
+        differential_model_factory(
+            adata=adata_factory(num_replicates=3, replicate_names=samples),
+            groups={"left": samples[:2], "right": samples[1:]},
+            regularization_groups=None,
+        )
+    with pytest.raises(ValueError, match="must not be empty"):
+        differential_model_factory(
+            adata=adata_factory(num_replicates=3, replicate_names=samples),
+            groups={"empty": []},
+            regularization_groups=None,
+        )
+    with pytest.raises(ValueError, match="every sample exactly once"):
+        differential_model_factory(
+            adata=adata_factory(num_replicates=3, replicate_names=samples),
+            groups={"invalid": ["missing"], "known": samples},
+            regularization_groups=None,
+        )
 
 
 def test_update_metagenes_with_differential_affinities_preserves_simplex(differential_model_factory):

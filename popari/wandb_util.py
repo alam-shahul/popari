@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Union
 
@@ -22,6 +23,7 @@ def log_popari_results(
     path: str | Path,
     *,
     metadata: dict | None = None,
+    aliases: Sequence[str] = ("latest",),
 ) -> None:
     """Log a canonical AnnData hierarchy as a W&B result artifact."""
 
@@ -31,6 +33,9 @@ def log_popari_results(
     level_files = sorted(result_path.glob("level_*.h5ad"))
     if not level_files:
         raise ValueError(f"No level_*.h5ad files found in {result_path}.")
+    aliases = tuple(aliases)
+    if not aliases:
+        raise ValueError("aliases must contain at least one artifact alias.")
 
     artifact = wandb.Artifact(
         f"popari-results-{run.id}",
@@ -39,7 +44,7 @@ def log_popari_results(
     )
     for level_file in level_files:
         artifact.add_file(str(level_file), name=level_file.name)
-    run.log_artifact(artifact, aliases=["latest"])
+    run.log_artifact(artifact, aliases=list(aliases))
 
 
 def download_popari_results(
@@ -69,15 +74,33 @@ def load_popari_results_from_wandb(
     alias: str = "latest",
     root: str | Path | None = None,
 ) -> dict[int, ad.AnnData]:
-    """Load canonical materialized results as ``level -> AnnData``."""
+    """Load local results registered by W&B, falling back to an artifact."""
 
-    result_path = download_popari_results(
-        run_id,
-        entity=entity,
-        project=project,
-        alias=alias,
-        root=root,
-    )
+    import wandb
+
+    run_path = f"{entity}/{project}/{run_id}"
+    run = wandb.Api().run(run_path)
+    result_directory = run.config.get("result_directory")
+    if result_directory is not None:
+        local_path = Path(result_directory)
+        if local_path.exists():
+            return read_popari_anndata_hierarchy(local_path)
+
+    artifact_name = f"{entity}/{project}/popari-results-{run_id}:{alias}"
+    try:
+        result_path = download_popari_results(
+            run_id,
+            entity=entity,
+            project=project,
+            alias=alias,
+            root=root,
+        )
+    except Exception as error:
+        local_description = repr(result_directory) if result_directory is not None else "not configured"
+        raise FileNotFoundError(
+            f"W&B run {run_path} has no available Popari results: local result_directory "
+            f"is {local_description}, and artifact {artifact_name!r} could not be downloaded.",
+        ) from error
     return read_popari_anndata_hierarchy(result_path)
 
 

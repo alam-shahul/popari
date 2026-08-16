@@ -103,8 +103,10 @@ def test_model_has_one_shared_metagene_parameter(shared_model_factory):
 def test_differential_affinity_initialization_creates_group_averages(differential_model_factory):
     model = differential_model_factory()
 
-    assert model.spatial_affinity_mode == "differential lookup"
-    assert set(model.hierarchy[-1].spatial_affinity.group_means()) == set(model.spatial_affinity_groups)
+    state = model.hierarchy[-1].spatial_affinity
+    means, _ = state.regularization_structure()
+    assert model.groups == {sample: [sample] for sample in model.replicate_names}
+    assert set(means) == set(model.regularization_groups)
 
 
 @pytest.mark.expensive

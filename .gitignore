@@ -10,3 +10,5 @@ popari/genes_ncbi_mus_musculus_proteincoding.py
 /docs/build/
 /docs/source/api/
 /docs/.buildinfo
+/artifacts/
+*.out
